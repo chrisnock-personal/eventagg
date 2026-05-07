@@ -1,0 +1,914 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "EventAgg API",
+    "version": "1.0.0",
+    "description": "Policy-driven event aggregation platform. Ingests individual event segments, correlates them using configurable field-path conditions, and promotes complete groups to a durable completed store.",
+    "contact": {
+      "name": "EventAgg"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://localhost:3001",
+      "description": "Local development (direct backend)"
+    },
+    {
+      "url": "http://localhost:9090",
+      "description": "Local development (via nginx proxy)"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Health",
+      "description": "Service health check"
+    },
+    {
+      "name": "Policies",
+      "description": "Aggregation policy management. Policies define how events are correlated (key field), when a group opens (cradle condition), and when it closes (grave condition)."
+    },
+    {
+      "name": "Events",
+      "description": "Query aggregated event groups and their segments."
+    },
+    {
+      "name": "Ingest",
+      "description": "Ingest individual event segments. The platform evaluates the applicable policy to resolve the aggregation key and detect cradle/grave conditions — no lifecycle flags required from the producer."
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check",
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                },
+                "example": {
+                  "status": "ok",
+                  "timestamp": "2026-05-07T12:00:00.000Z"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/policies": {
+      "get": {
+        "tags": ["Policies"],
+        "summary": "List all active policies",
+        "operationId": "listPolicies",
+        "responses": {
+          "200": {
+            "description": "Array of active policies",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PolicyResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Policies"],
+        "summary": "Create a new aggregation policy",
+        "operationId": "createPolicy",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyCreateRequest"
+              },
+              "example": {
+                "name": "User Session",
+                "domain": "user.*",
+                "keyField": "sessionId",
+                "cradleField": "eventType",
+                "cradleValue": "user.login",
+                "graveField": "eventType",
+                "graveValue": "user.logout",
+                "description": "Aggregates user session events keyed on body.sessionId"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Policy created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/v1/policies/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/PolicyId"
+        }
+      ],
+      "get": {
+        "tags": ["Policies"],
+        "summary": "Get a policy by ID",
+        "operationId": "getPolicy",
+        "responses": {
+          "200": {
+            "description": "Policy found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "put": {
+        "tags": ["Policies"],
+        "summary": "Update a policy",
+        "description": "All fields are optional — only supplied fields are updated.",
+        "operationId": "updatePolicy",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyUpdateRequest"
+              },
+              "example": {
+                "graveValue": "user.session_expired",
+                "description": "Updated description"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Policy updated",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Policies"],
+        "summary": "Deactivate a policy",
+        "description": "Soft-deletes the policy by setting is_active = false. Historical event groups that used this policy are preserved.",
+        "operationId": "deletePolicy",
+        "responses": {
+          "204": {
+            "description": "Policy deactivated"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/events/ingest": {
+      "post": {
+        "tags": ["Ingest"],
+        "summary": "Ingest an event segment",
+        "description": "Submits a single event segment for aggregation. The platform resolves the aggregation key from the body using the policy's keyField path, evaluates the cradle and grave conditions, then either opens a new group, appends to an existing one, or promotes a group to completed. No lifecycle flags are required from the producer.",
+        "operationId": "ingestSegment",
+        "parameters": [
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "description": "Optional API key identifier for the producing client (recorded in audit log)",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IngestRequest"
+              },
+              "examples": {
+                "cradle": {
+                  "summary": "Cradle (start) event",
+                  "value": {
+                    "policyId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "body": {
+                      "eventType": "user.login",
+                      "sessionId": "sess-ABC123",
+                      "userId": "u001",
+                      "ipAddress": "192.168.1.1"
+                    }
+                  }
+                },
+                "intermediate": {
+                  "summary": "Intermediate event",
+                  "value": {
+                    "policyId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "body": {
+                      "eventType": "user.action",
+                      "sessionId": "sess-ABC123",
+                      "action": "view_dashboard"
+                    }
+                  }
+                },
+                "grave": {
+                  "summary": "Grave (end) event",
+                  "value": {
+                    "policyId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "body": {
+                      "eventType": "user.logout",
+                      "sessionId": "sess-ABC123",
+                      "userId": "u001"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Cradle event received — new event group opened in in_progress_events",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                },
+                "example": {
+                  "groupId": "f1e2d3c4-b5a6-7890-abcd-123456789012",
+                  "segmentId": "a9b8c7d6-e5f4-3210-abcd-fedcba987654",
+                  "aggregationKey": "sess-ABC123",
+                  "isCradle": true,
+                  "isGrave": false,
+                  "action": "group_opened",
+                  "status": "in_progress"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Segment appended to existing group, or group promoted to completed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IngestResponse"
+                },
+                "examples": {
+                  "appended": {
+                    "summary": "Intermediate segment appended",
+                    "value": {
+                      "groupId": "f1e2d3c4-b5a6-7890-abcd-123456789012",
+                      "segmentId": "b1c2d3e4-f5a6-7890-abcd-123456789013",
+                      "aggregationKey": "sess-ABC123",
+                      "isCradle": false,
+                      "isGrave": false,
+                      "action": "segment_appended",
+                      "status": "in_progress"
+                    }
+                  },
+                  "promoted": {
+                    "summary": "Grave segment received — group promoted",
+                    "value": {
+                      "groupId": "f1e2d3c4-b5a6-7890-abcd-123456789012",
+                      "segmentId": "c1d2e3f4-a5b6-7890-abcd-123456789014",
+                      "aggregationKey": "sess-ABC123",
+                      "isCradle": false,
+                      "isGrave": true,
+                      "action": "group_promoted",
+                      "status": "completed"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          },
+          "404": {
+            "description": "Policy not found or inactive",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Aggregation key could not be resolved from the event body using the policy's keyField path, or a grave segment was received with no open group to close",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/events": {
+      "get": {
+        "tags": ["Events"],
+        "summary": "List event groups",
+        "description": "Returns a paginated list of event groups from both in_progress_events and completed_events stores. Results are sorted by start time descending.",
+        "operationId": "listEvents",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Filter by group status",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["in_progress", "completed", "all"],
+              "default": "all"
+            }
+          },
+          {
+            "name": "policyId",
+            "in": "query",
+            "description": "Filter by policy UUID",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "aggregationKey",
+            "in": "query",
+            "description": "Partial match (case-insensitive) on the aggregation key",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "example": "sess-ABC"
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Start of time range filter on group startTime (ISO 8601)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2026-05-01T00:00:00Z"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "End of time range filter on group startTime (ISO 8601)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "example": "2026-05-07T23:59:59Z"
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (1-based)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Page size (max 200)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated list of event groups",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedEventGroups"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ValidationError"
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/EventGroupId"
+        }
+      ],
+      "get": {
+        "tags": ["Events"],
+        "summary": "Get an event group with all segments",
+        "operationId": "getEvent",
+        "responses": {
+          "200": {
+            "description": "Event group with full segment list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventGroupDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      },
+      "delete": {
+        "tags": ["Events"],
+        "summary": "Soft-delete an event group",
+        "description": "Records a deletion in the audit log. The group is excluded from default query results. Does not physically remove data.",
+        "operationId": "deleteEvent",
+        "responses": {
+          "204": {
+            "description": "Event group soft-deleted"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/events/{id}/segments": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/EventGroupId"
+        }
+      ],
+      "get": {
+        "tags": ["Events"],
+        "summary": "List segments for an event group",
+        "description": "Returns all segments for the group ordered by sequence number ascending.",
+        "operationId": "getEventSegments",
+        "responses": {
+          "200": {
+            "description": "Ordered list of segments",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SegmentDetail"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "PolicyId": {
+        "name": "id",
+        "in": "path",
+        "description": "Policy UUID",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "EventGroupId": {
+        "name": "id",
+        "in": "path",
+        "description": "Event group UUID",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "responses": {
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            },
+            "example": {
+              "error": "Policy not found"
+            }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Request validation failed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ValidationErrorResponse"
+            },
+            "example": {
+              "error": "Validation error",
+              "details": [
+                {
+                  "field": "policyId",
+                  "message": "policyId must be a valid UUID"
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "timestamp"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["ok"]
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "PolicyCreateRequest": {
+        "type": "object",
+        "required": ["name", "keyField", "cradleField", "cradleValue", "graveField", "graveValue"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Unique human-readable name for the policy",
+            "example": "User Session"
+          },
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "default": "*",
+            "description": "Event domain glob pattern (reserved for future routing)",
+            "example": "user.*"
+          },
+          "keyField": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Dot-notation path into the event body whose value becomes the aggregation key",
+            "example": "sessionId"
+          },
+          "cradleField": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Dot-notation path into the event body to evaluate for the cradle (start) condition",
+            "example": "eventType"
+          },
+          "cradleValue": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Value that cradleField must equal to open a new event group",
+            "example": "user.login"
+          },
+          "graveField": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Dot-notation path into the event body to evaluate for the grave (end) condition",
+            "example": "eventType"
+          },
+          "graveValue": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Value that graveField must equal to close and promote an event group",
+            "example": "user.logout"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true,
+            "description": "Human-readable description of the policy's purpose"
+          }
+        }
+      },
+      "PolicyUpdateRequest": {
+        "type": "object",
+        "description": "All fields optional — only supplied fields are updated",
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "domain": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "keyField": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "cradleField": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "cradleValue": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "graveField": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "graveValue": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "description": { "type": "string", "maxLength": 1000, "nullable": true }
+        }
+      },
+      "PolicyResponse": {
+        "type": "object",
+        "required": ["id", "name", "domain", "keyField", "cradleField", "cradleValue", "graveField", "graveValue", "isActive", "createdAt", "updatedAt"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Policy UUID"
+          },
+          "name": { "type": "string" },
+          "domain": { "type": "string" },
+          "keyField": {
+            "type": "string",
+            "description": "Dot-notation path for aggregation key extraction"
+          },
+          "cradleField": { "type": "string" },
+          "cradleValue": { "type": "string" },
+          "graveField": { "type": "string" },
+          "graveValue": { "type": "string" },
+          "description": { "type": "string", "nullable": true },
+          "isActive": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        },
+        "example": {
+          "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+          "name": "User Session",
+          "domain": "user.*",
+          "keyField": "sessionId",
+          "cradleField": "eventType",
+          "cradleValue": "user.login",
+          "graveField": "eventType",
+          "graveValue": "user.logout",
+          "description": "Aggregates user session events keyed on body.sessionId",
+          "isActive": true,
+          "createdAt": "2026-05-07T10:00:00.000Z",
+          "updatedAt": "2026-05-07T10:00:00.000Z"
+        }
+      },
+      "IngestRequest": {
+        "type": "object",
+        "required": ["policyId", "body"],
+        "properties": {
+          "policyId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the aggregation policy to apply to this segment"
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The event payload. The platform resolves keyField, cradleField, and graveField paths against this object."
+          }
+        }
+      },
+      "IngestResponse": {
+        "type": "object",
+        "required": ["groupId", "segmentId", "aggregationKey", "isCradle", "isGrave", "action", "status"],
+        "properties": {
+          "groupId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the event group (in_progress or completed)"
+          },
+          "segmentId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID of the newly created segment"
+          },
+          "aggregationKey": {
+            "type": "string",
+            "description": "The value resolved from body using the policy's keyField path"
+          },
+          "isCradle": {
+            "type": "boolean",
+            "description": "Whether this segment matched the policy's cradle condition"
+          },
+          "isGrave": {
+            "type": "boolean",
+            "description": "Whether this segment matched the policy's grave condition"
+          },
+          "action": {
+            "type": "string",
+            "enum": ["group_opened", "segment_appended", "group_promoted"],
+            "description": "The action taken: group_opened (cradle), segment_appended (intermediate), group_promoted (grave)"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_progress", "completed"],
+            "description": "Status of the event group after this segment was processed"
+          }
+        }
+      },
+      "EventGroupSummary": {
+        "type": "object",
+        "required": ["id", "policyId", "policyName", "aggregationKey", "keyField", "status", "segmentCount", "startTime"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "policyId": { "type": "string", "format": "uuid" },
+          "policyName": { "type": "string" },
+          "aggregationKey": {
+            "type": "string",
+            "description": "The resolved value used to correlate all segments in this group"
+          },
+          "keyField": {
+            "type": "string",
+            "description": "The body field path that was used to extract the aggregation key"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_progress", "completed"]
+          },
+          "segmentCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "startTime": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Timestamp of the cradle segment"
+          },
+          "endTime": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Timestamp of the grave segment. Null for in_progress groups."
+          },
+          "durationMs": {
+            "type": "integer",
+            "nullable": true,
+            "description": "Duration in milliseconds from cradle to grave. Null for in_progress groups."
+          }
+        }
+      },
+      "EventGroupDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EventGroupSummary" },
+          {
+            "type": "object",
+            "required": ["segments"],
+            "properties": {
+              "segments": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/SegmentDetail" },
+                "description": "All segments ordered by sequence number ascending"
+              }
+            }
+          }
+        ]
+      },
+      "SegmentDetail": {
+        "type": "object",
+        "required": ["eventId", "sequence", "isCradle", "isGrave", "timestamp", "body"],
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Unique segment identifier"
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Ordinal position of this segment within the group (1-based)"
+          },
+          "isCradle": {
+            "type": "boolean",
+            "description": "True if this segment matched the policy's cradle condition"
+          },
+          "isGrave": {
+            "type": "boolean",
+            "description": "True if this segment matched the policy's grave condition"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Time the segment was received by the ingest API"
+          },
+          "body": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The original event payload as submitted"
+          }
+        }
+      },
+      "PaginatedEventGroups": {
+        "type": "object",
+        "required": ["data", "total", "page", "limit", "totalPages"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/EventGroupSummary" }
+          },
+          "total": {
+            "type": "integer",
+            "description": "Total number of matching event groups across all pages"
+          },
+          "page": {
+            "type": "integer",
+            "description": "Current page number"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Page size used for this response"
+          },
+          "totalPages": {
+            "type": "integer",
+            "description": "Total number of pages"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "description": "Human-readable error message"
+          }
+        }
+      },
+      "ValidationErrorResponse": {
+        "type": "object",
+        "required": ["error", "details"],
+        "properties": {
+          "error": {
+            "type": "string",
+            "example": "Validation error"
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["field", "message"],
+              "properties": {
+                "field": { "type": "string" },
+                "message": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

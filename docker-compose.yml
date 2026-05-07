@@ -1,0 +1,43 @@
+services:
+  eventagg:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Override to build on a different distro:
+        #   docker compose build --build-arg BASE_IMAGE=fedora:40
+        #   docker compose build --build-arg BASE_IMAGE=rockylinux:9
+        #   docker compose build --build-arg BASE_IMAGE=debian:12
+        BASE_IMAGE: ${BASE_IMAGE:-ubuntu:22.04}
+    container_name: eventagg
+    ports:
+      - "${HOST_PORT:-9090}:80"       # Frontend (nginx)
+      - "${API_PORT:-3001}:3001"    # Backend API (direct)
+      - "${PG_PORT:-5432}:5432"     # PostgreSQL (remote access)
+    environment:
+      # ── PostgreSQL ───────────────────────────────────────────────────────
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGDATABASE: "${PGDATABASE:-eventagg}"
+      PGUSER: "${PGUSER:-eventagg_user}"
+      PGPASSWORD: "${PGPASSWORD:-eventagg_pass}"
+      PGSSL: "false"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres_admin_pass}"
+      # ── Backend ──────────────────────────────────────────────────────────
+      PORT: "3001"
+      NODE_ENV: "${NODE_ENV:-production}"
+      CORS_ORIGIN: "*"
+      PG_POOL_MAX: "10"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 45s
+
+volumes:
+  pgdata:
+    driver: local
