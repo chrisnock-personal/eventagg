@@ -11,6 +11,7 @@ const listQuerySchema = z.object({
   aggregationKey: z.string().optional(),
   from:           z.string().datetime({ offset: true }).optional(),
   to:             z.string().datetime({ offset: true }).optional(),
+  bodySearch:     z.string().max(500).optional(),
   page:           z.coerce.number().int().min(1).default(1),
   limit:          z.coerce.number().int().min(1).max(200).default(50),
 });

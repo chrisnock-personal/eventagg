@@ -443,6 +443,133 @@ function IngestModal({ policies, onIngest, onClose }: {
   );
 }
 
+// ─── Body search helpers ──────────────────────────────────────────────────────
+function classifyBodySearch(s: string): "pair" | "freetext" | "empty" {
+  if (!s.trim()) return "empty";
+  return /^[\w.[\]]+=[^\s=]+$/.test(s.trim()) ? "pair" : "freetext";
+}
+
+// ─── Compact Select ───────────────────────────────────────────────────────────
+function CompactSelect({ value, onChange, options }: {
+  value: string; onChange: (v: string) => void; options: { value: string; label: string }[];
+}) {
+  const isDefault = value === options[0]?.value;
+  return (
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <select value={value} onChange={e => onChange(e.target.value)}
+        style={{
+          appearance: "none" as const,
+          border: `1px solid ${isDefault ? C.border : C.accent + "80"}`,
+          borderRadius: 6,
+          padding: "6px 28px 6px 10px",
+          fontSize: 12,
+          fontFamily: "inherit",
+          fontWeight: isDefault ? 400 : 600,
+          color: isDefault ? C.textMid : C.accent,
+          background: isDefault ? C.surfaceAlt : C.accentLight,
+          cursor: "pointer",
+          outline: "none",
+          whiteSpace: "nowrap" as const,
+          transition: "all 0.15s",
+        }}>
+        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </select>
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="none"
+        stroke={isDefault ? C.textMuted : C.accent} strokeWidth="2"
+        style={{ position: "absolute", right: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }}>
+        <path d="M4 6l4 4 4-4"/>
+      </svg>
+    </div>
+  );
+}
+
+// ─── Expanding Input ──────────────────────────────────────────────────────────
+// Rests at a comfortable width sharing available space; expands on focus
+function ExpandingInput({ label, value, onChange, placeholder, mono = false, helpContent }: {
+  label: string; value: string; onChange: (v: string) => void;
+  placeholder?: string; mono?: boolean; helpContent?: React.ReactNode;
+}) {
+  const [focused,  setFocused]  = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const helpRef  = useRef<HTMLDivElement>(null);
+  const hasVal   = value.trim().length > 0;
+  const mode     = classifyBodySearch(value);
+
+  useEffect(() => {
+    const h = (e: MouseEvent) => {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) setShowHelp(false);
+    };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, []);
+
+  const activeColor = mono
+    ? (mode === "pair" ? C.accent : mode === "freetext" ? C.info : C.accent)
+    : C.accent;
+
+  const borderCol = focused ? activeColor : hasVal ? activeColor + "80" : C.border;
+  const bgCol     = hasVal ? (mono ? (mode === "pair" ? C.accentLight : C.infoLight) : C.accentLight) : focused ? C.surface : C.surfaceAlt;
+
+  return (
+    <div
+      onClick={() => inputRef.current?.focus()}
+      style={{
+        flex: focused || hasVal ? "2 1 220px" : "1 1 160px",
+        transition: "flex 0.2s ease",
+        position: "relative",
+        cursor: "text",
+      }}
+    >
+      <div style={{
+        border: `1px solid ${borderCol}`,
+        borderRadius: 6,
+        padding: "6px 32px 6px 10px",
+        background: bgCol,
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        transition: "all 0.2s ease",
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: hasVal ? activeColor : C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.07em", flexShrink: 0, userSelect: "none" as const }}>
+          {label}
+        </span>
+        <div style={{ width: 1, height: 12, background: C.border, flexShrink: 0 }} />
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder={placeholder}
+          style={{ border: "none", outline: "none", background: "transparent", fontSize: 12, color: C.text, fontFamily: mono ? "'Courier New', monospace" : "inherit", width: "100%", minWidth: 0, padding: 0 }}
+        />
+      </div>
+      {/* Clear */}
+      {hasVal && (
+        <button onMouseDown={e => { e.preventDefault(); onChange(""); }}
+          style={{ position: "absolute", right: helpContent ? 22 : 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 15, lineHeight: 1, padding: 0, zIndex: 1 }}>
+          ×
+        </button>
+      )}
+      {/* Help */}
+      {helpContent && (
+        <div ref={helpRef} style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", zIndex: 2 }}>
+          <button onMouseDown={e => { e.preventDefault(); setShowHelp(v => !v); }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: 10, color: C.textMuted, fontFamily: "inherit", padding: "0 2px", fontWeight: 600, opacity: focused || hasVal ? 1 : 0.5 }}>
+            ?
+          </button>
+          {showHelp && (
+            <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 50, width: 300, padding: "14px 16px" }}>
+              {helpContent}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 function StatsBar({ events, eventsTotal, policies }: { events: EventGroupSummary[]; eventsTotal: number; policies: Policy[] }) {
   const stats = [
@@ -508,6 +635,7 @@ export default function App() {
   const [page,         setPage]         = useState(1);
   const [autoRefresh,  setAutoRefresh]  = useState(false);
   const [dateRange,    setDateRange]    = useState("24h");
+  const [bodySearch,   setBodySearch]   = useState("");
   const PER_PAGE = 8;
 
   // ── Date range ──────────────────────────────────────────────────────────────
@@ -540,11 +668,15 @@ export default function App() {
   const loadEvents = useCallback(async () => {
     setLoading(true); setLoadError(null);
     try {
-      const res = await api.events.list({ status: statusFilter, policyId: policyFilter !== "all" ? policyFilter : undefined, aggregationKey: keyFilter || undefined, from: fromFilter || undefined, to: toFilter || undefined, page, limit: PER_PAGE });
+      // When body search is active, don't restrict by date — the matching segment
+      // could be in any group regardless of when it was created
+      const from = bodySearch.trim() ? undefined : (fromFilter || undefined);
+      const to   = bodySearch.trim() ? undefined : (toFilter   || undefined);
+      const res = await api.events.list({ status: statusFilter, policyId: policyFilter !== "all" ? policyFilter : undefined, aggregationKey: keyFilter || undefined, from, to, bodySearch: bodySearch || undefined, page, limit: PER_PAGE });
       setEvents(res.data); setEventsTotal(res.total); setTotalPages(res.totalPages);
     } catch (e: any) { setLoadError(e.message ?? "Failed to load events"); }
     finally { setLoading(false); }
-  }, [statusFilter, policyFilter, keyFilter, fromFilter, toFilter, page]);
+  }, [statusFilter, policyFilter, keyFilter, fromFilter, toFilter, bodySearch, page]);
 
   // ── Load flat segments (for segments tab) ─────────────────────────────────
   const loadSegments = useCallback(async () => {
@@ -568,6 +700,8 @@ export default function App() {
   useEffect(() => { loadEvents(); }, [loadEvents]);
   useEffect(() => { applyDateRange("24h"); }, []);
   useEffect(() => { setPage(1); }, [statusFilter, policyFilter, keyFilter, fromFilter, toFilter]);
+  // bodySearch gets its own effect so loadEvents always fires even when page is already 1
+  useEffect(() => { loadEvents(); }, [bodySearch]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!autoRefresh) return; const id = setInterval(loadEvents, 10000); return () => clearInterval(id); }, [autoRefresh, loadEvents]);
   useEffect(() => { if (activeTab === "segments") loadSegments(); }, [activeTab, loadSegments]);
 
@@ -584,7 +718,7 @@ export default function App() {
   async function handleIngest(input: { policyId: string; body: Record<string, unknown> }) {
     const result = await api.ingest.send(input); await loadEvents(); return result;
   }
-  function clearFilters() { setStatusFilter("all"); setPolicyFilter("all"); setKeyFilter(""); setFromFilter(""); setToFilter(""); setDateRange("all"); setPage(1); }
+  function clearFilters() { setStatusFilter("all"); setPolicyFilter("all"); setKeyFilter(""); setFromFilter(""); setToFilter(""); setDateRange("all"); setBodySearch(""); setPage(1); }
 
   // ── Active cols for each tab ───────────────────────────────────────────────
   const activeGroupCols = GROUP_COLS.filter(c => c.key.startsWith("_") || groupVisible.has(c.key));
@@ -622,24 +756,59 @@ export default function App() {
       <div style={{ padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
         <StatsBar events={events} eventsTotal={eventsTotal} policies={policies} />
 
-        {/* Filters */}
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 18px", marginBottom: 14 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", flexWrap: "wrap" }}>
-            <FSelect label="Status" value={statusFilter} onChange={v => setStatusFilter(v as typeof statusFilter)}
+        {/* Filters — single row */}
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <CompactSelect value={statusFilter} onChange={v => setStatusFilter(v as typeof statusFilter)}
               options={[{ value: "all", label: "All statuses" }, { value: "completed", label: "Completed" }, { value: "in_progress", label: "In Progress" }]} />
-            <FSelect label="Policy" value={policyFilter} onChange={setPolicyFilter}
+            <CompactSelect value={policyFilter} onChange={setPolicyFilter}
               options={[{ value: "all", label: "All policies" }, ...policies.map(p => ({ value: p.id, label: p.name }))]} />
-            <FInput label="Aggregation Key contains" value={keyFilter} onChange={setKeyFilter} placeholder="sess-A1B2 / TRD-001 …" />
-            <FSelect label="Date Range" value={dateRange} onChange={applyDateRange}
-              options={[{ value: "all", label: "All time" }, { value: "24h", label: "Last 24 hours" }, { value: "7d", label: "Last 7 days" }, { value: "30d", label: "Last 30 days" }, { value: "6m", label: "Last 6 months" }, { value: "custom", label: "Custom range…" }]} />
+            <CompactSelect value={dateRange} onChange={applyDateRange}
+              options={[{ value: "all", label: "All time" }, { value: "24h", label: "Last 24h" }, { value: "7d", label: "Last 7d" }, { value: "30d", label: "Last 30d" }, { value: "6m", label: "Last 6m" }, { value: "custom", label: "Custom…" }]} />
             {dateRange === "custom" && <>
-              <FInput label="From" value={fromFilter.slice(0, 10)} onChange={v => { setFromFilter(v ? `${v}T00:00:00.000Z` : ""); setPage(1); }} placeholder="YYYY-MM-DD" style={{ maxWidth: 140 }} />
-              <FInput label="To"   value={toFilter.slice(0, 10)}   onChange={v => { setToFilter(v   ? `${v}T23:59:59.999Z` : ""); setPage(1); }} placeholder="YYYY-MM-DD" style={{ maxWidth: 140 }} />
+              <CompactSelect value={fromFilter.slice(0, 10) || "from"} onChange={v => { setFromFilter(v ? `${v}T00:00:00.000Z` : ""); setPage(1); }}
+                options={[{ value: "from", label: "From…" }]} />
+              <CompactSelect value={toFilter.slice(0, 10) || "to"} onChange={v => { setToFilter(v ? `${v}T23:59:59.999Z` : ""); setPage(1); }}
+                options={[{ value: "to", label: "To…" }]} />
             </>}
-            <Btn label="Clear" onClick={clearFilters} />
+            <div style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }} />
+            <ExpandingInput label="Key" value={keyFilter} onChange={setKeyFilter} placeholder="TRD-9001 / sess-U001…" />
+            <ExpandingInput label="Body" value={bodySearch} onChange={v => { setBodySearch(v); setPage(1); }}
+              placeholder='trader=t-smith  or  "t-smith"' mono
+              helpContent={
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 10 }}>Body Search</div>
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⬡ Field match — field=value</div>
+                    <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>Precise GIN-indexed match. Supports dot-notation.</div>
+                    {["trader=t-smith", "symbol=AAPL", "statusCode=200", "userId=usr-001"].map(ex => (
+                      <button key={ex} onClick={() => { setBodySearch(ex); setPage(1); }}
+                        style={{ display: "block", padding: "3px 8px", marginBottom: 3, background: C.accentLight, border: `1px solid ${C.accentSoft}`, borderRadius: 4, fontSize: 11, fontFamily: "monospace", cursor: "pointer", color: C.accent, width: "100%", textAlign: "left" as const }}>
+                        {ex}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.info, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⟡ Full-text — any string</div>
+                    <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>Searches the entire serialised body.</div>
+                    {["t-smith", "WH-02", "slow response"].map(ex => (
+                      <button key={ex} onClick={() => { setBodySearch(ex); setPage(1); }}
+                        style={{ display: "block", padding: "3px 8px", marginBottom: 3, background: C.infoLight, border: `1px solid ${C.info}30`, borderRadius: 4, fontSize: 11, fontFamily: "monospace", cursor: "pointer", color: C.info, width: "100%", textAlign: "left" as const }}>
+                        "{ex}"
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              }
+            />
+            <div style={{ width: 1, height: 24, background: C.border, flexShrink: 0 }} />
+            {(statusFilter !== "all" || policyFilter !== "all" || keyFilter || dateRange !== "24h" || bodySearch)
+              ? <button onClick={clearFilters} style={{ padding: "5px 12px", border: `1px solid ${C.border}`, borderRadius: 6, background: "none", cursor: "pointer", fontSize: 11, color: C.textMid, fontFamily: "inherit", flexShrink: 0, whiteSpace: "nowrap" as const }}>Clear all</button>
+              : <span style={{ fontSize: 11, color: C.textMuted, flexShrink: 0 }}>No filters</span>
+            }
           </div>
           <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span>{loading ? "Loading…" : `${eventsTotal} total event groups`}{" · "}<span style={{ fontFamily: "monospace", color: C.accent }}>GET /api/v1/events?status={statusFilter}{keyFilter && `&key=${keyFilter}`}{policyFilter !== "all" && `&policy=${policyFilter}`}{fromFilter && `&from=${fromFilter}`}{toFilter && `&to=${toFilter}`}&page={page}</span></span>
+            <span>{loading ? "Loading…" : `${eventsTotal} total event groups`}{" · "}<span style={{ fontFamily: "monospace", color: C.accent }}>GET /api/v1/events?status={statusFilter}{keyFilter && `&aggregationKey=${keyFilter}`}{policyFilter !== "all" && `&policyId=${policyFilter}`}{fromFilter && `&from=${fromFilter}`}{toFilter && `&to=${toFilter}`}{bodySearch && `&bodySearch=${encodeURIComponent(bodySearch)}`}&page={page}</span></span>
             {autoRefresh && <span style={{ fontSize: 10, color: C.accent, fontFamily: "monospace", display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: C.accent, display: "inline-block" }} />refreshing every 10s</span>}
           </div>
         </div>

@@ -104,6 +104,7 @@ export const api = {
       aggregationKey?: string;
       from?: string;
       to?: string;
+      bodySearch?: string;
       page?: number;
       limit?: number;
     }) => {
@@ -113,6 +114,7 @@ export const api = {
       if (params.aggregationKey) qs.set("aggregationKey", params.aggregationKey);
       if (params.from)           qs.set("from",           params.from);
       if (params.to)             qs.set("to",             params.to);
+      if (params.bodySearch)     qs.set("bodySearch",     params.bodySearch);
       if (params.page)           qs.set("page",           String(params.page));
       if (params.limit)          qs.set("limit",          String(params.limit));
       return request<PaginatedResponse<EventGroupSummary>>(`/events?${qs}`);

@@ -12,6 +12,7 @@ export interface EventQueryFilters {
   aggregationKey?: string;
   from?: string;
   to?: string;
+  bodySearch?: string;
   page?: number;
   limit?: number;
 }
@@ -78,6 +79,12 @@ export async function listEvents(
   const results: EventGroupSummary[] = [];
   let total = 0;
 
+  // ── Detect body search mode ─────────────────────────────────────────────────
+  const bodySearchMode = (() => {
+    if (!filters.bodySearch?.trim()) return null;
+    return /^[\w.]+=[^\s=]+$/.test(filters.bodySearch.trim()) ? "pair" : "freetext";
+  })();
+
   // Shared WHERE clause builder
   const buildWhere = (
     store: "in_progress" | "completed",
@@ -96,14 +103,62 @@ export async function listEvents(
       params.push(`%${filters.aggregationKey}%`);
     }
     if (filters.from) {
-      const col = store === "in_progress" ? "started_at" : "started_at";
-      conditions.push(`e.${col} >= $${i++}`);
+      conditions.push(`e.started_at >= $${i++}`);
       params.push(filters.from);
     }
     if (filters.to) {
-      const col = store === "in_progress" ? "started_at" : "started_at";
-      conditions.push(`e.${col} <= $${i++}`);
+      conditions.push(`e.started_at <= $${i++}`);
       params.push(filters.to);
+    }
+
+    // Body search — EXISTS subquery against event_segments
+    // Using EXISTS avoids JOIN fan-out and DISTINCT complications
+    if (bodySearchMode === "pair") {
+      const eqIdx = filters.bodySearch!.indexOf("=");
+      const field  = filters.bodySearch!.slice(0, eqIdx).trim();
+      const value  = filters.bodySearch!.slice(eqIdx + 1).trim();
+      const idCol  = store === "in_progress" ? "in_progress_id" : "completed_id";
+
+      if (field.includes(".")) {
+        // Nested path — jsonb_path_exists with string cast
+        conditions.push(
+          `EXISTS (
+            SELECT 1 FROM event_segments seg
+            WHERE  seg.${idCol} = e.id
+            AND    jsonb_path_exists(seg.body, $${i++})
+          )`
+        );
+        params.push(`$.${field} == "${value}"`);
+      } else {
+        // Top-level key — try @> containment first (works for string values);
+        // also fall back to casting stored value to text for numeric matches
+        conditions.push(
+          `EXISTS (
+            SELECT 1 FROM event_segments seg
+            WHERE  seg.${idCol} = e.id
+            AND    (
+              seg.body @> $${i}::jsonb
+              OR seg.body->$${i + 1} = $${i + 2}::jsonb
+            )
+          )`
+        );
+        params.push(
+          JSON.stringify({ [field]: value }),  // string match: @>
+          field,                               // key for -> operator
+          JSON.stringify(value)                // also try as raw JSON (catches numbers if user types them as string)
+        );
+        i += 3;
+      }
+    } else if (bodySearchMode === "freetext") {
+      const idCol = store === "in_progress" ? "in_progress_id" : "completed_id";
+      conditions.push(
+        `EXISTS (
+          SELECT 1 FROM event_segments seg
+          WHERE  seg.${idCol} = e.id
+          AND    seg.body::text ILIKE $${i++}
+        )`
+      );
+      params.push(`%${filters.bodySearch!.trim()}%`);
     }
 
     return {
