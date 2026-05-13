@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { ingestSegment } from "../services/ingestService";
+import { statsCache, performanceCache } from "../cache";
 
 const router = Router();
 
@@ -19,6 +20,12 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       sourceIp:  req.ip,
       apiKey:    req.headers["x-api-key"] as string | undefined,
     });
+
+    // Invalidate aggregate caches so next stats/performance request is fresh
+    if (!result.action.includes("duplicate")) {
+      statsCache.invalidateAll();
+      performanceCache.invalidateAll();
+    }
 
     const statusCode = result.action === "group_opened" ? 201 : 200;
     res.status(statusCode).json(result);

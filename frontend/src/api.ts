@@ -29,6 +29,7 @@ export interface Policy {
   graveValue: string;
   description: string | null;
   isActive: boolean;
+  timeoutMs: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -39,11 +40,13 @@ export interface EventGroupSummary {
   policyName: string;
   aggregationKey: string;
   keyField: string;
-  status: "in_progress" | "completed";
+  status: "in_progress" | "completed" | "timed_out";
   segmentCount: number;
   startTime: string;
   endTime: string | null;
   durationMs: number | null;
+  closeReason: string | null;
+  lastSegmentAt: string | null;
 }
 
 export interface SegmentDetail {
@@ -77,6 +80,23 @@ export interface IngestResult {
   status: "in_progress" | "completed";
 }
 
+export interface EventStats {
+  totalGroups: number;
+  completed: number;
+  inProgress: number;
+  timedOut: number;
+  totalSegments: number;
+  avgDurationMs: number;
+  byPolicy: { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalSegments: number; avgDurationMs: number }[];
+  throughput: { bucket: string; opened: number; closed: number }[];
+}
+
+export interface EventPerformance {
+  slowestCompleted:  EventGroupSummary[];
+  inProgressAging:   EventGroupSummary[];
+  durationHistogram: { bucket: string; minMs: number; maxMs: number; count: number }[];
+}
+
 // ─── Policies ─────────────────────────────────────────────────────────────────
 
 export const api = {
@@ -93,11 +113,33 @@ export const api = {
     update: (id: string, body: Partial<Omit<Policy, "id" | "isActive" | "createdAt" | "updatedAt">>) =>
       request<Policy>(`/policies/${id}`, { method: "PUT", body: JSON.stringify(body) }),
 
+    toggle: (id: string, active: boolean) =>
+      request<Policy>(`/policies/${id}/toggle`, { method: "PATCH", body: JSON.stringify({ active }) }),
+
     delete: (id: string) =>
       request<void>(`/policies/${id}`, { method: "DELETE" }),
   },
 
   events: {
+    stats: (params: { status?: string; policyId?: string; aggregationKey?: string; from?: string; to?: string } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.status)         qs.set("status",         params.status);
+      if (params.policyId)       qs.set("policyId",       params.policyId);
+      if (params.aggregationKey) qs.set("aggregationKey", params.aggregationKey);
+      if (params.from)           qs.set("from",           params.from);
+      if (params.to)             qs.set("to",             params.to);
+      return request<EventStats>(`/events/stats?${qs}`);
+    },
+
+    performance: (params: { policyId?: string; aggregationKey?: string; from?: string; to?: string } = {}) => {
+      const qs = new URLSearchParams();
+      if (params.policyId)       qs.set("policyId",       params.policyId);
+      if (params.aggregationKey) qs.set("aggregationKey", params.aggregationKey);
+      if (params.from)           qs.set("from",           params.from);
+      if (params.to)             qs.set("to",             params.to);
+      return request<EventPerformance>(`/events/performance?${qs}`);
+    },
+
     list: (params: {
       status?: "in_progress" | "completed" | "all";
       policyId?: string;

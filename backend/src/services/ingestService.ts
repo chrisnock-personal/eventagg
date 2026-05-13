@@ -108,6 +108,10 @@ export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
         apiKey: input.apiKey,
       });
 
+      if (segment.isDuplicate) {
+        return { groupId: group.id, segmentId: segment.id, aggregationKey, isCradle, isGrave: false, action: "segment_appended", status: "in_progress" };
+      }
+
       // Set cradle_segment_id
       await client.query(
         `UPDATE in_progress_events SET cradle_segment_id = $1 WHERE id = $2`,
@@ -150,8 +154,19 @@ export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
       apiKey: input.apiKey,
     });
 
+    // Idempotent duplicate — return existing group state without side-effects
+    if (segment.isDuplicate) {
+      return { groupId: existingGroup.id, segmentId: segment.id, aggregationKey, isCradle: false, isGrave: false, action: "segment_appended", status: "in_progress" };
+    }
+
     if (!isGrave) {
       // ── Append to existing group ────────────────────────────────────────
+      // Reset the timeout clock on every new segment
+      await client.query(
+        `UPDATE in_progress_events SET last_segment_at = NOW() WHERE id = $1`,
+        [existingGroup.id]
+      );
+
       await writeAudit(client, {
         entityType: "event_group",
         entityId: existingGroup.id,
@@ -244,28 +259,45 @@ async function insertSegment(
     sourceIp?: string;
     apiKey?: string;
   }
-): Promise<{ id: string }> {
-  return client
-    .query<{ id: string }>(
-      `INSERT INTO event_segments
-         (in_progress_id, completed_id, policy_id, aggregation_key,
-          sequence, is_cradle, is_grave, body, source_ip, ingest_api_key)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id`,
-      [
-        opts.inProgressId,
-        opts.completedId,
-        opts.policyId,
-        opts.aggregationKey,
-        opts.sequence,
-        opts.isCradle,
-        opts.isGrave,
-        JSON.stringify(opts.body),
-        opts.sourceIp ?? null,
-        opts.apiKey ?? null,
-      ]
-    )
-    .then((r) => r.rows[0]);
+): Promise<{ id: string; isDuplicate: boolean }> {
+  // ON CONFLICT on the unique indexes (sequence OR body_hash within group)
+  // returns the existing row id so the caller can treat it as idempotent
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO event_segments
+       (in_progress_id, completed_id, policy_id, aggregation_key,
+        sequence, is_cradle, is_grave, body, source_ip, ingest_api_key)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     ON CONFLICT DO NOTHING
+     RETURNING id`,
+    [
+      opts.inProgressId,
+      opts.completedId,
+      opts.policyId,
+      opts.aggregationKey,
+      opts.sequence,
+      opts.isCradle,
+      opts.isGrave,
+      JSON.stringify(opts.body),
+      opts.sourceIp ?? null,
+      opts.apiKey ?? null,
+    ]
+  );
+
+  if (result.rows.length > 0) {
+    return { id: result.rows[0].id, isDuplicate: false };
+  }
+
+  // ON CONFLICT hit — fetch the existing segment id
+  const existing = await client.query<{ id: string }>(
+    `SELECT id FROM event_segments
+     WHERE  ${opts.inProgressId ? "in_progress_id = $1" : "completed_id = $1"}
+       AND  body_hash = md5($2::text)
+     LIMIT 1`,
+    [opts.inProgressId ?? opts.completedId, JSON.stringify(opts.body)]
+  );
+
+  console.log(`⚠️  Duplicate segment detected for key "${opts.aggregationKey}" seq=${opts.sequence} — skipping`);
+  return { id: existing.rows[0]?.id ?? "duplicate", isDuplicate: true };
 }
 
 async function writeAudit(

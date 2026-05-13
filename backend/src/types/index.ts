@@ -11,6 +11,7 @@ export interface Policy {
   grave_value: string;
   description: string | null;
   is_active: boolean;
+  timeout_ms: number | null;
   created_at: string;
   updated_at: string;
   created_by: string | null;
@@ -26,6 +27,7 @@ export interface InProgressEvent {
   cradle_segment_id: string | null;
   started_at: string;
   last_seen_at: string;
+  last_segment_at: string;
   expires_at: string | null;
   created_at: string;
 }
@@ -37,11 +39,13 @@ export interface CompletedEvent {
   key_field: string;
   segment_count: number;
   cradle_segment_id: string;
-  grave_segment_id: string;
+  grave_segment_id: string | null;
   started_at: string;
   ended_at: string;
   duration_ms: number;
   completed_at: string;
+  status: "completed" | "timed_out";
+  close_reason: string | null;
 }
 
 export interface EventSegment {
@@ -82,11 +86,13 @@ export interface EventGroupSummary {
   policyName: string;
   aggregationKey: string;
   keyField: string;
-  status: "in_progress" | "completed";
+  status: "in_progress" | "completed" | "timed_out";
   segmentCount: number;
   startTime: string;
   endTime: string | null;
   durationMs: number | null;
+  closeReason: string | null;
+  lastSegmentAt: string | null;
 }
 
 export interface EventGroupDetail extends EventGroupSummary {
@@ -113,6 +119,7 @@ export interface PolicyResponse {
   graveValue: string;
   description: string | null;
   isActive: boolean;
+  timeoutMs: number | null;
   createdAt: string;
   updatedAt: string;
 }

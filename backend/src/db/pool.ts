@@ -55,6 +55,26 @@ export async function withTransaction<T>(
   }
 }
 
+// ─── Per-query statement timeout ──────────────────────────────────────────────
+// Runs fn with a PostgreSQL statement_timeout set for this session only.
+// Uses SET LOCAL so it resets automatically on transaction end.
+export async function withStatementTimeout<T>(
+  timeoutMs: number,
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query(`SET statement_timeout = ${timeoutMs}`);
+    const result = await fn(client);
+    return result;
+  } finally {
+    // Reset timeout and release — errors propagate naturally
+    await client.query("SET statement_timeout = 0").catch(() => {});
+    client.release();
+  }
+}
+
 export async function testConnection(): Promise<void> {
   const pool = getPool();
   const client = await pool.connect();

@@ -1,9 +1,14 @@
 import express from "express";
 import cors from "cors";
+import rateLimit from "express-rate-limit";
+import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
-import { testConnection, closePool } from "./db/pool";
+import { testConnection, closePool, query, withTransaction } from "./db/pool";
 import { runMigrations } from "./db/migrate";
 import { errorHandler, notFound } from "./middleware/errorHandler";
+import { requireApiKey } from "./middleware/auth";
+import { statsCache, performanceCache } from "./cache";
+import { openApiSpec } from "./openapi";
 import policiesRouter from "./routes/policies";
 import eventsRouter   from "./routes/events";
 import ingestRouter   from "./routes/ingest";
@@ -24,18 +29,180 @@ if (config.nodeEnv === "development") {
 }
 
 // ─── Health check ─────────────────────────────────────────────────────────────
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+app.get("/health", async (_req, res) => {
+  try {
+    // DB connectivity + partition check
+    const [dbCheck, partitionCheck] = await Promise.all([
+      query("SELECT 1 AS ok"),
+      query<{ relname: string }>(`
+        SELECT child.relname
+        FROM   pg_inherits
+        JOIN   pg_class child  ON pg_inherits.inhrelid  = child.oid
+        JOIN   pg_class parent ON pg_inherits.inhparent = parent.oid
+        WHERE  parent.relname = 'completed_events'
+        ORDER  BY child.relname DESC LIMIT 4
+      `),
+    ]);
+    const partitions = partitionCheck.map(r => r.relname);
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      db: { connected: true, recentPartitions: partitions },
+      cache: { statsEntries: statsCache.size, performanceEntries: performanceCache.size },
+      uptime: Math.round(process.uptime()),
+    });
+  } catch (err: any) {
+    res.status(503).json({ status: "error", error: err.message, timestamp: new Date().toISOString() });
+  }
+});
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+const ingestRateLimit = rateLimit({
+  windowMs: 60_000,          // 1 minute
+  max: 10_000,               // 10k requests/min per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Ingest rate limit exceeded — reduce request frequency or batch events" },
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 app.use("/api/v1/policies",         policiesRouter);
-app.use("/api/v1/events/ingest",    ingestRouter);
+app.use("/api/v1/events/ingest",    ingestRateLimit, requireApiKey, ingestRouter);
 app.use("/api/v1/events",           eventsRouter);
+
+// ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
+app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+  customSiteTitle: "Aggre/Gator API Docs",
+  customCss: `
+    .swagger-ui .topbar { background-color: #1A1916; }
+    .swagger-ui .topbar .download-url-wrapper { display: none; }
+    .swagger-ui .info .title { color: #1D6B4E; }
+    body { font-family: 'Calibri', sans-serif; }
+  `,
+  swaggerOptions: {
+    docExpansion: "list",
+    filter: true,
+    tagsSorter: "alpha",
+  },
+}));
 
 // ─── 404 & error handlers ─────────────────────────────────────────────────────
 app.use(notFound);
 app.use(errorHandler);
+
+// ─── Auto-partition management ────────────────────────────────────────────────
+// Ensures completed_events partitions exist for the current + next 3 quarters.
+// Runs on startup and every 24h. Safe to run repeatedly (IF NOT EXISTS).
+async function runPartitionJob(): Promise<void> {
+  try {
+    const now = new Date();
+    const year = now.getFullYear();
+    const quarter = Math.floor(now.getMonth() / 3); // 0-based
+
+    // Create partitions for current quarter + next 3
+    const toCreate: Array<{ year: number; q: number }> = [];
+    for (let i = 0; i < 4; i++) {
+      const totalQ = quarter + i;
+      toCreate.push({ year: year + Math.floor(totalQ / 4), q: totalQ % 4 });
+    }
+
+    const quarterMonths = [[1,4],[4,7],[7,10],[10,1]]; // [start, end] month (1-based)
+    for (const { year: y, q } of toCreate) {
+      const [startM, endM] = quarterMonths[q];
+      const endY = endM === 1 ? y + 1 : y;
+      const tableName = `completed_events_${y}_q${q + 1}`;
+      const startDate = `${y}-${String(startM).padStart(2, "0")}-01`;
+      const endDate   = `${endY}-${String(endM).padStart(2, "0")}-01`;
+
+      await query(
+        `CREATE TABLE IF NOT EXISTS ${tableName}
+         PARTITION OF completed_events
+         FOR VALUES FROM ($1) TO ($2)`,
+        [startDate, endDate]
+      );
+    }
+    console.log(`📅  Partition job: ensured partitions for ${toCreate.map(t => `${t.year} Q${t.q+1}`).join(", ")}`);
+  } catch (err) {
+    console.error("📅  Partition job error:", err);
+  }
+}
+
+// ─── Timeout background job ───────────────────────────────────────────────────
+// Runs every 60s. Finds in-progress groups where last_segment_at + policy.timeout_ms
+// is in the past, and promotes them to completed_events with status='timed_out'.
+async function runTimeoutJob(): Promise<void> {
+  try {
+    // Find all in-progress groups where the policy has a timeout and it has elapsed
+    const timedOut = await query<{
+      id: string;
+      policy_id: string;
+      aggregation_key: string;
+      key_field: string;
+      segment_count: number;
+      cradle_segment_id: string | null;
+      started_at: string;
+      last_segment_at: string;
+    }>(
+      `SELECT e.id, e.policy_id, e.aggregation_key, e.key_field,
+              e.segment_count, e.cradle_segment_id, e.started_at, e.last_segment_at
+       FROM   in_progress_events e
+       JOIN   policies p ON p.id = e.policy_id
+       WHERE  p.timeout_ms IS NOT NULL
+         AND  e.last_segment_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`
+    );
+
+    if (timedOut.length === 0) return;
+
+    console.log(`⏱  Timeout job: ${timedOut.length} group(s) to close`);
+
+    for (const group of timedOut) {
+      try {
+        await withTransaction(async (client) => {
+          const now = new Date().toISOString();
+
+          // Promote to completed_events with timed_out status
+          const [completed] = await client.query<{ id: string }>(
+            `INSERT INTO completed_events
+               (policy_id, aggregation_key, key_field, segment_count,
+                cradle_segment_id, grave_segment_id, started_at, ended_at,
+                status, close_reason)
+             VALUES ($1, $2, $3, $4, $5, $5, $6, NOW(), 'timed_out', 'policy_timeout')
+             RETURNING id`,
+            [
+              group.policy_id,
+              group.aggregation_key,
+              group.key_field,
+              group.segment_count,
+              group.cradle_segment_id ?? '00000000-0000-0000-0000-000000000000',
+              group.started_at,
+            ]
+          ).then(r => r.rows);
+
+          // Re-point segments to the completed record
+          await client.query(
+            `UPDATE event_segments
+             SET    in_progress_id = NULL, completed_id = $1
+             WHERE  in_progress_id = $2`,
+            [completed.id, group.id]
+          );
+
+          // Remove from in_progress
+          await client.query(
+            `DELETE FROM in_progress_events WHERE id = $1`,
+            [group.id]
+          );
+
+          console.log(`    ✓ Timed out: ${group.aggregation_key} (${group.id.slice(0,8)}…)`);
+        });
+      } catch (err) {
+        console.error(`    ✗ Failed to time out group ${group.id}:`, err);
+      }
+    }
+  } catch (err) {
+    console.error("⏱  Timeout job error:", err);
+  }
+}
 
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start(): Promise<void> {
@@ -44,16 +211,29 @@ async function start(): Promise<void> {
     await runMigrations();
 
     const server = app.listen(config.port, () => {
-      console.log(`🚀  EventAgg API running on port ${config.port} [${config.nodeEnv}]`);
+      console.log(`🚀  Aggre/Gator API running on port ${config.port} [${config.nodeEnv}]`);
       console.log(`    Health:   http://localhost:${config.port}/health`);
       console.log(`    Policies: http://localhost:${config.port}/api/v1/policies`);
       console.log(`    Events:   http://localhost:${config.port}/api/v1/events`);
       console.log(`    Ingest:   POST http://localhost:${config.port}/api/v1/events/ingest`);
+      console.log(`    Docs:     http://localhost:${config.port}/api/v1/docs`);
     });
+
+    // Start timeout job — run immediately then every 60 seconds
+    runTimeoutJob();
+    const timeoutJobInterval = setInterval(runTimeoutJob, 60_000);
+
+    // Start partition job — run immediately then every 24 hours
+    runPartitionJob();
+    const partitionJobInterval = setInterval(runPartitionJob, 24 * 60 * 60_000);
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       console.log(`\n${signal} received — shutting down gracefully...`);
+      clearInterval(timeoutJobInterval);
+      clearInterval(partitionJobInterval);
+      statsCache.destroy();
+      performanceCache.destroy();
       server.close(async () => {
         await closePool();
         console.log("✅  Shutdown complete");
