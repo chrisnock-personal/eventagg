@@ -5,6 +5,7 @@ async function request<T>(
   options?: RequestInit
 ): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   });
@@ -97,9 +98,44 @@ export interface EventPerformance {
   durationHistogram: { bucket: string; minMs: number; maxMs: number; count: number }[];
 }
 
-// ─── Policies ─────────────────────────────────────────────────────────────────
+export interface SessionUser {
+  id: string;
+  username: string;
+  email?: string;
+  role: "viewer" | "editor" | "admin";
+}
+
+export interface AppUser {
+  id: string;
+  username: string;
+  email: string;
+  role: "viewer" | "editor" | "admin";
+  isActive: boolean;
+  lastLogin: string | null;
+  createdAt: string;
+}
+
+// ─── API ──────────────────────────────────────────────────────────────────────
 
 export const api = {
+  auth: {
+    login: (username: string, password: string) =>
+      request<SessionUser>("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) }),
+    logout: () =>
+      request<void>("/auth/logout", { method: "POST" }),
+    me: () =>
+      request<SessionUser>("/auth/me"),
+    users: {
+      list: () => request<AppUser[]>("/auth/users"),
+      create: (body: { username: string; email: string; password: string; role: string }) =>
+        request<AppUser>("/auth/users", { method: "POST", body: JSON.stringify(body) }),
+      update: (id: string, body: Partial<{ email: string; role: string; isActive: boolean; password: string }>) =>
+        request<AppUser>(`/auth/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+      delete: (id: string) =>
+        request<void>(`/auth/users/${id}`, { method: "DELETE" }),
+    },
+  },
+
   policies: {
     list: () =>
       request<Policy[]>("/policies"),

@@ -23,6 +23,12 @@ CREATE TABLE IF NOT EXISTS completed_events_2028_q2
 
 -- 2. Duplicate segment guard
 --    Unique constraint: one segment per (group, sequence) prevents double-ingest
+--
+--    body_hash uses md5(body::text). PostgreSQL does not guarantee stable JSON key
+--    ordering when casting JSONB to text, so two semantically identical events with
+--    different key insertion orders may produce different hashes and both be stored.
+--    This is a known limitation — the sequence-based unique index (below) provides
+--    the stronger guarantee for the common case where sequence is known.
 ALTER TABLE event_segments
     ADD COLUMN IF NOT EXISTS body_hash TEXT
     GENERATED ALWAYS AS (md5(body::text)) STORED;

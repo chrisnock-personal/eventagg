@@ -24,12 +24,13 @@ export function errorHandler(
 
   const status = err.statusCode ?? 500;
   const message = err.message ?? "Internal server error";
+  const code = (err as any).code as string | undefined;
 
   if (status >= 500) {
     console.error("Server error:", err);
   }
 
-  res.status(status).json({ error: message });
+  res.status(status).json({ error: message, ...(code ? { code } : {}) });
 }
 
 export function notFound(_req: Request, res: Response): void {

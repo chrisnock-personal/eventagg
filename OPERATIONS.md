@@ -1,6 +1,15 @@
 # Aggre/Gator — Operations Guide
 
-## WAL Archiving
+## Duplicate Segment Detection
+
+Two unique indexes protect against duplicate ingestion:
+
+- **Sequence-based** (`in_progress_id, sequence`): prevents the same sequence number appearing twice in a group. This is the primary guard — it catches the common case of a producer retrying a request and the same event being delivered twice.
+- **Body-hash-based** (`in_progress_id, body_hash`): catches exact body duplicates regardless of sequence, using `md5(body::text)`.
+
+**Known limitation:** `body_hash` is computed from `body::text` (JSONB cast to text). PostgreSQL does not guarantee stable key ordering when casting JSONB to text, so two semantically identical events with different JSON key insertion orders may produce different hashes and both be stored. In practice this is rare — the sequence index catches the retry case reliably. A future improvement would use `jsonb_build_object` with sorted keys to produce a canonical hash.
+
+
 
 The default container runs PostgreSQL without WAL archiving. A crash between checkpoints (default every 5 minutes) loses that window of data.
 

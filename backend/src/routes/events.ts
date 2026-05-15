@@ -4,6 +4,7 @@ import { listEvents, getEventById, getSegmentsForEvent, getEventStats, getEventP
 import { createError } from "../middleware/errorHandler";
 import { statsCache, performanceCache, cacheKey } from "../cache";
 import { TIMEOUTS } from "../middleware/timeout";
+import { withStatementTimeout } from "../db/pool";
 
 const router = Router();
 
@@ -36,7 +37,8 @@ router.get("/stats", async (req: Request, res: Response, next: NextFunction) => 
       res.setHeader("X-Cache", "HIT");
       return res.json(cached);
     }
-    const result = await getEventStats(filters);
+    // Apply 15s statement timeout — aggregate queries can be slow on large datasets
+    const result = await withStatementTimeout(TIMEOUTS.stats, () => getEventStats(filters));
     statsCache.set(key, result);
     res.setHeader("X-Cache", "MISS");
     res.json(result);
@@ -62,7 +64,8 @@ router.get("/performance", async (req: Request, res: Response, next: NextFunctio
       res.setHeader("X-Cache", "HIT");
       return res.json(cached);
     }
-    const result = await getEventPerformance(filters);
+    // Apply 15s statement timeout
+    const result = await withStatementTimeout(TIMEOUTS.stats, () => getEventPerformance(filters));
     performanceCache.set(key, result);
     res.setHeader("X-Cache", "MISS");
     res.json(result);

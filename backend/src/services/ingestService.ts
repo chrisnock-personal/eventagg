@@ -37,17 +37,28 @@ export interface IngestResult {
 
 export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
   return withTransaction(async (client) => {
-    // 1. Load policy
-    const policy = await client
-      .query<Policy>(
-        `SELECT * FROM policies WHERE id = $1 AND is_active = TRUE`,
+    // 1. Load and validate policy — check existence and active state separately
+    const policyRow = await client
+      .query<Policy & { is_active: boolean }>(
+        `SELECT * FROM policies WHERE id = $1`,
         [input.policyId]
       )
       .then((r) => r.rows[0]);
 
-    if (!policy) {
-      throw new Error(`Policy ${input.policyId} not found or inactive`);
+    if (!policyRow) {
+      const err = new Error(`Policy ${input.policyId} not found`);
+      (err as any).statusCode = 404;
+      throw err;
     }
+    if (!policyRow.is_active) {
+      const err = new Error(
+        `Policy "${policyRow.name}" (${input.policyId}) is inactive — activate it before ingesting`
+      );
+      (err as any).statusCode = 400;
+      (err as any).code = "POLICY_INACTIVE";
+      throw err;
+    }
+    const policy = policyRow;
 
     // 2. Resolve aggregation key from body
     const rawKey = resolvePath(input.body, policy.key_field);

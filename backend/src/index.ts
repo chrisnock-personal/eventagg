@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
@@ -9,16 +10,19 @@ import { errorHandler, notFound } from "./middleware/errorHandler";
 import { requireApiKey } from "./middleware/auth";
 import { statsCache, performanceCache } from "./cache";
 import { openApiSpec } from "./openapi";
+import authRouter     from "./routes/auth";
 import policiesRouter from "./routes/policies";
 import eventsRouter   from "./routes/events";
 import ingestRouter   from "./routes/ingest";
+import { createUser } from "./services/userService";
 
 const app = express();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({ origin: config.corsOrigin }));
+app.use(cors({ origin: config.corsOrigin, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
 // Request logging in development
 if (config.nodeEnv === "development") {
@@ -66,6 +70,7 @@ const ingestRateLimit = rateLimit({
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
+app.use("/api/v1/auth",             authRouter);
 app.use("/api/v1/policies",         policiesRouter);
 app.use("/api/v1/events/ingest",    ingestRateLimit, requireApiKey, ingestRouter);
 app.use("/api/v1/events",           eventsRouter);
@@ -204,11 +209,27 @@ async function runTimeoutJob(): Promise<void> {
   }
 }
 
+// ─── Seed default admin ───────────────────────────────────────────────────────
+async function seedDefaultAdmin(): Promise<void> {
+  try {
+    const existing = await query("SELECT id FROM users LIMIT 1");
+    if (existing.length > 0) return; // already seeded
+    const password = process.env.ADMIN_PASSWORD || "admin123";
+    await createUser({ username: "admin", email: "admin@localhost", password, role: "admin" });
+    console.log(`👤  Default admin created (password: ${password}) — change this immediately`);
+  } catch (err) {
+    console.error("⚠️  Failed to seed admin user:", err);
+  }
+}
+
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start(): Promise<void> {
   try {
     await testConnection();
     await runMigrations();
+
+    // Seed default admin if no users exist yet
+    await seedDefaultAdmin();
 
     const server = app.listen(config.port, () => {
       console.log(`🚀  Aggre/Gator API running on port ${config.port} [${config.nodeEnv}]`);

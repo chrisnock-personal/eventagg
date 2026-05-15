@@ -1329,6 +1329,275 @@ function StatusMultiSelect({ selected, onChange }: {
   );
 }
 
+// ─── Login Screen ─────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error,    setError]    = useState("");
+  const [busy,     setBusy]     = useState(false);
+
+  async function handleSubmit() {
+    if (!username.trim() || !password) { setError("Enter username and password"); return; }
+    setBusy(true);
+    try {
+      await onLogin(username.trim(), password);
+    } catch (e: any) {
+      setError(e.message ?? "Login failed");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.dark, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Calibri, sans-serif" }}>
+      <div style={{ width: 380, background: C.surface, borderRadius: 16, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        {/* Header */}
+        <div style={{ background: C.dark, padding: "28px 32px 22px", display: "flex", alignItems: "center", gap: 12 }}>
+          <JawIcon size={34} />
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif", letterSpacing: "-0.02em" }}>
+              Aggre<span style={{ color: C.accent }}>/</span>Gator
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace", marginTop: 2 }}>event streams, swallowed whole</div>
+          </div>
+        </div>
+        {/* Form */}
+        <div style={{ padding: "28px 32px" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 20 }}>Sign in</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 5 }}>Username</div>
+              <input value={username} onChange={e => { setUsername(e.target.value); setError(""); }}
+                onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="admin" autoFocus
+                style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, outline: "none", boxSizing: "border-box" as const }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 5 }}>Password</div>
+              <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(""); }}
+                onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="••••••••"
+                style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, outline: "none", boxSizing: "border-box" as const }} />
+            </div>
+            {error && <div style={{ fontSize: 12, color: C.danger, background: C.dangerLight, padding: "8px 12px", borderRadius: 6, border: `1px solid #FCA5A5` }}>{error}</div>}
+            <button onClick={handleSubmit} disabled={busy}
+              style={{ padding: "11px", background: busy ? C.borderStrong : C.accent, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: "inherit", marginTop: 4, opacity: busy ? 0.75 : 1 }}>
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </div>
+          <div style={{ marginTop: 16, fontSize: 11, color: C.textMuted, textAlign: "center" }}>
+            Default credentials: <code style={{ fontFamily: "monospace" }}>admin / admin123</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Burger Menu ──────────────────────────────────────────────────────────────
+function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged }: {
+  user: import("./api").SessionUser;
+  policies: Policy[];
+  appUsers: import("./api").AppUser[];
+  onSignOut: () => void;
+  onUsersChanged: () => void;
+}) {
+  const [open,    setOpen]    = useState(false);
+  const [section, setSection] = useState<null | "policies" | "accounts">(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newU,    setNewU]    = useState({ username: "", email: "", password: "", role: "viewer" });
+  const [saving,  setSaving]  = useState(false);
+  const [err,     setErr]     = useState("");
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false); setSection(null); setShowAdd(false);
+      }
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const rc: Record<string, string> = { admin: C.danger, editor: C.warn, viewer: C.info };
+  const rb: Record<string, string> = { admin: C.dangerLight, editor: C.warnLight, viewer: C.infoLight };
+
+  async function createUser() {
+    if (!newU.username.trim() || !newU.email.trim() || !newU.password) { setErr("All fields required"); return; }
+    setSaving(true); setErr("");
+    try {
+      await api.auth.users.create(newU);
+      setNewU({ username: "", email: "", password: "", role: "viewer" });
+      setShowAdd(false);
+      onUsersChanged();
+    } catch (e: any) { setErr(e.message ?? "Failed to create user"); }
+    finally { setSaving(false); }
+  }
+
+  async function toggleUser(id: string, isActive: boolean) {
+    await api.auth.users.update(id, { isActive: !isActive }).catch(() => {});
+    onUsersChanged();
+  }
+
+  async function removeUser(id: string) {
+    await api.auth.users.delete(id).catch(() => {});
+    onUsersChanged();
+  }
+
+  return (
+    <div ref={menuRef} style={{ position: "relative" }}>
+      <button onClick={() => { setOpen(o => !o); setSection(null); setShowAdd(false); setErr(""); }}
+        style={{ width: 36, height: 36, border: `1px solid ${open ? C.accent : C.border}`, borderRadius: 7, background: open ? C.accentLight : C.surface, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, padding: 0 }}
+        title="Menu">
+        {[0,1,2].map(i => (
+          <div key={i} style={{ width: 16, height: 2, background: open ? C.accent : C.textMid, borderRadius: 1, transition: "all 0.15s",
+            transform: open ? (i===0 ? "rotate(45deg) translate(4px,4px)" : i===2 ? "rotate(-45deg) translate(4px,-4px)" : "scaleX(0)") : "none",
+            opacity: open && i===1 ? 0 : 1 }} />
+        ))}
+      </button>
+
+      {open && (
+        <div style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, width: section ? 400 : 220, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.14)", zIndex: 200, overflow: "hidden" }}>
+
+          {!section && (
+            <div>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>{user.username}</div>
+                <span style={{ background: rb[user.role] ?? C.infoLight, color: rc[user.role] ?? C.info, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3 }}>{user.role}</span>
+              </div>
+              {[
+                { icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const },
+                ...(user.role === "admin" ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const }] : []),
+              ].map(item => (
+                <button key={item.s} onClick={() => setSection(item.s)}
+                  style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.surfaceAlt; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                  <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>{item.icon}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{item.label}</div>
+                    <div style={{ fontSize: 10, color: C.textMuted }}>{item.desc}</div>
+                  </div>
+                  <span style={{ color: C.textMuted }}>›</span>
+                </button>
+              ))}
+              <button onClick={onSignOut}
+                style={{ width: "100%", padding: "10px 14px", border: "none", background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center", color: C.danger, fontSize: 12, fontWeight: 600 }}
+                onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.dangerLight; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>⏻</span>
+                Sign out
+              </button>
+            </div>
+          )}
+
+          {section === "accounts" && (
+            <div>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => { setSection(null); setShowAdd(false); setErr(""); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 20, padding: 0, lineHeight: 1 }}>‹</button>
+                <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>Accounts</span>
+                <button onClick={() => { setShowAdd(s => !s); setErr(""); }}
+                  style={{ padding: "4px 10px", background: showAdd ? C.borderStrong : C.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                  {showAdd ? "Cancel" : "+ Add"}
+                </button>
+              </div>
+              {showAdd && (
+                <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, background: C.accentLight + "80", display: "flex", flexDirection: "column", gap: 7 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>New account</div>
+                  {([["Username","username","text"],["Email","email","email"],["Password","password","password"]] as [string,string,string][]).map(([lbl,key,type]) => (
+                    <input key={key} type={type} value={(newU as any)[key]} placeholder={lbl.toLowerCase()}
+                      onChange={e => setNewU(n => ({ ...n, [key]: e.target.value }))}
+                      style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: "inherit", outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+                  ))}
+                  <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: C.textMuted }}>Role:</span>
+                    {(["viewer","editor","admin"] as const).map(r => (
+                      <button key={r} onClick={() => setNewU(n => ({ ...n, role: r }))}
+                        style={{ padding: "3px 8px", fontSize: 10, fontWeight: newU.role === r ? 700 : 400, border: `1px solid ${newU.role === r ? rc[r] : C.border}`, borderRadius: 4, background: newU.role === r ? rb[r] : "none", color: newU.role === r ? rc[r] : C.textMid, cursor: "pointer", fontFamily: "inherit" }}>
+                        {r}
+                      </button>
+                    ))}
+                  </div>
+                  {err && <div style={{ fontSize: 11, color: C.danger }}>{err}</div>}
+                  <button onClick={createUser} disabled={saving}
+                    style={{ padding: "7px", background: C.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                    {saving ? "Creating…" : "Create account"}
+                  </button>
+                </div>
+              )}
+              <div style={{ maxHeight: 320, overflowY: "auto" }}>
+                {appUsers.map(u => (
+                  <div key={u.id} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 10, alignItems: "center", opacity: u.isActive ? 1 : 0.55 }}>
+                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: u.isActive ? C.accent : C.borderStrong, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                      {u.username[0].toUpperCase()}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{u.username}</span>
+                        <span style={{ background: rb[u.role], color: rc[u.role], fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3 }}>{u.role}</span>
+                        {!u.isActive && <span style={{ fontSize: 9, color: C.textMuted, fontStyle: "italic" }}>disabled</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{u.email}</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>Last login: {u.lastLogin ? new Date(u.lastLogin).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "Never"}</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                      <button onClick={() => toggleUser(u.id, u.isActive)}
+                        style={{ padding: "3px 7px", border: `1px solid ${C.border}`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: u.isActive ? C.warn : C.accent, fontFamily: "inherit" }}>
+                        {u.isActive ? "Disable" : "Enable"}
+                      </button>
+                      {u.username !== user.username && (
+                        <button onClick={() => removeUser(u.id)}
+                          style={{ padding: "3px 7px", border: `1px solid ${C.danger}40`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: C.danger, fontFamily: "inherit" }}>
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "7px 14px", background: C.surfaceAlt, fontSize: 10, color: C.textMuted }}>
+                viewer = read only · editor = ingest + policies · admin = full access
+              </div>
+            </div>
+          )}
+
+          {section === "policies" && (
+            <div>
+              <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", alignItems: "center", gap: 8 }}>
+                <button onClick={() => setSection(null)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 20, padding: 0, lineHeight: 1 }}>‹</button>
+                <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>Policies</span>
+                <span style={{ fontSize: 10, color: C.textMuted }}>{policies.length} total</span>
+              </div>
+              <div style={{ maxHeight: 360, overflowY: "auto" }}>
+                {policies.map(p => (
+                  <div key={p.id} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 10, alignItems: "center" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{p.name.replace("EXAMPLE - ", "")}</span>
+                        <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, fontWeight: 700, background: p.isActive ? C.accentLight : C.surfaceDeep, color: p.isActive ? C.accent : C.textMuted, border: `1px solid ${p.isActive ? C.accentSoft : C.border}` }}>
+                          {p.isActive ? "● Active" : "○ Inactive"}
+                        </span>
+                        {p.timeoutMs && <span style={{ fontSize: 9, color: C.timeout, background: C.timeoutLight, padding: "1px 5px", borderRadius: 3, fontWeight: 700 }}>⏱ {fmtMs(p.timeoutMs)}</span>}
+                      </div>
+                      <div style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace" }}>{p.keyField} · {p.cradleValue} → {p.graveValue}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ padding: "8px 14px", background: C.surfaceAlt }}>
+                <button onClick={() => { setOpen(false); setSection(null); }}
+                  style={{ fontSize: 11, color: C.accent, background: "none", border: `1px solid ${C.accentSoft}`, borderRadius: 5, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
+                  Open full Policy Editor →
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Aggre/Gator logo icon — jaw variant A, forest colour ────────────────────
 function JawIcon({ size = 32 }: { size?: number }) {
   const color = C.accent;
@@ -2140,6 +2409,60 @@ interface FlatSegment extends SegmentDetail {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
+  const [sessionUser, setSessionUser] = useState<import("./api").SessionUser | null | undefined>(undefined);
+  const [appUsers,    setAppUsers]    = useState<import("./api").AppUser[]>([]);
+
+  React.useEffect(() => {
+    api.auth.me().then(u => setSessionUser(u)).catch(() => setSessionUser(null));
+  }, []);
+
+  React.useEffect(() => {
+    if (sessionUser?.role === "admin") {
+      api.auth.users.list().then(setAppUsers).catch(() => {});
+    }
+  }, [sessionUser]);
+
+  function loadAppUsers() {
+    if (sessionUser?.role === "admin") {
+      api.auth.users.list().then(setAppUsers).catch(() => {});
+    }
+  }
+
+  async function handleLogin(username: string, password: string) {
+    const u = await api.auth.login(username, password);
+    setSessionUser(u);
+  }
+  async function handleLogout() {
+    await api.auth.logout().catch(() => {});
+    setSessionUser(null);
+  }
+
+  if (sessionUser === undefined) {
+    return (
+      <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontSize: 14, color: C.textMuted, fontFamily: "Calibri, sans-serif" }}>Loading…</div>
+      </div>
+    );
+  }
+  if (sessionUser === null) {
+    return <LoginScreen onLogin={handleLogin} />;
+  }
+  return (
+    <MainApp
+      sessionUser={sessionUser}
+      appUsers={appUsers}
+      onLogout={handleLogout}
+      onUsersChanged={loadAppUsers}
+    />
+  );
+}
+
+function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
+  sessionUser: import("./api").SessionUser;
+  appUsers: import("./api").AppUser[];
+  onLogout: () => void;
+  onUsersChanged: () => void;
+}) {
   const [policies,       setPolicies]    = useState<Policy[]>([]);
   const [events,         setEvents]      = useState<EventGroupSummary[]>([]);
   const [eventsTotal,    setEventsTotal] = useState(0);
@@ -2493,7 +2816,7 @@ export default function App() {
               <span style={{ fontSize: 11, fontFamily: "monospace", color: C.textMuted, borderLeft: `1.5px solid ${C.border}`, paddingLeft: 10, whiteSpace: "nowrap" as const }}>event streams, swallowed whole</span>
             </div>
           </div>
-          <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8, flexShrink: 0, alignItems: "center" }}>
             <button onClick={() => setAutoRefresh(r => !r)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer", fontFamily: "inherit", border: `1px solid ${autoRefresh ? C.accent : C.border}`, background: autoRefresh ? C.accentLight : C.surface, color: autoRefresh ? C.accent : C.textMid, display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 8, height: 8, borderRadius: "50%", background: autoRefresh ? C.accent : C.borderStrong, display: "inline-block", animation: autoRefresh ? "pulse 2s infinite" : "none" }} />
               {autoRefresh ? "Live · 10s" : "Auto-refresh"}
@@ -2506,8 +2829,15 @@ export default function App() {
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowPolicies(true)} style={{ padding: "7px 14px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer", border: `1px solid ${C.purple}60`, background: C.purpleLight, color: C.purple, fontFamily: "inherit" }}>⚙ Policies ({policies.length})</button>
             <button onClick={() => setShowIngest(true)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: "none", background: C.accent, color: "#fff", fontFamily: "inherit" }}>+ Ingest Event</button>
+            <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{sessionUser?.username}</span>
+            <BurgerMenu
+              user={sessionUser!}
+              policies={policies}
+              appUsers={appUsers}
+              onSignOut={onLogout}
+              onUsersChanged={onUsersChanged}
+            />
           </div>
         </div>
       </div>
