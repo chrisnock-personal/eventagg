@@ -1360,20 +1360,20 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
           </div>
         </div>
         {/* Form */}
-        <div style={{ padding: "28px 32px" }}>
+        <div style={{ padding: "28px 32px", background: C.surface }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 20 }}>Sign in</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 5 }}>Username</div>
               <input value={username} onChange={e => { setUsername(e.target.value); setError(""); }}
                 onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="admin" autoFocus
-                style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, outline: "none", boxSizing: "border-box" as const }} />
+                style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, background: C.surfaceAlt, outline: "none", boxSizing: "border-box" as const }} />
             </div>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 5 }}>Password</div>
               <input type="password" value={password} onChange={e => { setPassword(e.target.value); setError(""); }}
                 onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder="••••••••"
-                style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, outline: "none", boxSizing: "border-box" as const }} />
+                style={{ width: "100%", padding: "9px 12px", border: `1.5px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, background: C.surfaceAlt, outline: "none", boxSizing: "border-box" as const }} />
             </div>
             {error && <div style={{ fontSize: 12, color: C.danger, background: C.dangerLight, padding: "8px 12px", borderRadius: 6, border: `1px solid #FCA5A5` }}>{error}</div>}
             <button onClick={handleSubmit} disabled={busy}
@@ -1382,7 +1382,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
             </button>
           </div>
           <div style={{ marginTop: 16, fontSize: 11, color: C.textMuted, textAlign: "center" }}>
-            Default credentials: <code style={{ fontFamily: "monospace" }}>admin / admin123</code>
+            Default credentials: <code style={{ fontFamily: "monospace", color: C.textMid }}>admin / admin123</code>
           </div>
         </div>
       </div>
@@ -1391,12 +1391,13 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
 }
 
 // ─── Burger Menu ──────────────────────────────────────────────────────────────
-function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged }: {
+function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies }: {
   user: import("./api").SessionUser;
   policies: Policy[];
   appUsers: import("./api").AppUser[];
   onSignOut: () => void;
   onUsersChanged: () => void;
+  onOpenPolicies: () => void;
 }) {
   const [open,    setOpen]    = useState(false);
   const [section, setSection] = useState<null | "policies" | "accounts">(null);
@@ -1584,7 +1585,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged }: {
                 ))}
               </div>
               <div style={{ padding: "8px 14px", background: C.surfaceAlt }}>
-                <button onClick={() => { setOpen(false); setSection(null); }}
+                <button onClick={() => { setOpen(false); setSection(null); onOpenPolicies(); }}
                   style={{ fontSize: 11, color: C.accent, background: "none", border: `1px solid ${C.accentSoft}`, borderRadius: 5, padding: "4px 12px", cursor: "pointer", fontFamily: "inherit", width: "100%" }}>
                   Open full Policy Editor →
                 </button>
@@ -2837,6 +2838,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
               appUsers={appUsers}
               onSignOut={onLogout}
               onUsersChanged={onUsersChanged}
+              onOpenPolicies={() => setShowPolicies(true)}
             />
           </div>
         </div>
