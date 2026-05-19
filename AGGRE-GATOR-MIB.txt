@@ -1,0 +1,199 @@
+AGGRE-GATOR-MIB DEFINITIONS ::= BEGIN
+
+-- ─────────────────────────────────────────────────────────────────────────────
+--  AGGRE-GATOR-MIB
+--  Aggre/Gator Event Stream Aggregation Platform
+--
+--  Enterprise OID: 1.3.6.1.4.1.99999
+--
+--  NOTE: 99999 is a placeholder. Register a real Private Enterprise Number
+--  (PEN) with IANA at https://pen.iana.org/pen/PenApplication.page — it is
+--  free and takes a few days. Replace 99999 with your assigned PEN before
+--  deploying in a production network.
+--
+--  To load this MIB in Net-SNMP tools:
+--    cp AGGRE-GATOR-MIB.txt /usr/share/snmp/mibs/
+--    export MIBS=+AGGRE-GATOR-MIB
+--    snmptranslate AGGRE-GATOR-MIB::agIngestTrap
+--
+--  To test with Net-SNMP (sends a test ingest trap):
+--    snmptrap -v 2c -c public localhost:1162 '' \
+--      AGGRE-GATOR-MIB::agIngestTrap \
+--      AGGRE-GATOR-MIB::agPolicyId s "your-policy-uuid" \
+--      AGGRE-GATOR-MIB::agAggregationKey s "TRD-9001" \
+--      AGGRE-GATOR-MIB::agEventType s "trade.initiated" \
+--      AGGRE-GATOR-MIB::agEventBody s "{\"tradeRef\":\"TRD-9001\",\"notional\":100000}"
+-- ─────────────────────────────────────────────────────────────────────────────
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    enterprises, Integer32, Counter64
+        FROM SNMPv2-SMI
+    DisplayString, TruthValue
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF;
+
+aggreGatorMIB MODULE-IDENTITY
+    LAST-UPDATED "202601010000Z"
+    ORGANIZATION "Aggre/Gator Project"
+    CONTACT-INFO "https://github.com/your-org/aggre-gator"
+    DESCRIPTION
+        "MIB for the Aggre/Gator event stream aggregation platform.
+         Devices and systems can send agIngestTrap to feed events
+         directly into the Aggre/Gator ingest pipeline without HTTP."
+    REVISION "202601010000Z"
+    DESCRIPTION "Initial version."
+    ::= { enterprises 99999 }
+
+-- ── OID tree ──────────────────────────────────────────────────────────────────
+
+aggreGatorObjects       OBJECT IDENTIFIER ::= { aggreGatorMIB 1 }
+aggreGatorTraps         OBJECT IDENTIFIER ::= { aggreGatorMIB 2 }
+aggreGatorConformance   OBJECT IDENTIFIER ::= { aggreGatorMIB 3 }
+aggreGatorTrapObjects   OBJECT IDENTIFIER ::= { aggreGatorMIB 4 }
+
+-- ── Ingest varbind objects ────────────────────────────────────────────────────
+-- These are the varbinds carried in agIngestTrap.
+
+agPolicyId OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (36))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "UUID of the Aggre/Gator aggregation policy to route this event to.
+         Must match an active policy on the receiving Aggre/Gator instance.
+         Example: '550e8400-e29b-41d4-a716-446655440000'"
+    ::= { aggreGatorTrapObjects 1 }
+
+agAggregationKey OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The aggregation key value for this event. Must correspond to the
+         keyField defined in the target policy. All events sharing the same
+         agAggregationKey value under the same policy are grouped together.
+         Example: 'TRD-9001', '192.168.1.10', 'sess-abc123'"
+    ::= { aggreGatorTrapObjects 2 }
+
+agEventType OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The event type string. This is matched against the policy's cradle
+         and grave conditions. Use the same values you would in the HTTP
+         ingest API's body.eventType field.
+         Example: 'trade.initiated', 'link.down', 'session.start'"
+    ::= { aggreGatorTrapObjects 3 }
+
+agEventBody OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..65535))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The full event payload as a JSON string. This becomes the body
+         field in the Aggre/Gator segment. The agAggregationKey and
+         agEventType values are automatically merged into this body,
+         so they do not need to be duplicated here.
+         Example: '{\"notional\":100000,\"currency\":\"GBP\",\"trader\":\"jsmith\"}'
+         May be empty ('{}') if no additional payload is needed."
+    ::= { aggreGatorTrapObjects 4 }
+
+agSourceSystem OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "Optional. Identifies the originating system or component.
+         Stored in the event body as sourceSystem. Useful for filtering
+         and reporting when multiple systems share a policy.
+         Example: 'core-router-01', 'trade-engine', 'payment-gateway'"
+    ::= { aggreGatorTrapObjects 5 }
+
+agSeverity OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    clear       (0),
+                    indeterminate (1),
+                    warning     (2),
+                    minor       (3),
+                    major       (4),
+                    critical    (5)
+                }
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "Optional severity level for this event, using the ITU-T X.733
+         severity model. Stored in the event body as severity.
+         Use clear(0) for grave events (normalisation / resolution).
+         Use major(4) or critical(5) for cradle events (fault onset)."
+    ::= { aggreGatorTrapObjects 6 }
+
+-- ── The core ingest trap ──────────────────────────────────────────────────────
+
+agIngestTrap NOTIFICATION-TYPE
+    OBJECTS {
+        agPolicyId,
+        agAggregationKey,
+        agEventType,
+        agEventBody,
+        agSourceSystem,
+        agSeverity
+    }
+    STATUS  current
+    DESCRIPTION
+        "The primary Aggre/Gator ingest trap. Sending this trap delivers an
+         event segment to the specified policy's aggregation pipeline.
+
+         Required varbinds: agPolicyId, agAggregationKey, agEventType
+         Optional varbinds: agEventBody, agSourceSystem, agSeverity
+
+         The receiving Aggre/Gator instance will:
+           1. Route to the policy identified by agPolicyId
+           2. Use agAggregationKey as the grouping key
+           3. Evaluate agEventType against cradle/grave conditions
+           4. Merge agEventBody, agSourceSystem, agSeverity into the segment body
+           5. Open, append to, or close the event group accordingly"
+    ::= { aggreGatorTraps 1 }
+
+-- ── Standard trap forwarding object ──────────────────────────────────────────
+-- Used when forwarding non-AggreGator traps through the routing rules engine.
+
+agForwardedTrapOid OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE (0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "For internally forwarded standard traps: the original trap OID
+         as a dotted string. Not used in agIngestTrap."
+    ::= { aggreGatorTrapObjects 7 }
+
+-- ── Conformance ───────────────────────────────────────────────────────────────
+
+agCompliances OBJECT IDENTIFIER ::= { aggreGatorConformance 1 }
+agGroups      OBJECT IDENTIFIER ::= { aggreGatorConformance 2 }
+
+agBasicCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION "Basic compliance for Aggre/Gator trap senders."
+    MODULE
+        MANDATORY-GROUPS { agIngestTrapGroup, agIngestObjectGroup }
+    ::= { agCompliances 1 }
+
+agIngestObjectGroup OBJECT-GROUP
+    OBJECTS {
+        agPolicyId, agAggregationKey, agEventType,
+        agEventBody, agSourceSystem, agSeverity, agForwardedTrapOid
+    }
+    STATUS  current
+    DESCRIPTION "Objects used in Aggre/Gator ingest traps."
+    ::= { agGroups 1 }
+
+agIngestTrapGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { agIngestTrap }
+    STATUS  current
+    DESCRIPTION "Aggre/Gator ingest notification group."
+    ::= { agGroups 2 }
+
+END

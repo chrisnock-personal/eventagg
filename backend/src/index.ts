@@ -14,7 +14,9 @@ import authRouter     from "./routes/auth";
 import policiesRouter from "./routes/policies";
 import eventsRouter   from "./routes/events";
 import ingestRouter   from "./routes/ingest";
-import { createUser } from "./services/userService";
+import snmpRouter     from "./routes/snmp";
+import { createUser, updateUser } from "./services/userService";
+import { startSnmpReceiver, stopSnmpReceiver, getSnmpStats } from "./snmp/trapReceiver";
 
 const app = express();
 
@@ -53,6 +55,7 @@ app.get("/health", async (_req, res) => {
       timestamp: new Date().toISOString(),
       db: { connected: true, recentPartitions: partitions },
       cache: { statsEntries: statsCache.size, performanceEntries: performanceCache.size },
+      snmp: getSnmpStats(),
       uptime: Math.round(process.uptime()),
     });
   } catch (err: any) {
@@ -74,6 +77,7 @@ app.use("/api/v1/auth",             authRouter);
 app.use("/api/v1/policies",         policiesRouter);
 app.use("/api/v1/events/ingest",    ingestRateLimit, requireApiKey, ingestRouter);
 app.use("/api/v1/events",           eventsRouter);
+app.use("/api/v1/snmp",             snmpRouter);
 
 // ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
 app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
@@ -212,11 +216,18 @@ async function runTimeoutJob(): Promise<void> {
 // ─── Seed default admin ───────────────────────────────────────────────────────
 async function seedDefaultAdmin(): Promise<void> {
   try {
-    const existing = await query("SELECT id FROM users LIMIT 1");
-    if (existing.length > 0) return; // already seeded
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM users WHERE username = 'admin' LIMIT 1"
+    );
     const password = process.env.ADMIN_PASSWORD || "admin123";
-    await createUser({ username: "admin", email: "admin@localhost", password, role: "admin" });
-    console.log(`👤  Default admin created (password: ${password}) — change this immediately`);
+    if (existing.length === 0) {
+      await createUser({ username: "admin", email: "admin@localhost", password, role: "admin" });
+      console.log(`👤  Default admin created — username: admin  password: ${password}`);
+    } else {
+      // Always reset the hash on startup so it matches the current bcryptjs implementation
+      await updateUser(existing[0].id, { password });
+      console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
+    }
   } catch (err) {
     console.error("⚠️  Failed to seed admin user:", err);
   }
@@ -238,6 +249,7 @@ async function start(): Promise<void> {
       console.log(`    Events:   http://localhost:${config.port}/api/v1/events`);
       console.log(`    Ingest:   POST http://localhost:${config.port}/api/v1/events/ingest`);
       console.log(`    Docs:     http://localhost:${config.port}/api/v1/docs`);
+      console.log(`    SNMP:     UDP port ${process.env.SNMP_PORT ?? "1162"} (${process.env.SNMP_ENABLED === "true" ? "enabled" : "disabled — set SNMP_ENABLED=true"})`);
     });
 
     // Start timeout job — run immediately then every 60 seconds
@@ -248,11 +260,19 @@ async function start(): Promise<void> {
     runPartitionJob();
     const partitionJobInterval = setInterval(runPartitionJob, 24 * 60 * 60_000);
 
+    // Start SNMP trap receiver
+    startSnmpReceiver({
+      port:      parseInt(process.env.SNMP_PORT ?? "1162"),
+      community: process.env.SNMP_COMMUNITY ?? "public",
+      enabled:   process.env.SNMP_ENABLED === "true",
+    });
+
     // Graceful shutdown
     const shutdown = async (signal: string) => {
       console.log(`\n${signal} received — shutting down gracefully...`);
       clearInterval(timeoutJobInterval);
       clearInterval(partitionJobInterval);
+      stopSnmpReceiver();
       statsCache.destroy();
       performanceCache.destroy();
       server.close(async () => {

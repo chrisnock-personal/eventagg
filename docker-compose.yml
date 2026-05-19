@@ -12,8 +12,9 @@ services:
     container_name: eventagg
     ports:
       - "${HOST_PORT:-9090}:80"       # Frontend (nginx)
-      - "${API_PORT:-3001}:3001"    # Backend API (direct)
-      - "${PG_PORT:-5432}:5432"     # PostgreSQL (remote access)
+      - "${API_PORT:-3001}:3001"      # Backend API (direct)
+      - "${PG_PORT:-5432}:5432"       # PostgreSQL (remote access)
+      - "${SNMP_PORT:-1162}:1162/udp" # SNMP trap receiver
     environment:
       # ── PostgreSQL ───────────────────────────────────────────────────────
       PGHOST: localhost
@@ -28,6 +29,10 @@ services:
       NODE_ENV: "${NODE_ENV:-production}"
       CORS_ORIGIN: "*"
       PG_POOL_MAX: "10"
+      # ── SNMP trap receiver ───────────────────────────────────────────────
+      SNMP_ENABLED: "${SNMP_ENABLED:-true}"
+      SNMP_PORT: "${SNMP_PORT:-1162}"
+      SNMP_COMMUNITY: "${SNMP_COMMUNITY:-public}"
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped

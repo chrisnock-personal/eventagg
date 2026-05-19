@@ -1350,13 +1350,13 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
     <div style={{ minHeight: "100vh", background: C.dark, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Calibri, sans-serif" }}>
       <div style={{ width: 380, background: C.surface, borderRadius: 16, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
         {/* Header */}
-        <div style={{ background: C.dark, padding: "28px 32px 22px", display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ background: "#1A1916", padding: "28px 32px 22px", display: "flex", alignItems: "center", gap: 12 }}>
           <JawIcon size={34} />
           <div>
-            <div style={{ fontSize: 22, fontWeight: 900, color: "#fff", fontFamily: "Georgia, serif", letterSpacing: "-0.02em" }}>
-              Aggre<span style={{ color: C.accent }}>/</span>Gator
+            <div style={{ fontSize: 22, fontWeight: 900, color: "#FFFFFF", fontFamily: "Georgia, serif", letterSpacing: "-0.02em" }}>
+              Aggre<span style={{ color: "#1D6B4E" }}>/</span>Gator
             </div>
-            <div style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace", marginTop: 2 }}>event streams, swallowed whole</div>
+            <div style={{ fontSize: 11, color: "#8A8680", fontFamily: "monospace", marginTop: 2 }}>event streams, swallowed whole</div>
           </div>
         </div>
         {/* Form */}
@@ -1390,6 +1390,166 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
   );
 }
 
+// ─── SNMP Panel ───────────────────────────────────────────────────────────────
+function SnmpPanel({ onBack, policies }: { onBack: () => void; policies: Policy[] }) {
+  const [tab,     setTab]     = useState<"status"|"sources"|"rules"|"log">("status");
+  const [status,  setStatus]  = useState<any>(null);
+  const [sources, setSources] = useState<any[]>([]);
+  const [rules,   setRules]   = useState<any[]>([]);
+  const [log,     setLog]     = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  React.useEffect(() => {
+    loadTab(tab);
+  }, [tab]);
+
+  async function loadTab(t: string) {
+    setLoading(true);
+    try {
+      if (t === "status")  setStatus(await api.snmp.status());
+      if (t === "sources") setSources(await api.snmp.sources.list());
+      if (t === "rules")   setRules(await api.snmp.rules.list());
+      if (t === "log")     setLog(await api.snmp.log());
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }
+
+  const tabStyle = (t: string) => ({
+    padding: "5px 10px", border: "none", background: tab === t ? C.accentLight : "none",
+    color: tab === t ? C.accent : C.textMid, cursor: "pointer", fontSize: 11,
+    fontWeight: tab === t ? 700 : 400, fontFamily: "inherit", borderBottom: tab === t ? `2px solid ${C.accent}` : "2px solid transparent",
+  });
+
+  return (
+    <div>
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 20, padding: 0, lineHeight: 1 }}>‹</button>
+        <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>📡 SNMP Trap Receiver</span>
+        <button onClick={() => loadTab(tab)} style={{ fontSize: 11, color: C.accent, background: "none", border: `1px solid ${C.accentSoft}`, borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontFamily: "inherit" }}>↻</button>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, background: C.surface }}>
+        {(["status","sources","rules","log"] as const).map(t => (
+          <button key={t} style={tabStyle(t)} onClick={() => setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>
+        ))}
+      </div>
+
+      <div style={{ maxHeight: 380, overflowY: "auto" }}>
+        {loading && <div style={{ padding: 24, textAlign: "center", fontSize: 12, color: C.textMuted }}>Loading…</div>}
+
+        {!loading && tab === "status" && status && (
+          <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ padding: "10px 14px", borderRadius: 8, background: status.enabled ? C.accentLight : C.surfaceAlt, border: `1px solid ${status.enabled ? C.accentSoft : C.border}` }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: status.enabled ? C.accent : C.textMid }}>
+                {status.enabled ? "● Receiver Active" : "○ Receiver Disabled"}
+              </div>
+              <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>
+                UDP port {status.port} · Community: <code style={{ fontFamily: "monospace" }}>{status.community}</code>
+              </div>
+              {!status.enabled && (
+                <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, padding: "6px 8px", background: C.surfaceDeep, borderRadius: 5 }}>
+                  Set <code style={{ fontFamily: "monospace" }}>SNMP_ENABLED=true</code> env var and rebuild to enable
+                </div>
+              )}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {[
+                { label: "Received", value: status.received, color: C.info },
+                { label: "Routed",   value: status.routed,   color: C.accent },
+                { label: "Unrouted", value: status.unrouted, color: C.warn },
+                { label: "Errors",   value: status.errors,   color: C.danger },
+              ].map(s => (
+                <div key={s.label} style={{ padding: "8px 10px", background: C.surfaceAlt, borderRadius: 6, border: `1px solid ${C.border}` }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, fontFamily: "monospace", color: s.color }}>{s.value}</div>
+                  <div style={{ fontSize: 10, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div style={{ padding: "10px 12px", background: C.surfaceAlt, borderRadius: 6, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, marginBottom: 5, letterSpacing: "0.07em" }}>AggreGator MIB OIDs</div>
+              {[
+                { name: "Ingest trap",    oid: "1.3.6.1.4.1.99999.2.1" },
+                { name: "agPolicyId",     oid: "1.3.6.1.4.1.99999.4.1" },
+                { name: "agAggregKey",    oid: "1.3.6.1.4.1.99999.4.2" },
+                { name: "agEventType",    oid: "1.3.6.1.4.1.99999.4.3" },
+                { name: "agEventBody",    oid: "1.3.6.1.4.1.99999.4.4" },
+              ].map(r => (
+                <div key={r.oid} style={{ display: "flex", justifyContent: "space-between", fontSize: 10, marginBottom: 2 }}>
+                  <span style={{ color: C.textMid }}>{r.name}</span>
+                  <code style={{ fontFamily: "monospace", color: C.textMuted, fontSize: 9 }}>{r.oid}</code>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: C.textMuted, padding: "8px 10px", background: C.surfaceAlt, borderRadius: 6, fontFamily: "monospace" }}>
+              Test: node scripts/send-trap.js --policy &lt;uuid&gt; --key K-001 --event-type test.event
+            </div>
+          </div>
+        )}
+
+        {!loading && tab === "sources" && (
+          <div>
+            {sources.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: C.textMuted }}>No trap sources seen yet. Sources are auto-registered when a trap arrives.</div>}
+            {sources.map((s: any) => (
+              <div key={s.id} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, opacity: s.is_active ? 1 : 0.55 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{s.name !== s.agent_addr ? s.name : s.agent_addr}</span>
+                  <span style={{ fontSize: 10, fontFamily: "monospace", color: C.textMuted }}>{s.agent_addr}</span>
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: C.infoLight, color: C.info, fontWeight: 700 }}>{s.community}</span>
+                </div>
+                <div style={{ fontSize: 10, color: C.textMuted }}>
+                  {s.trap_count} traps · Last seen: {s.last_seen ? new Date(s.last_seen).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "Never"}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {!loading && tab === "rules" && (
+          <div>
+            {rules.length === 0 && (
+              <div style={{ padding: "16px 14px" }}>
+                <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>No routing rules configured. AggreGator MIB traps route automatically via their agPolicyId varbind. Rules are for standard third-party traps.</div>
+              </div>
+            )}
+            {rules.map((r: any) => (
+              <div key={r.id} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.surfaceDeep, color: C.textMid }}>P{r.priority}</span>
+                  {r.match_community && <span style={{ fontSize: 10, fontFamily: "monospace", background: C.infoLight, color: C.info, padding: "1px 5px", borderRadius: 3 }}>community={r.match_community}</span>}
+                  {r.match_agent && <span style={{ fontSize: 10, fontFamily: "monospace", background: C.infoLight, color: C.info, padding: "1px 5px", borderRadius: 3 }}>{r.match_agent}</span>}
+                  {r.match_trap_oid && <span style={{ fontSize: 10, fontFamily: "monospace", color: C.textMuted }}>{r.match_trap_oid}</span>}
+                </div>
+                <div style={{ fontSize: 11, color: C.textMid }}>→ <strong>{r.policy_name}</strong> · key: <code style={{ fontFamily: "monospace" }}>{r.key_field}</code></div>
+              </div>
+            ))}
+            <div style={{ padding: "8px 14px", background: C.surfaceAlt, fontSize: 10, color: C.textMuted }}>
+              Add rules via <code style={{ fontFamily: "monospace" }}>POST /api/v1/snmp/rules</code>
+            </div>
+          </div>
+        )}
+
+        {!loading && tab === "log" && (
+          <div>
+            {log.length === 0 && <div style={{ padding: 20, textAlign: "center", fontSize: 12, color: C.textMuted }}>No traps received yet.</div>}
+            {log.map((entry: any) => (
+              <div key={entry.id} style={{ padding: "8px 14px", borderBottom: `1px solid ${C.border}`, fontSize: 11 }}>
+                <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 2 }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 700, color: entry.route_type === "unrouted" ? C.warn : C.accent, fontSize: 10 }}>{entry.trap_name ?? entry.trap_oid}</span>
+                  <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: entry.route_type === "aggregator_mib" ? C.accentLight : entry.route_type === "unrouted" ? C.warnLight : C.infoLight, color: entry.route_type === "aggregator_mib" ? C.accent : entry.route_type === "unrouted" ? C.warn : C.info, fontWeight: 700 }}>{entry.route_type}</span>
+                </div>
+                <div style={{ color: C.textMuted }}>
+                  {entry.agent_addr} · {new Date(entry.received_at).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Burger Menu ──────────────────────────────────────────────────────────────
 function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies }: {
   user: import("./api").SessionUser;
@@ -1400,7 +1560,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
   onOpenPolicies: () => void;
 }) {
   const [open,    setOpen]    = useState(false);
-  const [section, setSection] = useState<null | "policies" | "accounts">(null);
+  const [section, setSection] = useState<null | "policies" | "accounts" | "snmp">(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newU,    setNewU]    = useState({ username: "", email: "", password: "", role: "viewer" });
   const [saving,  setSaving]  = useState(false);
@@ -1466,6 +1626,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
               {[
                 { icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const },
                 ...(user.role === "admin" ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const }] : []),
+                { icon: "📡", label: "SNMP",      desc: "Trap receiver & routing rules", s: "snmp" as const },
               ].map(item => (
                 <button key={item.s} onClick={() => setSection(item.s)}
                   style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
@@ -1591,6 +1752,10 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                 </button>
               </div>
             </div>
+          )}
+
+          {section === "snmp" && (
+            <SnmpPanel onBack={() => setSection(null)} policies={policies} />
           )}
 
         </div>

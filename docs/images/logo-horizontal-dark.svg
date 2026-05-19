@@ -1,0 +1,18 @@
+<svg width="560" height="140" viewBox="0 0 560 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="560" height="140" rx="12" fill="#1A1916"/>
+  <g transform="translate(32,30) scale(2.22)">
+    <path d="M4 6 L32 15 L32 19 L4 11Z" fill="#1D6B4E"/>
+    <path d="M4 30 L32 19 L32 24 L4 35Z" fill="#1D6B4E" opacity="0.5"/>
+    <circle cx="29" cy="12" r="5.5" fill="#1D6B4E" opacity="0.15"/>
+    <circle cx="29" cy="12" r="4"   fill="#1A1916" opacity="0.3"/>
+    <circle cx="29" cy="12" r="2.8" fill="white"/>
+    <circle cx="29.5" cy="12.3" r="1.1" fill="#1D6B4E" opacity="0.35"/>
+    <ellipse cx="29.7" cy="12.4" rx="0.48" ry="1.05" fill="#1A1916"/>
+    <circle cx="28.8" cy="11.5" r="0.45" fill="white" opacity="0.75"/>
+  </g>
+  <text x="118" y="86" font-family="Georgia, serif" font-weight="900" font-size="54" letter-spacing="-2" fill="#F8F7F4">Aggre</text>
+  <text x="310" y="86" font-family="Georgia, serif" font-weight="900" font-size="100" fill="#1D6B4E" transform="scale(0.9,1) translate(50,0)">&#47;</text>
+  <text x="392" y="86" font-family="Georgia, serif" font-weight="900" font-size="54" letter-spacing="-2" fill="#F8F7F4">Gator</text>
+  <line x1="118" y1="100" x2="118" y2="114" stroke="#3A3A3A" stroke-width="1.5"/>
+  <text x="130" y="113" font-family="monospace" font-size="13" fill="#8A8680">event streams, swallowed whole</text>
+</svg>
