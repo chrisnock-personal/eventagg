@@ -1,6 +1,7 @@
 import { PoolClient } from "pg";
 import { withTransaction, queryOne } from "../db/pool";
 import { Policy, AuditAction, EventGroupDetail, SegmentDetail } from "../types";
+import { triggerWebhooks, WebhookGroupPayload } from "./webhookService";
 
 // Resolve a dot-notation path against a JSON object
 // e.g. resolvePath({ trade: { ref: "T-001" } }, "trade.ref") => "T-001"
@@ -33,6 +34,7 @@ export interface IngestResult {
   isGrave: boolean;
   action: "group_opened" | "segment_appended" | "group_promoted";
   status: "in_progress" | "completed";
+  _webhookPayload?: WebhookGroupPayload;
 }
 
 export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
@@ -199,6 +201,7 @@ export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
     }
 
     // ── Promote to completed ──────────────────────────────────────────────
+    const endTime = new Date();
     const completed = await client
       .query<{ id: string }>(
         `INSERT INTO completed_events
@@ -242,6 +245,9 @@ export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
       afterState: { completedId: completed.id, segmentCount: nextSequence },
     });
 
+    const startTime = new Date(existingGroup.started_at);
+    const durationMs = endTime.getTime() - startTime.getTime();
+
     return {
       groupId: completed.id,
       segmentId: segment.id,
@@ -250,8 +256,25 @@ export async function ingestSegment(input: IngestInput): Promise<IngestResult> {
       isGrave: true,
       action: "group_promoted",
       status: "completed",
+      _webhookPayload: {
+        id: completed.id,
+        policyId: policy.id,
+        policyName: policy.name,
+        aggregationKey,
+        status: "completed",
+        segmentCount: nextSequence,
+        startTime: existingGroup.started_at,
+        endTime: endTime.toISOString(),
+        durationMs,
+      },
     };
   });
+}
+
+export async function fireGroupCompletedWebhook(result: IngestResult): Promise<void> {
+  if (result._webhookPayload) {
+    await triggerWebhooks("group_completed", result._webhookPayload);
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

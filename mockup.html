@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aggre/Gator — Table Font Mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Calibri, 'Segoe UI', sans-serif; background: #F8F7F4; color: #1A1916; }
+
+  /* ── Toggle bar ── */
+  .toggle-bar {
+    position: fixed; bottom: 20px; right: 20px; z-index: 9999;
+    background: #1A1916; border-radius: 10px; padding: 10px 14px;
+    display: flex; gap: 8px; align-items: center; box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .toggle-bar span { font-size: 11px; color: #9E9A94; font-family: monospace; margin-right: 4px; }
+  .toggle-btn { padding: 5px 12px; border-radius: 6px; border: 1px solid #3A3835; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .toggle-btn.active   { background: #1D6B4E; color: #fff; border-color: #1D6B4E; }
+  .toggle-btn.inactive { background: none; color: #9E9A94; }
+
+  /* ── Label strip ── */
+  .panel-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+    color: #8A8680; padding: 14px 32px 8px; font-family: monospace;
+  }
+
+  /* ── Table wrapper ── */
+  .table-wrap { margin: 0 32px 32px; background: #FFFFFF; border: 1px solid #E0DDD8; border-radius: 8px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-family: Calibri, 'Segoe UI', sans-serif; }
+  thead tr { background: #F2F1EE; }
+  th { padding: 7px 10px; text-align: left; font-size: 10px; font-weight: 700; letter-spacing: 0.07em; color: #8A8680; text-transform: uppercase; white-space: nowrap; border-bottom: 1px solid #E0DDD8; font-family: Calibri, 'Segoe UI', sans-serif; }
+  td { padding: 10px 10px; border-bottom: 1px solid #ECEAE6; font-size: 12px; overflow: hidden; max-width: 200px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #F2F1EE; }
+
+  /* ── Status badges (unchanged) ── */
+  .badge-status-completed { background: #E8F3EE; color: #1D6B4E; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; font-family: monospace; }
+  .badge-status-progress  { background: #FEF3C7; color: #B45309; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; font-family: monospace; }
+  .arrow-btn { padding: 3px 9px; border: 1px solid #E0DDD8; border-radius: 4px; background: none; font-size: 10px; color: #8A8680; cursor: pointer; font-family: inherit; }
+
+  /* ── CURRENT: badge/mono styles ── */
+  .cur-id     { font-family: monospace; font-size: 11px; color: #1D6B4E; }
+  .cur-policy { background: #EDE9FE; color: #6D28D9; padding: 2px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; font-family: monospace; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cur-key    { background: #F2F1EE; color: #4A4844; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-family: monospace; border: 1px solid #E0DDD8; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cur-source { font-size: 10px; color: #1D4ED8; font-family: monospace; white-space: nowrap; }
+  .cur-time   { font-size: 11px; color: #8A8680; white-space: nowrap; }
+  .cur-segs   { text-align: center; font-size: 12px; }
+
+  /* ── PROPOSED: group ID ── */
+  .u-id {
+    font-family: Calibri, 'Segoe UI', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #1D6B4E;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ── PROPOSED: every other non-status cell uniform ── */
+  .u {
+    font-family: Calibri, 'Segoe UI', sans-serif;
+    font-size: 12px;
+    font-weight: 400;
+    color: #4A4844;
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  td.center { text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ═══ CURRENT ═══ -->
+<div id="panel-current">
+  <div class="panel-label">Current</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Event Group ID</th>
+        <th>Policy</th>
+        <th>Aggregation Key</th>
+        <th>Source</th>
+        <th>Status</th>
+        <th>Start Time</th>
+        <th>Segs</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="cur-id">1ec3f985-f74c-4…</span></td>
+          <td><span class="cur-policy">EXAMPLE - API Request/Response</span></td>
+          <td><span class="cur-key">COR-001</span></td>
+          <td><span class="cur-source">←body.correlationId</span></td>
+          <td><span class="badge-status-progress">◐ In Progress</span></td>
+          <td class="cur-time">23/05/2026, 14:57:16</td>
+          <td class="cur-segs">1</td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="cur-id">09b48602-8506-4…</span></td>
+          <td><span class="cur-policy">EXAMPLE - Order Flow</span></td>
+          <td><span class="cur-key">ORD-001</span></td>
+          <td><span class="cur-source">←body.orderId</span></td>
+          <td><span class="badge-status-progress">◐ In Progress</span></td>
+          <td class="cur-time">23/05/2026, 14:57:14</td>
+          <td class="cur-segs">1</td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="cur-id">06676e27-7039-4…</span></td>
+          <td><span class="cur-policy">EXAMPLE - Trade Lifecycle</span></td>
+          <td><span class="cur-key">TRA-001</span></td>
+          <td><span class="cur-source">←body.tradeRef</span></td>
+          <td><span class="badge-status-progress">◐ In Progress</span></td>
+          <td class="cur-time">23/05/2026, 14:57:11</td>
+          <td class="cur-segs">1</td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="cur-id">2a84527d-f9b8-4…</span></td>
+          <td><span class="cur-policy">EXAMPLE - Trade Lifecycle</span></td>
+          <td><span class="cur-key">TRD-TRAP-MPIKFWL5</span></td>
+          <td><span class="cur-source">←body.tradeRef</span></td>
+          <td><span class="badge-status-completed">● Completed</span></td>
+          <td class="cur-time">23/05/2026, 14:54:46</td>
+          <td class="cur-segs">4</td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="cur-id">90b70dc6-fa9b-4…</span></td>
+          <td><span class="cur-policy">EXAMPLE - Trade Lifecycle</span></td>
+          <td><span class="cur-key">TRD-TRAP-MPIKFSLS</span></td>
+          <td><span class="cur-source">←body.tradeRef</span></td>
+          <td><span class="badge-status-completed">● Completed</span></td>
+          <td class="cur-time">23/05/2026, 14:54:40</td>
+          <td class="cur-segs">4</td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ═══ PROPOSED ═══ -->
+<div id="panel-new" style="display:none">
+  <div class="panel-label">Proposed — plain text, consistent font</div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Event Group ID</th>
+        <th>Policy</th>
+        <th>Aggregation Key</th>
+        <th>Source</th>
+        <th>Status</th>
+        <th>Start Time</th>
+        <th>Segs</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="u-id">1ec3f985-f74c-4…</span></td>
+          <td><span class="u">API Request/Response</span></td>
+          <td><span class="u">COR-001</span></td>
+          <td><span class="u">body.correlationId</span></td>
+          <td><span class="badge-status-progress">◐ In Progress</span></td>
+          <td><span class="u">23/05/2026, 14:57:16</span></td>
+          <td class="center"><span class="u">1</span></td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="u-id">09b48602-8506-4…</span></td>
+          <td><span class="u">Order Flow</span></td>
+          <td><span class="u">ORD-001</span></td>
+          <td><span class="u">body.orderId</span></td>
+          <td><span class="badge-status-progress">◐ In Progress</span></td>
+          <td><span class="u">23/05/2026, 14:57:14</span></td>
+          <td class="center"><span class="u">1</span></td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="u-id">06676e27-7039-4…</span></td>
+          <td><span class="u">Trade Lifecycle</span></td>
+          <td><span class="u">TRA-001</span></td>
+          <td><span class="u">body.tradeRef</span></td>
+          <td><span class="badge-status-progress">◐ In Progress</span></td>
+          <td><span class="u">23/05/2026, 14:57:11</span></td>
+          <td class="center"><span class="u">1</span></td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="u-id">2a84527d-f9b8-4…</span></td>
+          <td><span class="u">Trade Lifecycle</span></td>
+          <td><span class="u">TRD-TRAP-MPIKFWL5</span></td>
+          <td><span class="u">body.tradeRef</span></td>
+          <td><span class="badge-status-completed">● Completed</span></td>
+          <td><span class="u">23/05/2026, 14:54:46</span></td>
+          <td class="center"><span class="u">4</span></td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+        <tr>
+          <td><span class="u-id">90b70dc6-fa9b-4…</span></td>
+          <td><span class="u">Trade Lifecycle</span></td>
+          <td><span class="u">TRD-TRAP-MPIKFSLS</span></td>
+          <td><span class="u">body.tradeRef</span></td>
+          <td><span class="badge-status-completed">● Completed</span></td>
+          <td><span class="u">23/05/2026, 14:54:40</span></td>
+          <td class="center"><span class="u">4</span></td>
+          <td><button class="arrow-btn">›</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Toggle bar ── -->
+<div class="toggle-bar">
+  <span>Viewing:</span>
+  <button class="toggle-btn active"   id="btn-current" onclick="show('current')">Current</button>
+  <button class="toggle-btn inactive" id="btn-new"     onclick="show('new')">Proposed</button>
+</div>
+
+<script>
+  function show(v) {
+    document.getElementById('panel-current').style.display = v === 'current' ? '' : 'none';
+    document.getElementById('panel-new').style.display     = v === 'new'     ? '' : 'none';
+    document.getElementById('btn-current').className = 'toggle-btn ' + (v === 'current' ? 'active' : 'inactive');
+    document.getElementById('btn-new').className     = 'toggle-btn ' + (v === 'new'     ? 'active' : 'inactive');
+  }
+</script>
+</body>
+</html>

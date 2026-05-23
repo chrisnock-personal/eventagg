@@ -16,8 +16,10 @@ import eventsRouter   from "./routes/events";
 import ingestRouter   from "./routes/ingest";
 import snmpRouter     from "./routes/snmp";
 import auditRouter    from "./routes/audit";
+import webhooksRouter from "./routes/webhooks";
 import { createUser, updateUser } from "./services/userService";
 import { startSnmpReceiver, stopSnmpReceiver, getSnmpStats } from "./snmp/trapReceiver";
+import { triggerWebhooks } from "./services/webhookService";
 
 const app = express();
 
@@ -80,6 +82,7 @@ app.use("/api/v1/events/ingest",    ingestRateLimit, requireApiKey, ingestRouter
 app.use("/api/v1/events",           eventsRouter);
 app.use("/api/v1/snmp",             snmpRouter);
 app.use("/api/v1/audit",            auditRouter);
+app.use("/api/v1/webhooks",         webhooksRouter);
 
 // ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
 app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
@@ -148,6 +151,7 @@ async function runTimeoutJob(): Promise<void> {
     const timedOut = await query<{
       id: string;
       policy_id: string;
+      policy_name: string;
       aggregation_key: string;
       key_field: string;
       segment_count: number;
@@ -155,7 +159,7 @@ async function runTimeoutJob(): Promise<void> {
       started_at: string;
       last_segment_at: string;
     }>(
-      `SELECT e.id, e.policy_id, e.aggregation_key, e.key_field,
+      `SELECT e.id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
               e.segment_count, e.cradle_segment_id, e.started_at, e.last_segment_at
        FROM   in_progress_events e
        JOIN   policies p ON p.id = e.policy_id
@@ -205,6 +209,22 @@ async function runTimeoutJob(): Promise<void> {
           );
 
           console.log(`    ✓ Timed out: ${group.aggregation_key} (${group.id.slice(0,8)}…)`);
+
+          // Fire webhooks after transaction commits
+          const endedAt = new Date();
+          setImmediate(() => {
+            triggerWebhooks("group_timed_out", {
+              id: completed.id,
+              policyId: group.policy_id,
+              policyName: group.policy_name,
+              aggregationKey: group.aggregation_key,
+              status: "timed_out",
+              segmentCount: group.segment_count,
+              startTime: group.started_at,
+              endTime: endedAt.toISOString(),
+              durationMs: endedAt.getTime() - new Date(group.started_at).getTime(),
+            }).catch(() => {});
+          });
         });
       } catch (err) {
         console.error(`    ✗ Failed to time out group ${group.id}:`, err);

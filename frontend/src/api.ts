@@ -202,6 +202,45 @@ function deletePolicy(id: string): Promise<void> {
   return request<void>(`/policies/${id}`, { method: "DELETE" });
 }
 
+// ─── Webhooks ─────────────────────────────────────────────────────────────────
+
+export interface Webhook {
+  id: string; name: string; url: string; secret: string;
+  events: string[]; isActive: boolean; createdAt: string; updatedAt: string;
+}
+
+export interface WebhookDelivery {
+  id: string; webhookId: string; webhookName: string;
+  eventType: string; groupId: string;
+  status: "pending" | "success" | "failed";
+  attempts: number; lastAttemptAt: string | null;
+  responseStatus: number | null; responseBody: string | null;
+  errorMessage: string | null; createdAt: string;
+}
+
+function fetchWebhooks(): Promise<Webhook[]> {
+  return request<Webhook[]>("/webhooks");
+}
+
+function createWebhook(body: { name: string; url: string; secret?: string; events?: string[] }): Promise<Webhook> {
+  return request<Webhook>("/webhooks", { method: "POST", body: JSON.stringify(body) });
+}
+
+function updateWebhook(id: string, body: Partial<{ name: string; url: string; secret: string; events: string[]; isActive: boolean }>): Promise<Webhook> {
+  return request<Webhook>(`/webhooks/${id}`, { method: "PUT", body: JSON.stringify(body) });
+}
+
+function deleteWebhook(id: string): Promise<void> {
+  return request<void>(`/webhooks/${id}`, { method: "DELETE" });
+}
+
+function fetchWebhookDeliveries(params: { webhookId?: string; limit?: number } = {}): Promise<WebhookDelivery[]> {
+  const qs = new URLSearchParams();
+  if (params.webhookId) qs.set("webhookId", params.webhookId);
+  if (params.limit)     qs.set("limit",     String(params.limit));
+  return request<WebhookDelivery[]>(`/webhooks/deliveries?${qs}`);
+}
+
 function snmpStatus(): Promise<any> { return request<any>("/snmp/status"); }
 function snmpSourcesList(): Promise<any[]> { return request<any[]>("/snmp/sources"); }
 function snmpSourcesCreate(body: any): Promise<any> { return request<any>("/snmp/sources", { method: "POST", body: JSON.stringify(body) }); }
@@ -254,5 +293,12 @@ export const api = {
   },
   audit: {
     list: fetchAuditLog,
+  },
+  webhooks: {
+    list:       fetchWebhooks,
+    create:     createWebhook,
+    update:     updateWebhook,
+    delete:     deleteWebhook,
+    deliveries: fetchWebhookDeliveries,
   },
 };

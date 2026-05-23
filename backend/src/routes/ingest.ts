@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { ingestSegment } from "../services/ingestService";
+import { ingestSegment, fireGroupCompletedWebhook } from "../services/ingestService";
 import { statsCache, performanceCache } from "../cache";
 import { audit } from "../services/auditService";
 
@@ -39,8 +39,14 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
+    // Fire webhook after transaction — fire-and-forget, never blocks response
+    if (result.action === "group_promoted") {
+      fireGroupCompletedWebhook(result).catch(() => {});
+    }
+
+    const { _webhookPayload: _, ...publicResult } = result;
     const statusCode = result.action === "group_opened" ? 201 : 200;
-    res.status(statusCode).json(result);
+    res.status(statusCode).json(publicResult);
   } catch (err) {
     next(err);
   }

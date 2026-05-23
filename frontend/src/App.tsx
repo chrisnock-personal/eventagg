@@ -7,6 +7,8 @@ import {
   SegmentDetail,
   IngestResult,
   EventStats,
+  Webhook,
+  WebhookDelivery,
 } from "./api";
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
@@ -43,8 +45,7 @@ const SEG_COLS: ColDef[] = [
   { key: "aggKey",     label: "Aggregation Key",  defaultWidth: 130, minWidth: 90  },
   { key: "seq",        label: "Seq",              defaultWidth: 50,  minWidth: 40  },
   { key: "type",       label: "Event Type",       defaultWidth: 165, minWidth: 100 },
-  { key: "cradle",     label: "Cradle",           defaultWidth: 80,  minWidth: 60  },
-  { key: "grave",      label: "Grave",            defaultWidth: 80,  minWidth: 60  },
+  { key: "lifecycle",  label: "Lifecycle",        defaultWidth: 100, minWidth: 70  },
   { key: "receivedAt", label: "Received At",      defaultWidth: 155, minWidth: 120 },
   { key: "_arrow",     label: "",                 defaultWidth: 36,  minWidth: 36  },
 ];
@@ -1616,16 +1617,209 @@ function SnmpPanel({ onBack, policies }: { onBack: () => void; policies: Policy[
 }
 
 // ─── Burger Menu ──────────────────────────────────────────────────────────────
-function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies }: {
+// ─── Webhooks Panel ───────────────────────────────────────────────────────────
+function WebhooksPanel({ onBack }: { onBack: () => void }) {
+  const [webhooks,   setWebhooks]   = useState<Webhook[]>([]);
+  const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
+  const [tab,        setTab]        = useState<"webhooks" | "deliveries">("webhooks");
+  const [showAdd,    setShowAdd]    = useState(false);
+  const [editing,    setEditing]    = useState<Webhook | null>(null);
+  const [form,       setForm]       = useState({ name: "", url: "", secret: "", events: ["group_completed", "group_timed_out"] as string[] });
+  const [saving,     setSaving]     = useState(false);
+  const [err,        setErr]        = useState("");
+
+  const ALL_EVENTS = ["group_completed", "group_timed_out"] as const;
+
+  async function load() {
+    const [wh, dl] = await Promise.all([api.webhooks.list(), api.webhooks.deliveries()]);
+    setWebhooks(wh);
+    setDeliveries(dl);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  function openAdd() {
+    setEditing(null);
+    setForm({ name: "", url: "", secret: "", events: ["group_completed", "group_timed_out"] });
+    setShowAdd(true); setErr("");
+  }
+
+  function openEdit(wh: Webhook) {
+    setEditing(wh);
+    setForm({ name: wh.name, url: wh.url, secret: wh.secret, events: [...wh.events] });
+    setShowAdd(true); setErr("");
+  }
+
+  function toggleEvent(ev: string) {
+    setForm(f => ({
+      ...f,
+      events: f.events.includes(ev) ? f.events.filter(e => e !== ev) : [...f.events, ev],
+    }));
+  }
+
+  async function save() {
+    if (!form.name.trim() || !form.url.trim()) { setErr("Name and URL are required"); return; }
+    setSaving(true); setErr("");
+    try {
+      if (editing) {
+        await api.webhooks.update(editing.id, form);
+      } else {
+        await api.webhooks.create(form);
+      }
+      setShowAdd(false);
+      await load();
+    } catch (e: any) { setErr(e.message ?? "Save failed"); }
+    finally { setSaving(false); }
+  }
+
+  async function toggleActive(wh: Webhook) {
+    await api.webhooks.update(wh.id, { isActive: !wh.isActive }).catch(() => {});
+    await load();
+  }
+
+  async function remove(id: string) {
+    await api.webhooks.delete(id).catch(() => {});
+    await load();
+  }
+
+  const statusColor: Record<string, string> = { success: C.accent, failed: C.danger, pending: C.warn };
+  const statusBg:    Record<string, string> = { success: C.accentLight, failed: C.dangerLight, pending: C.warnLight };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", alignItems: "center", gap: 8 }}>
+        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", color: C.textMuted, fontSize: 20, padding: 0, lineHeight: 1 }}>‹</button>
+        <span style={{ fontSize: 13, fontWeight: 800, flex: 1 }}>Webhooks</span>
+        {tab === "webhooks" && (
+          <button onClick={openAdd} style={{ padding: "4px 10px", background: showAdd ? C.borderStrong : C.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {showAdd ? "Cancel" : "+ Add"}
+          </button>
+        )}
+        {tab === "deliveries" && (
+          <button onClick={load} style={{ padding: "4px 10px", background: "none", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, cursor: "pointer", fontFamily: "inherit", color: C.textMid }}>↻</button>
+        )}
+      </div>
+
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", borderBottom: `1px solid ${C.border}` }}>
+        {(["webhooks", "deliveries"] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)}
+            style={{ flex: 1, padding: "7px", border: "none", background: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: 600, color: tab === t ? C.accent : C.textMuted, borderBottom: `2px solid ${tab === t ? C.accent : "transparent"}`, marginBottom: -1 }}>
+            {t === "webhooks" ? `Endpoints (${webhooks.length})` : `Deliveries (${deliveries.length})`}
+          </button>
+        ))}
+      </div>
+
+      {tab === "webhooks" && (
+        <div>
+          {/* Add / Edit form */}
+          {showAdd && (
+            <div style={{ padding: "12px 14px", borderBottom: `1px solid ${C.border}`, background: C.accentLight + "80", display: "flex", flexDirection: "column", gap: 7 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.accent }}>{editing ? "Edit webhook" : "New webhook"}</div>
+              {[["Name", "name", "text"], ["URL", "url", "url"]] .map(([lbl, key, type]) => (
+                <input key={key} type={type} value={(form as any)[key]} placeholder={lbl.toLowerCase()}
+                  onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
+                  style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: key === "url" ? "monospace" : "inherit", outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              ))}
+              <input type="text" value={form.secret} placeholder="HMAC secret (optional)"
+                onChange={e => setForm(f => ({ ...f, secret: e.target.value }))}
+                style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: "monospace", outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
+                <span style={{ fontSize: 11, color: C.textMuted }}>Fire on:</span>
+                {ALL_EVENTS.map(ev => (
+                  <button key={ev} onClick={() => toggleEvent(ev)}
+                    style={{ padding: "3px 7px", fontSize: 10, fontWeight: form.events.includes(ev) ? 700 : 400, border: `1px solid ${form.events.includes(ev) ? C.accent : C.border}`, borderRadius: 4, background: form.events.includes(ev) ? C.accentLight : "none", color: form.events.includes(ev) ? C.accent : C.textMid, cursor: "pointer", fontFamily: "inherit" }}>
+                    {ev === "group_completed" ? "completed" : "timed_out"}
+                  </button>
+                ))}
+              </div>
+              {err && <div style={{ fontSize: 11, color: C.danger }}>{err}</div>}
+              <button onClick={save} disabled={saving}
+                style={{ padding: "7px", background: C.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                {saving ? "Saving…" : editing ? "Save changes" : "Create webhook"}
+              </button>
+            </div>
+          )}
+
+          {/* Webhook list */}
+          <div style={{ maxHeight: 340, overflowY: "auto" }}>
+            {webhooks.length === 0 && (
+              <div style={{ padding: "18px 14px", fontSize: 12, color: C.textMuted, textAlign: "center" as const }}>
+                No webhooks yet — add one to get notified when groups complete or time out.
+              </div>
+            )}
+            {webhooks.map(wh => (
+              <div key={wh.id} style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, opacity: wh.isActive ? 1 : 0.55 }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", gap: 5, alignItems: "center", marginBottom: 2 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: C.text }}>{wh.name}</span>
+                      {!wh.isActive && <span style={{ fontSize: 9, color: C.textMuted, fontStyle: "italic" }}>disabled</span>}
+                    </div>
+                    <div style={{ fontSize: 10, fontFamily: "monospace", color: C.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{wh.url}</div>
+                    <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                      {wh.events.map(ev => (
+                        <span key={ev} style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.accentLight, color: C.accent }}>
+                          {ev === "group_completed" ? "completed" : "timed_out"}
+                        </span>
+                      ))}
+                      {wh.secret && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.purpleLight, color: C.purple }}>HMAC</span>}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                    <button onClick={() => openEdit(wh)} style={{ padding: "3px 7px", border: `1px solid ${C.border}`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: C.textMid, fontFamily: "inherit" }}>Edit</button>
+                    <button onClick={() => toggleActive(wh)} style={{ padding: "3px 7px", border: `1px solid ${C.border}`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: wh.isActive ? C.warn : C.accent, fontFamily: "inherit" }}>{wh.isActive ? "Disable" : "Enable"}</button>
+                    <button onClick={() => remove(wh.id)} style={{ padding: "3px 7px", border: `1px solid ${C.danger}40`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: C.danger, fontFamily: "inherit" }}>✕</button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ padding: "7px 14px", background: C.surfaceAlt, fontSize: 10, color: C.textMuted }}>
+            POST · JSON body · X-AggreGator-Signature header when HMAC secret set
+          </div>
+        </div>
+      )}
+
+      {tab === "deliveries" && (
+        <div style={{ maxHeight: 420, overflowY: "auto" }}>
+          {deliveries.length === 0 && (
+            <div style={{ padding: "18px 14px", fontSize: 12, color: C.textMuted, textAlign: "center" as const }}>No deliveries yet.</div>
+          )}
+          {deliveries.map(d => (
+            <div key={d.id} style={{ padding: "9px 14px", borderBottom: `1px solid ${C.border}` }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: statusBg[d.status] ?? C.surfaceAlt, color: statusColor[d.status] ?? C.textMuted }}>{d.status}</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: C.text }}>{d.webhookName}</span>
+                <span style={{ fontSize: 10, fontFamily: "monospace", color: C.textMuted, marginLeft: "auto" }}>{d.eventType}</span>
+              </div>
+              <div style={{ fontSize: 10, color: C.textMuted, display: "flex", gap: 10 }}>
+                <span>group: <code style={{ fontFamily: "monospace" }}>{d.groupId.slice(0, 8)}…</code></span>
+                <span>{d.attempts} attempt{d.attempts !== 1 ? "s" : ""}</span>
+                {d.responseStatus && <span>HTTP {d.responseStatus}</span>}
+                <span style={{ marginLeft: "auto" }}>{d.lastAttemptAt ? new Date(d.lastAttemptAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : new Date(d.createdAt).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" })}</span>
+              </div>
+              {d.errorMessage && <div style={{ fontSize: 10, color: C.danger, fontFamily: "monospace", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{d.errorMessage}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies, onIngest }: {
   user: import("./api").SessionUser;
   policies: Policy[];
   appUsers: import("./api").AppUser[];
   onSignOut: () => void;
   onUsersChanged: () => void;
   onOpenPolicies: () => void;
+  onIngest: () => void;
 }) {
   const [open,    setOpen]    = useState(false);
-  const [section, setSection] = useState<null | "policies" | "accounts" | "snmp">(null);
+  const [section, setSection] = useState<null | "policies" | "accounts" | "snmp" | "webhooks">(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newU,    setNewU]    = useState({ username: "", email: "", password: "", role: "viewer" });
   const [saving,  setSaving]  = useState(false);
@@ -1688,10 +1882,25 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                 <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>{user.username}</div>
                 <span style={{ background: rb[user.role] ?? C.infoLight, color: rc[user.role] ?? C.info, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3 }}>{user.role}</span>
               </div>
+              {user.role !== "viewer" && (
+                <>
+                  <button onClick={() => { setOpen(false); onIngest(); }}
+                    style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.accentLight; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                    <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>＋</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.accent }}>Ingest Event</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>Manually send an event segment</div>
+                    </div>
+                  </button>
+                </>
+              )}
               {[
                 ...(user.role !== "viewer" ? [{ icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const }] : []),
                 ...(user.role === "admin"  ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const }] : []),
-                { icon: "📡", label: "SNMP",      desc: "Trap receiver & routing rules", s: "snmp" as const },
+                { icon: "📡", label: "SNMP",     desc: "Trap receiver & routing rules", s: "snmp" as const },
+                { icon: "🔔", label: "Webhooks", desc: "Notify external endpoints on group events", s: "webhooks" as const },
               ].map(item => (
                 <button key={item.s} onClick={() => setSection(item.s)}
                   style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
@@ -1823,6 +2032,10 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
             <SnmpPanel onBack={() => setSection(null)} policies={policies} />
           )}
 
+          {section === "webhooks" && (
+            <WebhooksPanel onBack={() => setSection(null)} />
+          )}
+
         </div>
       )}
     </div>
@@ -1870,10 +2083,15 @@ function PieSlices({ data, hovered, setHovered }: { data: { label: string; value
       <svg width={W} height={W} viewBox={`0 0 ${W} ${W}`} style={{ display: "block", overflow: "visible" }}>
         {slices.map((s, i) => {
           const isThis = hovered === i;
+          const isFull = data.length === 1;
           return (
             <g key={s.label} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)} style={{ cursor: "pointer" }}>
-              <path d={s.path} fill={s.color} opacity={isH && !isThis ? 0.28 : 0.88} stroke={C.surface} strokeWidth="2"
-                style={{ transform: isThis ? "scale(1.03)" : "scale(1)", transformOrigin: `${CX}px ${CY}px`, transition: "all 0.15s" }} />
+              {isFull
+                ? <circle cx={CX} cy={CY} r={R} fill={s.color} opacity={isH && !isThis ? 0.28 : 0.88} stroke={C.surface} strokeWidth="2"
+                    style={{ transform: isThis ? "scale(1.03)" : "scale(1)", transformOrigin: `${CX}px ${CY}px`, transition: "all 0.15s" }} />
+                : <path d={s.path} fill={s.color} opacity={isH && !isThis ? 0.28 : 0.88} stroke={C.surface} strokeWidth="2"
+                    style={{ transform: isThis ? "scale(1.03)" : "scale(1)", transformOrigin: `${CX}px ${CY}px`, transition: "all 0.15s" }} />
+              }
               {s.pct >= 5 && (
                 <text x={s.lx} y={s.ly} textAnchor="middle" dominantBaseline="middle" fontSize={isThis ? "12" : "11"} fontWeight="800" fill="#fff" fontFamily="monospace" opacity={isH && !isThis ? 0.4 : 1} style={{ pointerEvents: "none", transition: "all 0.15s" }}>{s.pct}%</text>
               )}
@@ -2135,11 +2353,12 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
                   const isPinned  = pinned === i;
                   const isActive  = activeIdx === i;
                   const pct = i / Math.max(data.length - 1, 1) * 100;
+                  const barMaxW = `${(100 / Math.max(data.length, 10)).toFixed(1)}%`;
                   return (
                     <div key={i}
                       onClick={() => setPinned(pinned === i ? null : i)}
                       onMouseEnter={() => { if (pinned === null) setHovered(i); }}
-                      style={{ flex: 1, display: "flex", gap: 1, alignItems: "flex-end", cursor: "pointer", position: "relative", outline: isPinned ? `2px solid ${C.accent}40` : "none", outlineOffset: 1, borderRadius: 2 }}>
+                      style={{ flex: 1, maxWidth: barMaxW, minWidth: 3, display: "flex", gap: 1, alignItems: "flex-end", cursor: "pointer", position: "relative", outline: isPinned ? `2px solid ${C.accent}40` : "none", outlineOffset: 1, borderRadius: 2 }}>
                       {activeSeries.map(s => (
                         <div key={s.key} style={{ flex: 1, background: s.color, borderRadius: "2px 2px 0 0", height: `${Math.max((s.valFn(b) / maxVal) * 76, s.valFn(b) ? 2 : 0)}px`, opacity: isActive ? 1 : 0.75, transition: "opacity 0.1s" }} />
                       ))}
@@ -2816,8 +3035,8 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
   const [segPage,        setSegPage]     = useState(1);
 
   // Column visibility
-  const [groupVisible, setGroupVisible] = useState<Set<string>>(new Set(GROUP_COLS.map(c => c.key)));
-  const [segVisible,   setSegVisible]   = useState<Set<string>>(new Set(SEG_COLS.map(c => c.key)));
+  const [groupVisible, setGroupVisible] = useState<Set<string>>(new Set(GROUP_COLS.map(c => c.key).filter(k => k !== "source" && k !== "segs")));
+  const [segVisible,   setSegVisible]   = useState<Set<string>>(new Set(SEG_COLS.map(c => c.key).filter(k => k !== "groupId" && k !== "seq")));
   const [showColMenu,  setShowColMenu]  = useState(false);
   const [showExport,       setShowExport]       = useState(false);
   const [exporting,        setExporting]        = useState<string | null>(null);
@@ -3153,9 +3372,6 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                 </button>
               ))}
             </div>
-            {sessionUser.role !== "viewer" && (
-              <button onClick={() => setShowIngest(true)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: "none", background: C.accent, color: "#fff", fontFamily: "inherit" }}>+ Ingest Event</button>
-            )}
             <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{sessionUser?.username}</span>
             <BurgerMenu
               user={sessionUser!}
@@ -3164,6 +3380,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
               onSignOut={onLogout}
               onUsersChanged={onUsersChanged}
               onOpenPolicies={() => setShowPolicies(true)}
+              onIngest={() => setShowIngest(true)}
             />
           </div>
         </div>
@@ -3450,13 +3667,13 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                       <tr key={ev.id} style={{ cursor: "pointer" }}
                         className={(() => { const h = highlighted.find(h => h.id === ev.id); return h ? `hl-${h.reason}` : ""; })()}
                         onClick={() => openDetail(ev.id)}>
-                        {groupVisible.has("id")        && <td style={{ padding: "10px 10px", overflow: "hidden" }}><code style={{ fontSize: 11, fontFamily: "monospace", color: C.accent, fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.id}</code></td>}
-                        {groupVisible.has("policy")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ background: C.purpleLight, color: C.purple, padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700, fontFamily: "monospace", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.policyName}</span></td>}
-                        {groupVisible.has("key")       && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ background: C.surfaceAlt, color: C.textMid, padding: "2px 6px", borderRadius: 3, fontSize: 11, fontFamily: "monospace", border: `1px solid ${C.border}`, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.aggregationKey}</span></td>}
-                        {groupVisible.has("source")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 10, color: C.info, fontFamily: "monospace", whiteSpace: "nowrap" }}>←body.{ev.keyField}</span></td>}
+                        {groupVisible.has("id")        && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.accent, fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.id}</span></td>}
+                        {groupVisible.has("policy")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.policyName}</span></td>}
+                        {groupVisible.has("key")       && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ev.aggregationKey}</span></td>}
+                        {groupVisible.has("source")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>body.{ev.keyField}</span></td>}
                         {groupVisible.has("status")    && <td style={{ padding: "10px 10px" }}><StatusBadge status={ev.status} /></td>}
-                        {groupVisible.has("startTime") && <td style={{ padding: "10px 10px" }}><span style={{ fontSize: 11, color: C.textMid }}>{fmt(ev.startTime)}</span></td>}
-                        {groupVisible.has("segs")      && <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 11, color: C.textMid }}>{ev.segmentCount}</span></td>}
+                        {groupVisible.has("startTime") && <td style={{ padding: "10px 10px" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{fmt(ev.startTime)}</span></td>}
+                        {groupVisible.has("segs")      && <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{ev.segmentCount}</span></td>}
                         <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 13, color: C.textMuted }}>›</span></td>
                       </tr>
                     ))}
@@ -3484,15 +3701,14 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                     )}
                     {segments.slice((segPage - 1) * PER_PAGE, segPage * PER_PAGE).map(seg => (
                       <tr key={seg.eventId} style={{ cursor: "pointer" }} onClick={() => openDetail(seg.groupId, seg.eventId)}>
-                        {segVisible.has("id")         && <td style={{ padding: "10px 10px", overflow: "hidden" }}><code style={{ fontSize: 11, fontFamily: "monospace", color: C.accent, fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.eventId}</code></td>}
-                        {segVisible.has("groupId")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><code style={{ fontSize: 10, fontFamily: "monospace", color: C.textMid, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.groupId}</code></td>}
-                        {segVisible.has("policy")     && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ background: C.purpleLight, color: C.purple, padding: "2px 6px", borderRadius: 3, fontSize: 10, fontWeight: 700, fontFamily: "monospace", display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.policyName}</span></td>}
-                        {segVisible.has("aggKey")     && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ background: C.surfaceAlt, color: C.textMid, padding: "2px 6px", borderRadius: 3, fontSize: 11, fontFamily: "monospace", border: `1px solid ${C.border}`, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.aggregationKey}</span></td>}
-                        {segVisible.has("seq")        && <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 11, fontFamily: "monospace", color: C.textMid, fontWeight: 700 }}>{seg.sequence}</span></td>}
-                        {segVisible.has("type")       && <td style={{ padding: "10px 10px", overflow: "hidden" }}><code style={{ fontSize: 11, fontFamily: "monospace", color: C.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(seg.body.eventType ?? seg.body.status ?? Object.keys(seg.body)[0] ?? "—")}</code></td>}
-                        {segVisible.has("cradle")     && <td style={{ padding: "10px 10px" }}><BoolBadge val={seg.isCradle} trueLabel="▶ CRADLE" trueColor={C.accent} /></td>}
-                        {segVisible.has("grave")      && <td style={{ padding: "10px 10px" }}><BoolBadge val={seg.isGrave}  trueLabel="■ GRAVE"  trueColor={C.danger} /></td>}
-                        {segVisible.has("receivedAt") && <td style={{ padding: "10px 10px" }}><span style={{ fontSize: 11, color: C.textMid }}>{fmt(seg.timestamp)}</span></td>}
+                        {segVisible.has("id")         && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.accent, fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.eventId}</span></td>}
+                        {segVisible.has("groupId")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.groupId}</span></td>}
+                        {segVisible.has("policy")     && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.policyName}</span></td>}
+                        {segVisible.has("aggKey")     && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.aggregationKey}</span></td>}
+                        {segVisible.has("seq")        && <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{seg.sequence}</span></td>}
+                        {segVisible.has("type")       && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(seg.body.eventType ?? seg.body.status ?? Object.keys(seg.body)[0] ?? "—")}</span></td>}
+                        {segVisible.has("lifecycle")  && <td style={{ padding: "10px 10px" }}>{seg.isCradle ? <BoolBadge val trueLabel="▶ CRADLE" trueColor={C.accent} /> : seg.isGrave ? <BoolBadge val trueLabel="■ GRAVE" trueColor={C.danger} /> : <span style={{ color: C.textMuted, fontSize: 11 }}>—</span>}</td>}
+                        {segVisible.has("receivedAt") && <td style={{ padding: "10px 10px" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{fmt(seg.timestamp)}</span></td>}
                         <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 13, color: C.textMuted }}>›</span></td>
                       </tr>
                     ))}
