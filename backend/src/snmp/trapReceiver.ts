@@ -1,8 +1,3 @@
-// net-snmp is used for sending traps (send-trap.js) but NOT for receiving —
-// its createReceiver callback does not fire reliably across versions.
-// We use Node's built-in dgram directly for receiving, with a minimal
-// BER/ASN.1 parser for SNMPv2c trap packets.
-
 import { query } from "../db/pool";
 import { ingestSegment } from "../services/ingestService";
 import { normalizeTrap, RawTrap, invalidateRoutingCache } from "./trapNormalizer";
@@ -33,7 +28,6 @@ export function getSnmpStats(): SnmpReceiverStats {
   return { ...stats };
 }
 
-// ─── Log trap to DB ───────────────────────────────────────────────────────────
 async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?: any): Promise<void> {
   try {
     await query(
@@ -44,10 +38,7 @@ async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?:
        JSON.stringify(trap.varbinds), trap.routedTo ?? null, trap.routeType,
        result ? JSON.stringify(result) : null]
     );
-    await query(
-      `DELETE FROM snmp_trap_log WHERE id NOT IN (
-         SELECT id FROM snmp_trap_log ORDER BY received_at DESC LIMIT 1000)`, []
-    );
+    await query(`DELETE FROM snmp_trap_log WHERE id NOT IN (SELECT id FROM snmp_trap_log ORDER BY received_at DESC LIMIT 1000)`, []);
     await query(
       `INSERT INTO snmp_trap_sources (name, agent_addr, community, last_seen, trap_count)
        VALUES ($1,$2,$3,NOW(),1)
@@ -61,7 +52,6 @@ async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?:
   }
 }
 
-// ─── Process one decoded trap ─────────────────────────────────────────────────
 async function processTrap(raw: RawTrap): Promise<void> {
   stats.received++;
   try {
@@ -87,9 +77,9 @@ async function processTrap(raw: RawTrap): Promise<void> {
 // ─── Minimal SNMPv2c BER/ASN.1 parser ────────────────────────────────────────
 function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): RawTrap | null {
   let p = 0;
-  const rb  = ()           => buf[p++];
-  const rl  = (): number   => { const b=rb(); if(b<0x80) return b; const n=b&0x7f; let l=0; for(let i=0;i<n;i++) l=(l<<8)|rb(); return l; };
-  const rtlv = ()          => { const tag=rb(); const len=rl(); const data=buf.slice(p,p+len); p+=len; return {tag,data}; };
+  const rb   = ()         => buf[p++];
+  const rl   = (): number => { const b=rb(); if(b<0x80) return b; const n=b&0x7f; let l=0; for(let i=0;i<n;i++) l=(l<<8)|rb(); return l; };
+  const rtlv = ()         => { const tag=rb(); const len=rl(); const data=buf.slice(p,p+len); p+=len; return {tag,data}; };
   const toOid = (b: Buffer): string => {
     const parts=[Math.floor(b[0]/40),b[0]%40]; let v=0;
     for(let i=1;i<b.length;i++){ v=(v<<7)|(b[i]&0x7f); if(!(b[i]&0x80)){parts.push(v);v=0;} }
@@ -98,11 +88,10 @@ function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): R
   const toInt = (b: Buffer): number => { let v=0; for(let i=0;i<b.length;i++) v=v*256+b[i]; return v; };
 
   try {
-    if(rb()!==0x30) return null; rl();   // SEQUENCE
-    rtlv();                               // version INTEGER
+    if(rb()!==0x30) return null; rl();
+    rtlv(); // version
     const comm = rtlv().data.toString("ascii");
     const pduTLV = rtlv();
-    // 0xa7 = SNMPv2-Trap-PDU, 0xa4 = Trap-PDU(v1)
     if(pduTLV.tag!==0xa7 && pduTLV.tag!==0xa4) return null;
 
     const pb=pduTLV.data; let pp=0;
@@ -110,20 +99,26 @@ function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): R
     const prl  = ():number => { const b=prb(); if(b<0x80) return b; const n=b&0x7f; let l=0; for(let i=0;i<n;i++) l=(l<<8)|prb(); return l; };
     const prtlv= ()        => { const tag=prb(); const len=prl(); const data=pb.slice(pp,pp+len); pp+=len; return {tag,data}; };
 
-    prtlv(); prtlv(); prtlv(); // requestId, errorStatus, errorIndex
-    prtlv();                    // varbindList SEQUENCE wrapper
+    prtlv(); prtlv(); prtlv(); // reqId, errStatus, errIdx
+    // varbindList SEQUENCE — read tag+length only, don't skip content
+    prb(); prl();
 
     let trapOid=""; let uptime=0;
     const varbinds: RawTrap["varbinds"] = [];
 
     while(pp<pb.length) {
       if(pb[pp]!==0x30) break;
-      prtlv(); // varbind SEQUENCE
-      const oidT=prtlv();
-      const valT=prtlv();
-      const oid=toOid(oidT.data);
-      if     (oid==="1.3.6.1.2.1.1.3.0")         uptime=toInt(valT.data);
-      else if(oid==="1.3.6.1.6.3.1.1.4.1.0")     trapOid=toOid(valT.data);
+      const vbSeq = prtlv(); // read entire varbind SEQUENCE into its own buffer
+      // parse OID and value from the varbind's own data buffer
+      let vp = 0;
+      const vrb = () => vbSeq.data[vp++];
+      const vrl = (): number => { const b=vrb(); if(b<0x80) return b; const n=b&0x7f; let l=0; for(let i=0;i<n;i++) l=(l<<8)|vrb(); return l; };
+      const vrtlv = () => { const tag=vrb(); const len=vrl(); const data=vbSeq.data.slice(vp,vp+len); vp+=len; return {tag,data}; };
+      const oidT = vrtlv();
+      const valT = vrtlv();
+      const oid = toOid(oidT.data);
+      if(oid==="1.3.6.1.2.1.1.3.0")          uptime=toInt(valT.data);
+      else if(oid==="1.3.6.1.6.3.1.1.4.1.0") trapOid=toOid(valT.data);
       else {
         const val = valT.tag===0x04 ? valT.data.toString("utf8")
                   : valT.tag===0x06 ? toOid(valT.data)
@@ -137,7 +132,6 @@ function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): R
   } catch { return null; }
 }
 
-// ─── Start ────────────────────────────────────────────────────────────────────
 export function startSnmpReceiver(config: SnmpReceiverConfig): void {
   if (!config.enabled) {
     console.log("📡  SNMP trap receiver disabled (set SNMP_ENABLED=true to enable)");
@@ -145,31 +139,28 @@ export function startSnmpReceiver(config: SnmpReceiverConfig): void {
   }
   if (socket) return;
 
-  socket = dgram.createSocket("udp4");
+  socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
+
+  socket.on("error", (err: NodeJS.ErrnoException) => {
+    console.error(`📡  SNMP socket error: ${err.message}`);
+    socket = null;
+  });
 
   socket.on("message", async (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-    console.log(`📡  UDP packet received from ${rinfo.address}:${rinfo.port} — ${msg.length} bytes`);
+    console.log(`📡  UDP packet from ${rinfo.address}:${rinfo.port} — ${msg.length} bytes`);
     const raw = parseTrap(msg, rinfo.address, config.community);
     if (!raw) {
-      console.log("📡  Could not parse as SNMPv2c trap — ignoring");
+      console.log(`📡  Not a valid SNMPv2c trap — first byte: 0x${msg[0]?.toString(16)}`);
       return;
     }
     await processTrap(raw);
   });
 
-  socket.on("error", (err: NodeJS.ErrnoException) => {
-    console.error(`📡  SNMP socket error: ${err.message}`);
-    if (err.code === "EACCES") {
-      console.error(`    Port ${config.port} requires root. Use SNMP_PORT=1162.`);
-    }
-    socket = null;
-  });
-
-  socket.bind(config.port, "0.0.0.0", () => {
+  socket.bind({ port: config.port, address: "0.0.0.0", exclusive: false }, () => {
+    const addr = socket?.address();
     stats.startedAt = new Date();
-    console.log(`📡  SNMP trap receiver listening on UDP ${config.port} (dgram)`);
-    console.log(`    AggreGator MIB OID: 1.3.6.1.4.1.99999.2.1`);
-    console.log(`    Test: node scripts/send-trap.js --scenario trade --policy <uuid>`);
+    console.log(`📡  SNMP trap receiver listening on UDP ${addr?.address}:${addr?.port}`);
+    console.log(`    Enterprise OID: 1.3.6.1.4.1.99999`);
   });
 }
 

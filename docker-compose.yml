@@ -10,11 +10,12 @@ services:
         #   docker compose build --build-arg BASE_IMAGE=debian:12
         BASE_IMAGE: ${BASE_IMAGE:-ubuntu:22.04}
     container_name: eventagg
-    ports:
-      - "${HOST_PORT:-9090}:80"       # Frontend (nginx)
-      - "${API_PORT:-3001}:3001"      # Backend API (direct)
-      - "${PG_PORT:-5432}:5432"       # PostgreSQL (remote access)
-      - "${SNMP_PORT:-1162}:1162/udp" # SNMP trap receiver
+    network_mode: host
+#    ports:
+#      - "${HOST_PORT:-9090}:80"       # Frontend (nginx)
+#     - "${API_PORT:-3001}:3001"      # Backend API (direct)
+#      - "${PG_PORT:-5432}:5432"       # PostgreSQL (remote access)
+#      - "${SNMP_PORT:-1162}:1162/udp" # SNMP trap receiver
     environment:
       # ── PostgreSQL ───────────────────────────────────────────────────────
       PGHOST: localhost

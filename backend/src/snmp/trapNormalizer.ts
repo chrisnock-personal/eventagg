@@ -9,10 +9,10 @@ import { query } from "../db/pool";
 import { IngestInput } from "../services/ingestService";
 
 export interface RawTrap {
-  sourceAddress: string;     // sender IP
+  sourceAddress: string;
   community:     string;
-  trapOid:       string;     // snmpTrapOID value
-  uptime:        number;     // sysUpTime
+  trapOid:       string;
+  uptime:        number;
   varbinds:      Array<{ oid: string; value: unknown; type?: string }>;
   version:       1 | 2;
 }
@@ -25,10 +25,10 @@ export interface NormalizedTrap {
   varbinds:    Record<string, unknown>;
   routeType:   "aggregator_mib" | "source_rule" | "community_rule" | "unrouted";
   ingestInput: IngestInput | null;
-  routedTo:    string | null; // policy id
+  routedTo:    string | null;
 }
 
-// ─── Routing rules cache (refreshed every 30s) ───────────────────────────────
+// ─── Routing rules cache ──────────────────────────────────────────────────────
 let routingRulesCache: RoutingRule[] = [];
 let routingCacheAge = 0;
 
@@ -50,8 +50,26 @@ async function getRoutingRules(): Promise<RoutingRule[]> {
        FROM snmp_routing_rules WHERE is_active = TRUE ORDER BY priority ASC`
     );
     routingCacheAge = Date.now();
-  } catch { /* DB not ready yet — return stale cache */ }
+  } catch { /* DB not ready yet */ }
   return routingRulesCache;
+}
+
+// ─── Policy keyField cache ────────────────────────────────────────────────────
+const policyKeyFieldCache: Record<string, string> = {};
+
+async function getPolicyKeyField(policyId: string): Promise<string | null> {
+  if (policyKeyFieldCache[policyId]) return policyKeyFieldCache[policyId];
+  try {
+    const rows = await query<{ key_field: string }>(
+      `SELECT key_field FROM policies WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+      [policyId]
+    );
+    if (rows.length > 0) {
+      policyKeyFieldCache[policyId] = rows[0].key_field;
+      return rows[0].key_field;
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 export function invalidateRoutingCache(): void {
@@ -61,7 +79,7 @@ export function invalidateRoutingCache(): void {
 // ─── Main normalizer ──────────────────────────────────────────────────────────
 
 export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
-  // 1. Build varbind map with human-readable names
+  // Build varbind map with human-readable names
   const varbinds: Record<string, unknown> = {};
   for (const vb of raw.varbinds) {
     const name = resolveOid(vb.oid);
@@ -78,21 +96,28 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     varbinds,
   };
 
-  // 2. Aggre/Gator native trap — decode varbinds directly
+  // ── AggreGator MIB trap ───────────────────────────────────────────────────
   if (isAggreGatorTrap(raw.trapOid)) {
-    const policyId    = String(varbinds["agPolicyId"]    ?? "");
-    const agKey       = String(varbinds["agAggregationKey"] ?? raw.sourceAddress);
-    const eventType   = String(varbinds["agEventType"]   ?? "snmp.trap");
+    const policyId     = String(varbinds["agPolicyId"] ?? "");
+    const agKey        = String(varbinds["agAggregationKey"] ?? raw.sourceAddress);
+    const eventType    = String(varbinds["agEventType"]   ?? "snmp.trap");
     const sourceSystem = String(varbinds["agSourceSystem"] ?? raw.sourceAddress);
-    const severityNum = Number(varbinds["agSeverity"] ?? -1);
+    const severityNum  = Number(varbinds["agSeverity"] ?? -1);
 
     let extraBody: Record<string, unknown> = {};
     const bodyStr = varbinds["agEventBody"];
     if (bodyStr && typeof bodyStr === "string" && bodyStr.trim().startsWith("{")) {
-      try { extraBody = JSON.parse(bodyStr); } catch { /* ignore invalid JSON */ }
+      try { extraBody = JSON.parse(bodyStr); } catch { /* ignore */ }
     }
 
     if (!policyId) {
+      return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null };
+    }
+
+    // Look up the policy's keyField so we populate the right body property
+    const keyField = await getPolicyKeyField(policyId);
+    if (!keyField) {
+      console.log(`📡  SNMP: policy ${policyId} not found or inactive`);
       return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null };
     }
 
@@ -105,9 +130,9 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
       uptime:       raw.uptime,
       ...(severityNum >= 0 ? { severity: SEVERITY_NAMES[severityNum] ?? severityNum } : {}),
     };
-    // The keyField value — the policy defines which body field is the key,
-    // but for the SNMP path we pre-populate the value explicitly
-    body["aggregationKey"] = agKey;
+
+    // Set the aggregation key using the policy's actual keyField name
+    body[keyField] = agKey;
 
     return {
       ...base,
@@ -117,7 +142,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     };
   }
 
-  // 3. Standard trap — look up routing rules
+  // ── Standard trap — routing rules ─────────────────────────────────────────
   const rules = await getRoutingRules();
   const matched = rules.find(r => {
     if (r.match_community && r.match_community !== raw.community) return false;
@@ -130,7 +155,6 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null };
   }
 
-  // Build body from varbinds, source info, and trap metadata
   const keyValue = (varbinds[matched.key_field] ?? raw.sourceAddress) as string;
   const body: Record<string, unknown> = {
     ...varbinds,
@@ -139,6 +163,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     agentAddr: raw.sourceAddress,
     community: raw.community,
     uptime:    raw.uptime,
+    [matched.key_field]: keyValue,
   };
 
   const routeType = matched.match_agent ? "source_rule" : "community_rule";
@@ -149,7 +174,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     routedTo:    matched.policy_id,
     ingestInput: {
       policyId: matched.policy_id,
-      body: { ...body, [matched.key_field]: keyValue },
+      body,
       sourceIp: raw.sourceAddress,
     },
   };
