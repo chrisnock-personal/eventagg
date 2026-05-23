@@ -4,6 +4,8 @@
 
 Aggre/Gator is an intelligent event stream aggregation platform. It ingests events from any source, groups related events by a configurable key, tracks the complete cradle-to-grave lifecycle of each group, and surfaces real-time insights through a built-in dashboard and REST API.
 
+**Experimental/Prototype**
+
 ---
 
 ## What it does
