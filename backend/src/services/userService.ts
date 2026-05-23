@@ -7,6 +7,7 @@ export interface User {
   email: string;
   role: "viewer" | "editor" | "admin";
   isActive: boolean;
+  passwordChanged: boolean;
   lastLogin: string | null;
   createdAt: string;
 }
@@ -18,6 +19,7 @@ interface UserRow {
   password_hash: string;
   role: string;
   is_active: boolean;
+  password_changed: boolean;
   last_login: string | null;
   created_at: string;
 }
@@ -29,6 +31,7 @@ function toUser(r: UserRow): User {
     email: r.email,
     role: r.role as User["role"],
     isActive: r.is_active,
+    passwordChanged: r.password_changed,
     lastLogin: r.last_login,
     createdAt: r.created_at,
   };
@@ -118,6 +121,35 @@ export async function updateUser(
 
     return row ? toUser(row) : null;
   });
+}
+
+export async function changePassword(
+  id: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean; error?: string }> {
+  const row = await queryOne<UserRow>(
+    `SELECT * FROM users WHERE id = $1 AND is_active = TRUE`, [id]
+  );
+  if (!row) return { ok: false, error: "User not found" };
+
+  const valid = await bcrypt.compare(currentPassword, row.password_hash);
+  if (!valid) return { ok: false, error: "Current password is incorrect" };
+
+  const hash = await bcrypt.hash(newPassword, 10);
+  await query(
+    `UPDATE users SET password_hash = $1, password_changed = TRUE, updated_at = NOW() WHERE id = $2`,
+    [hash, id]
+  );
+  return { ok: true };
+}
+
+export async function forcePasswordChange(id: string, newPassword: string): Promise<void> {
+  const hash = await bcrypt.hash(newPassword, 10);
+  await query(
+    `UPDATE users SET password_hash = $1, password_changed = TRUE, updated_at = NOW() WHERE id = $2`,
+    [hash, id]
+  );
 }
 
 export async function deleteUser(id: string): Promise<boolean> {

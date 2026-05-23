@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { audit } from "../services/auditService";
 import {
   listPolicies,
   getPolicyById,
@@ -52,10 +53,9 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const input = policyBodySchema.parse(req.body);
     const policy = await createPolicy({ ...input, createdBy: "api" });
+    audit({ entityType: "policy", entityId: policy.id, action: "policy.created", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
     res.status(201).json(policy);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 // PUT /api/v1/policies/:id
@@ -65,16 +65,14 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
     const policy = await updatePolicy(req.params.id, { ...input, updatedBy: "api" });
     if (!policy) return next(createError("Policy not found", 404));
 
-    // If timeout was just set, retroactively apply it to existing in-progress groups
     if (policy.timeoutMs !== null && policy.timeoutMs !== undefined) {
       const count = await applyPolicyTimeout(req.params.id);
       if (count > 0) console.log(`⏱  Retroactive timeout: ${count} group(s) closed for policy ${policy.name}`);
     }
 
+    audit({ entityType: "policy", entityId: policy.id, action: "policy.updated", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name, timeoutMs: policy.timeoutMs } });
     res.json(policy);
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 // PATCH /api/v1/policies/:id/toggle — activate or deactivate
@@ -88,6 +86,7 @@ router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFuncti
     );
     if (!rows.length) return next(createError("Policy not found", 404));
     const policy = await getPolicyById(req.params.id);
+    audit({ entityType: "policy", entityId: req.params.id, action: "policy.toggled", actor: (req as any).user?.username, sourceIp: req.ip, metadata: { active } });
     res.json(policy);
   } catch (err) { next(err); }
 });
@@ -97,10 +96,9 @@ router.delete("/:id", async (req: Request, res: Response, next: NextFunction) =>
   try {
     const deleted = await deactivatePolicy(req.params.id, "api");
     if (!deleted) return next(createError("Policy not found", 404));
+    audit({ entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: (req as any).user?.username, sourceIp: req.ip });
     res.status(204).send();
-  } catch (err) {
-    next(err);
-  }
+  } catch (err) { next(err); }
 });
 
 export default router;

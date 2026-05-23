@@ -68,6 +68,7 @@ export interface EventPerformance {
 export interface SessionUser {
   id: string; username: string; email?: string;
   role: "viewer" | "editor" | "admin";
+  passwordChanged: boolean;
 }
 
 export interface AppUser {
@@ -162,6 +163,21 @@ function authUsersDelete(id: string): Promise<void> {
   return request<void>(`/auth/users/${id}`, { method: "DELETE" });
 }
 
+function authChangePassword(currentPassword: string, newPassword: string): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>("/auth/change-password", { method: "POST", body: JSON.stringify({ currentPassword, newPassword }) });
+}
+
+function fetchAuditLog(params: { entityType?: string; action?: string; actor?: string; from?: string; to?: string; limit?: number } = {}): Promise<any[]> {
+  const qs = new URLSearchParams();
+  if (params.entityType) qs.set("entityType", params.entityType);
+  if (params.action)     qs.set("action",     params.action);
+  if (params.actor)      qs.set("actor",      params.actor);
+  if (params.from)       qs.set("from",       params.from);
+  if (params.to)         qs.set("to",         params.to);
+  if (params.limit)      qs.set("limit",      String(params.limit));
+  return request<any[]>(`/audit?${qs}`);
+}
+
 function fetchPolicies(): Promise<Policy[]> {
   return request<Policy[]>("/policies");
 }
@@ -201,9 +217,10 @@ function snmpLog(limit = 100): Promise<any[]> { return request<any[]>(`/snmp/log
 
 export const api = {
   auth: {
-    login:  authLogin,
-    logout: authLogout,
-    me:     authMe,
+    login:          authLogin,
+    logout:         authLogout,
+    me:             authMe,
+    changePassword: authChangePassword,
     users: {
       list:   authUsersList,
       create: authUsersCreate,
@@ -231,18 +248,11 @@ export const api = {
   },
   snmp: {
     status: snmpStatus,
-    sources: {
-      list:   snmpSourcesList,
-      create: snmpSourcesCreate,
-      update: snmpSourcesUpdate,
-      delete: snmpSourcesDelete,
-    },
-    rules: {
-      list:   snmpRulesList,
-      create: snmpRulesCreate,
-      update: snmpRulesUpdate,
-      delete: snmpRulesDelete,
-    },
+    sources: { list: snmpSourcesList, create: snmpSourcesCreate, update: snmpSourcesUpdate, delete: snmpSourcesDelete },
+    rules:   { list: snmpRulesList,   create: snmpRulesCreate,   update: snmpRulesUpdate,   delete: snmpRulesDelete },
     log: snmpLog,
+  },
+  audit: {
+    list: fetchAuditLog,
   },
 };

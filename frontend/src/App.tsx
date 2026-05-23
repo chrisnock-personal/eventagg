@@ -869,7 +869,12 @@ function IngestModal({ policies, onIngest, onClose }: {
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.textMuted }}>×</button>
         </div>
         <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
-          <FSelect label="Aggregation Policy *" value={policyId} onChange={v => { setPolicyId(v); setResult(null); }} options={policies.map(p => ({ value: p.id, label: `${p.name} — ${p.domain}` }))} />
+          <FSelect label="Aggregation Policy *" value={policyId} onChange={v => { setPolicyId(v); setResult(null); }} options={policies.map(p => ({ value: p.id, label: `${p.name} — ${p.domain}${p.isActive ? "" : " (inactive)"}` }))} />
+          {pol && !pol.isActive && (
+            <div style={{ padding: "8px 12px", borderRadius: 6, background: C.warnLight, border: `1px solid ${C.warn}40`, fontSize: 12, color: C.warn, fontWeight: 600 }}>
+              ⚠ This policy is inactive — ingest will be rejected by the API.
+            </div>
+          )}
           {pol && (
             <div style={{ padding: "10px 14px", borderRadius: 8, background: C.surfaceAlt, border: `1px solid ${C.border}` }}>
               <SectionLabel text="Policy Rules" />
@@ -1329,6 +1334,66 @@ function StatusMultiSelect({ selected, onChange }: {
   );
 }
 
+// ─── Change Password Screen ───────────────────────────────────────────────────
+function ChangePasswordScreen({ user, onChanged }: { user: import("./api").SessionUser; onChanged: () => void }) {
+  const [cur,  setCur]  = useState("");
+  const [next, setNext] = useState("");
+  const [conf, setConf] = useState("");
+  const [err,  setErr]  = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit() {
+    if (!cur)             { setErr("Enter your current password"); return; }
+    if (next.length < 6)  { setErr("New password must be at least 6 characters"); return; }
+    if (next !== conf)    { setErr("Passwords do not match"); return; }
+    setBusy(true);
+    try {
+      await api.auth.changePassword(cur, next);
+      onChanged();
+    } catch (e: any) { setErr(e.message ?? "Failed to change password"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: C.dark, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Calibri, sans-serif" }}>
+      <div style={{ width: 400, background: C.surface, borderRadius: 16, overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" }}>
+        <div style={{ background: "#1A1916", padding: "24px 32px", display: "flex", alignItems: "center", gap: 12 }}>
+          <JawIcon size={30} />
+          <div>
+            <div style={{ fontSize: 20, fontWeight: 900, color: "#FFFFFF", fontFamily: "Georgia, serif" }}>Aggre<span style={{ color: "#1D6B4E" }}>/</span>Gator</div>
+            <div style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace" }}>event streams, swallowed whole</div>
+          </div>
+        </div>
+        <div style={{ padding: "28px 32px" }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: C.text, marginBottom: 6 }}>Change your password</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 20, padding: "8px 12px", background: C.warnLight, borderRadius: 6, border: `1px solid ${C.warn}40` }}>
+            ⚠ You are using the default password. Please set a new password before continuing.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {[
+              { label: "Current password", val: cur,  set: setCur,  ph: "admin123" },
+              { label: "New password",      val: next, set: setNext, ph: "at least 6 characters" },
+              { label: "Confirm password",  val: conf, set: setConf, ph: "repeat new password" },
+            ].map(f => (
+              <div key={f.label}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 5 }}>{f.label}</div>
+                <input type="password" value={f.val} onChange={e => { f.set(e.target.value); setErr(""); }}
+                  onKeyDown={e => e.key === "Enter" && handleSubmit()} placeholder={f.ph}
+                  style={{ width: "100%", padding: "9px 12px", border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 13, fontFamily: "inherit", color: C.text, background: C.surfaceAlt, outline: "none", boxSizing: "border-box" as const }} />
+              </div>
+            ))}
+            {err && <div style={{ fontSize: 12, color: C.danger, background: C.dangerLight, padding: "8px 12px", borderRadius: 6, border: "1px solid #FCA5A5" }}>{err}</div>}
+            <button onClick={handleSubmit} disabled={busy}
+              style={{ padding: "11px", background: busy ? C.borderStrong : C.accent, color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: "inherit", marginTop: 4, opacity: busy ? 0.75 : 1 }}>
+              {busy ? "Saving…" : "Set new password"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Login Screen ─────────────────────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (username: string, password: string) => Promise<void> }) {
   const [username, setUsername] = useState("");
@@ -1624,8 +1689,8 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                 <span style={{ background: rb[user.role] ?? C.infoLight, color: rc[user.role] ?? C.info, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3 }}>{user.role}</span>
               </div>
               {[
-                { icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const },
-                ...(user.role === "admin" ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const }] : []),
+                ...(user.role !== "viewer" ? [{ icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const }] : []),
+                ...(user.role === "admin"  ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const }] : []),
                 { icon: "📡", label: "SNMP",      desc: "Trap receiver & routing rules", s: "snmp" as const },
               ].map(item => (
                 <button key={item.s} onClick={() => setSection(item.s)}
@@ -1881,6 +1946,92 @@ function HeatmapChart({ tp }: { tp: { bucket: string; opened: number; closed: nu
         ))}
         <span style={{ fontSize: 9, color: C.textMuted }}>High</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Reports — Overview ───────────────────────────────────────────────────────
+// ─── Audit Log View ───────────────────────────────────────────────────────────
+function AuditLogView() {
+  const [entries, setEntries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter,  setFilter]  = useState<{ action: string; actor: string }>({ action: "", actor: "" });
+
+  React.useEffect(() => {
+    setLoading(true);
+    api.audit.list({ limit: 500 }).then(setEntries).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const actionColors: Record<string, string> = {
+    "user.login": C.accent, "user.logout": C.textMuted, "user.created": C.info,
+    "user.updated": C.info, "user.deleted": C.danger, "user.password_changed": C.purple,
+    "policy.created": C.accent, "policy.updated": C.warn, "policy.deleted": C.danger,
+    "policy.toggled": C.info, "event.ingested": C.textMuted,
+    "event.group_opened": C.accent, "event.group_completed": C.purple,
+  };
+
+  const filtered = entries.filter(e =>
+    (!filter.action || e.action?.includes(filter.action)) &&
+    (!filter.actor  || e.actor?.includes(filter.actor))
+  );
+
+  return (
+    <div style={{ background: C.surface, borderRadius: 10, border: `1px solid ${C.border}`, overflow: "hidden" }}>
+      <div style={{ padding: "14px 18px", borderBottom: `1px solid ${C.border}`, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" as const }}>
+        <div style={{ fontSize: 14, fontWeight: 800, color: C.text, flex: 1 }}>Audit Log</div>
+        <input value={filter.action} onChange={e => setFilter(f => ({ ...f, action: e.target.value }))} placeholder="Filter by action…"
+          style={{ padding: "5px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surfaceAlt, outline: "none", width: 160 }} />
+        <input value={filter.actor} onChange={e => setFilter(f => ({ ...f, actor: e.target.value }))} placeholder="Filter by actor…"
+          style={{ padding: "5px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surfaceAlt, outline: "none", width: 140 }} />
+        <button onClick={() => { setLoading(true); api.audit.list({ limit: 500 }).then(setEntries).catch(() => {}).finally(() => setLoading(false)); }}
+          style={{ padding: "5px 12px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", color: C.textMid }}>↻ Refresh</button>
+      </div>
+      {loading ? (
+        <div style={{ padding: 32, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>
+      ) : filtered.length === 0 ? (
+        <div style={{ padding: 32, textAlign: "center", color: C.textMuted, fontSize: 13 }}>No audit log entries yet.</div>
+      ) : (
+        <div style={{ overflowX: "auto" as const }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ background: C.surfaceAlt, borderBottom: `1px solid ${C.border}` }}>
+                {["Time", "Action", "Entity", "Actor", "Source IP", "Details"].map(h => (
+                  <th key={h} style={{ padding: "8px 14px", textAlign: "left" as const, fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.07em", whiteSpace: "nowrap" as const }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((e: any, i: number) => (
+                <tr key={e.id ?? i} style={{ borderBottom: `1px solid ${C.border}`, background: i % 2 === 0 ? "none" : C.surfaceAlt + "60" }}>
+                  <td style={{ padding: "8px 14px", color: C.textMuted, whiteSpace: "nowrap" as const, fontFamily: "monospace", fontSize: 11 }}>
+                    {e.event_time ? new Date(e.event_time).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "medium" }) : "—"}
+                  </td>
+                  <td style={{ padding: "8px 14px", whiteSpace: "nowrap" as const }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: (actionColors[e.action] ?? C.textMuted) + "18", color: actionColors[e.action] ?? C.textMuted, fontFamily: "monospace" }}>
+                      {e.action ?? "—"}
+                    </span>
+                  </td>
+                  <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 11, color: C.textMid }}>
+                    <span style={{ color: C.textMuted }}>{e.entity_type}</span>
+                    <span style={{ color: C.textMuted }}>/</span>
+                    <span>{String(e.entity_id ?? "").slice(0, 8)}…</span>
+                  </td>
+                  <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 11, color: C.text }}>{e.actor ?? "—"}</td>
+                  <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 11, color: C.textMuted }}>{e.source_ip ?? "—"}</td>
+                  <td style={{ padding: "8px 14px", fontSize: 11, color: C.textMuted, maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                    {e.aggregation_key ? <span>key: <code style={{ fontFamily: "monospace", color: C.info }}>{e.aggregation_key}</code></span>
+                     : e.metadata ? <span style={{ fontFamily: "monospace" }}>{JSON.stringify(e.metadata).slice(0, 60)}</span>
+                     : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ padding: "8px 14px", background: C.surfaceAlt, fontSize: 11, color: C.textMuted, borderTop: `1px solid ${C.border}` }}>
+            {filtered.length} entries{filtered.length !== entries.length ? ` (${entries.length} total)` : ""}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2613,6 +2764,13 @@ export default function App() {
   if (sessionUser === null) {
     return <LoginScreen onLogin={handleLogin} />;
   }
+  if (sessionUser.passwordChanged === false) {
+    return <ChangePasswordScreen user={sessionUser} onChanged={async () => {
+      // Re-fetch session to get updated passwordChanged flag
+      const u = await api.auth.me().catch(() => null);
+      if (u) setSessionUser({ ...u, passwordChanged: true });
+    }} />;
+  }
   return (
     <MainApp
       sessionUser={sessionUser}
@@ -2643,7 +2801,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
 
   // Top-level view
   const [view,           setView]        = useState<"events" | "reports">("events");
-  const [reportSection,  setReportSection] = useState<"overview" | "policies" | "explorer">("overview");
+  const [reportSection,  setReportSection] = useState<"overview" | "policies" | "explorer" | "audit">("overview");
 
   // Live highlighting — track which group IDs changed and why
   const [highlighted,    setHighlighted] = useState<HighlightedGroup[]>([]);
@@ -2995,7 +3153,9 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                 </button>
               ))}
             </div>
-            <button onClick={() => setShowIngest(true)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: "none", background: C.accent, color: "#fff", fontFamily: "inherit" }}>+ Ingest Event</button>
+            {sessionUser.role !== "viewer" && (
+              <button onClick={() => setShowIngest(true)} style={{ padding: "7px 16px", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", border: "none", background: C.accent, color: "#fff", fontFamily: "inherit" }}>+ Ingest Event</button>
+            )}
             <span style={{ fontSize: 11, color: C.textMuted, fontFamily: "monospace" }}>{sessionUser?.username}</span>
             <BurgerMenu
               user={sessionUser!}
@@ -3070,10 +3230,10 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.border}`, padding: "0 16px" }}>
               <div style={{ display: "flex" }}>
-                {(["overview", "policies", "explorer"] as const).map(s => (
+                {(["overview", "policies", "explorer", "audit"] as const).map(s => (
                   <button key={s} onClick={() => setReportSection(s)}
                     style={{ padding: "10px 18px", fontSize: 12, fontWeight: 600, fontFamily: "inherit", border: "none", background: "none", cursor: "pointer", color: reportSection === s ? C.accent : C.textMuted, borderBottom: `2px solid ${reportSection === s ? C.accent : "transparent"}`, marginBottom: -1, transition: "color 0.15s" }}>
-                    {s === "overview" ? "Overview" : s === "policies" ? "Policy Stats" : "Event Group Performance"}
+                    {s === "overview" ? "Overview" : s === "policies" ? "Policy Stats" : s === "explorer" ? "Event Group Performance" : "Audit Log"}
                   </button>
                 ))}
               </div>
@@ -3122,6 +3282,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
             {reportSection === "overview"  && <ReportsOverview  policies={policies} stats={eventStats} dateRange={dateRange} policyFilter={policyFilter} />}
             {reportSection === "policies"  && <ReportsPolicyStats policies={policies} stats={eventStats} />}
             {reportSection === "explorer"  && <ReportsGroupExplorer policies={policies} policyFilter={policyFilter} keyFilter={keyFilter} fromFilter={fromFilter} toFilter={toFilter} />}
+            {reportSection === "audit"     && <AuditLogView />}
           </div>
           </>
         )}

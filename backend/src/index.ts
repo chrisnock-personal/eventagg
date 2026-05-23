@@ -15,6 +15,7 @@ import policiesRouter from "./routes/policies";
 import eventsRouter   from "./routes/events";
 import ingestRouter   from "./routes/ingest";
 import snmpRouter     from "./routes/snmp";
+import auditRouter    from "./routes/audit";
 import { createUser, updateUser } from "./services/userService";
 import { startSnmpReceiver, stopSnmpReceiver, getSnmpStats } from "./snmp/trapReceiver";
 
@@ -78,6 +79,7 @@ app.use("/api/v1/policies",         policiesRouter);
 app.use("/api/v1/events/ingest",    ingestRateLimit, requireApiKey, ingestRouter);
 app.use("/api/v1/events",           eventsRouter);
 app.use("/api/v1/snmp",             snmpRouter);
+app.use("/api/v1/audit",            auditRouter);
 
 // ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
 app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
@@ -226,6 +228,8 @@ async function seedDefaultAdmin(): Promise<void> {
     } else {
       // Always reset the hash on startup so it matches the current bcryptjs implementation
       await updateUser(existing[0].id, { password });
+      // Reset password_changed so the first-login change prompt re-appears
+      await query(`UPDATE users SET password_changed = FALSE WHERE id = $1 AND username = 'admin'`, [existing[0].id]);
       console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
     }
   } catch (err) {

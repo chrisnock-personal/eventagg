@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { verifyCredentials, listUsers, createUser, updateUser, deleteUser } from "../services/userService";
+import { verifyCredentials, listUsers, createUser, updateUser, deleteUser, changePassword, forcePasswordChange } from "../services/userService";
+import { audit } from "../services/auditService";
 import { setSessionCookie, clearSessionCookie, requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 
@@ -21,14 +22,38 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
     }
 
     setSessionCookie(res, { id: user.id, username: user.username, role: user.role });
-    res.json({ id: user.id, username: user.username, role: user.role, email: user.email });
+    audit({ entityType: "user", entityId: user.id, action: "user.login", actor: user.username, sourceIp: req.ip });
+    res.json({
+      id: user.id,
+      username: user.username,
+      role: user.role,
+      email: user.email,
+      passwordChanged: user.passwordChanged,
+    });
   } catch (err) {
     next(err);
   }
 });
 
+// ── POST /api/v1/auth/change-password ────────────────────────────────────────
+router.post("/change-password", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { currentPassword, newPassword } = z.object({
+      currentPassword: z.string().min(1),
+      newPassword:     z.string().min(6, "New password must be at least 6 characters"),
+    }).parse(req.body);
+
+    const userId = (req as any).user.id;
+    const result = await changePassword(userId, currentPassword, newPassword);
+    if (!result.ok) return next(createError(result.error ?? "Password change failed", 400));
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
-router.post("/logout", (_req: Request, res: Response) => {
+router.post("/logout", requireAuth, (req: Request, res: Response) => {
+  const user = (req as any).user;
+  audit({ entityType: "user", entityId: user.id, action: "user.logout", actor: user.username, sourceIp: req.ip });
   clearSessionCookie(res);
   res.status(204).send();
 });

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { ingestSegment } from "../services/ingestService";
 import { statsCache, performanceCache } from "../cache";
+import { audit } from "../services/auditService";
 
 const router = Router();
 
@@ -25,6 +26,17 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     if (!result.action.includes("duplicate")) {
       statsCache.invalidateAll();
       performanceCache.invalidateAll();
+      audit({
+        entityType:     "event",
+        entityId:       result.groupId,
+        action:         result.action === "group_opened"   ? "event.group_opened"
+                      : result.action === "group_promoted" ? "event.group_completed"
+                      : "event.ingested",
+        policyId:       input.policyId,
+        aggregationKey: result.aggregationKey,
+        sourceIp:       req.ip,
+        metadata:       { action: result.action, segmentId: result.segmentId },
+      });
     }
 
     const statusCode = result.action === "group_opened" ? 201 : 200;
