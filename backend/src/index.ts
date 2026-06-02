@@ -17,9 +17,12 @@ import ingestRouter   from "./routes/ingest";
 import snmpRouter     from "./routes/snmp";
 import auditRouter    from "./routes/audit";
 import webhooksRouter from "./routes/webhooks";
+import systemRouter   from "./routes/system";
+import adminRouter    from "./routes/admin";
 import { createUser, updateUser } from "./services/userService";
 import { startSnmpReceiver, stopSnmpReceiver, getSnmpStats } from "./snmp/trapReceiver";
 import { triggerWebhooks } from "./services/webhookService";
+import { sendGroupTimedOutAlert } from "./services/smtpService";
 
 const app = express();
 
@@ -83,6 +86,10 @@ app.use("/api/v1/events",           eventsRouter);
 app.use("/api/v1/snmp",             snmpRouter);
 app.use("/api/v1/audit",            auditRouter);
 app.use("/api/v1/webhooks",         webhooksRouter);
+app.use("/api/v1/system",           systemRouter);
+// Restore route needs raw SQL body — must be registered before adminRouter
+app.use("/api/v1/admin/restore",    express.text({ type: "application/sql", limit: "100mb" }));
+app.use("/api/v1/admin",            adminRouter);
 
 // ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
 app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
@@ -210,7 +217,7 @@ async function runTimeoutJob(): Promise<void> {
 
           console.log(`    ✓ Timed out: ${group.aggregation_key} (${group.id.slice(0,8)}…)`);
 
-          // Fire webhooks after transaction commits
+          // Fire webhooks + SMTP alert after transaction commits
           const endedAt = new Date();
           setImmediate(() => {
             triggerWebhooks("group_timed_out", {
@@ -223,6 +230,12 @@ async function runTimeoutJob(): Promise<void> {
               startTime: group.started_at,
               endTime: endedAt.toISOString(),
               durationMs: endedAt.getTime() - new Date(group.started_at).getTime(),
+            }).catch(() => {});
+            sendGroupTimedOutAlert({
+              policyName:     group.policy_name,
+              aggregationKey: group.aggregation_key,
+              timeoutMs:      0,
+              openedAt:       new Date(group.started_at),
             }).catch(() => {});
           });
         });

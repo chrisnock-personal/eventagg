@@ -19,6 +19,10 @@ export const openApiSpec = {
     { name: "Events",   description: "Event group queries, stats, and performance" },
     { name: "Ingest",   description: "Push events into the aggregation engine" },
     { name: "Policies", description: "Manage aggregation policies" },
+    { name: "Webhooks", description: "Register endpoints to receive POST notifications when groups complete or time out" },
+    { name: "Audit",    description: "Audit log — every mutation and authentication event" },
+    { name: "System",   description: "System health, logs, and configuration (admin only)" },
+    { name: "Admin",    description: "Policy import/export, database backup/restore, and maintenance (admin only)" },
   ],
 
   // ── Reusable schemas ──────────────────────────────────────────────────────
@@ -146,6 +150,65 @@ export const openApiSpec = {
         properties: {
           error:   { type: "string" },
           details: { type: "array", items: { type: "object" } },
+        },
+      },
+
+      Webhook: {
+        type: "object",
+        required: ["id","name","url","secret","events","isActive","createdAt","updatedAt"],
+        properties: {
+          id:        { type: "string", format: "uuid" },
+          name:      { type: "string", example: "Slack alerts" },
+          url:       { type: "string", format: "uri", example: "https://hooks.slack.com/services/xxx" },
+          secret:    { type: "string", description: "HMAC-SHA256 signing secret. Empty string means no signature.", example: "" },
+          events:    { type: "array", items: { type: "string", enum: ["group_completed","group_timed_out"] }, example: ["group_completed","group_timed_out"] },
+          isActive:  { type: "boolean" },
+          createdAt: { type: "string", format: "date-time" },
+          updatedAt: { type: "string", format: "date-time" },
+        },
+      },
+
+      WebhookDelivery: {
+        type: "object",
+        required: ["id","webhookId","webhookName","eventType","groupId","status","attempts","createdAt"],
+        properties: {
+          id:             { type: "string", format: "uuid" },
+          webhookId:      { type: "string", format: "uuid" },
+          webhookName:    { type: "string" },
+          eventType:      { type: "string", enum: ["group_completed","group_timed_out"] },
+          groupId:        { type: "string", format: "uuid" },
+          status:         { type: "string", enum: ["pending","success","failed"] },
+          attempts:       { type: "integer", minimum: 0 },
+          lastAttemptAt:  { type: "string", format: "date-time", nullable: true },
+          responseStatus: { type: "integer", nullable: true, description: "HTTP status code returned by the receiver" },
+          responseBody:   { type: "string", nullable: true, description: "First 1000 chars of the receiver's response body" },
+          errorMessage:   { type: "string", nullable: true, description: "Network or timeout error message" },
+          createdAt:      { type: "string", format: "date-time" },
+        },
+      },
+
+      WebhookEventPayload: {
+        type: "object",
+        description: "Body sent to a registered webhook URL on every matching event.",
+        required: ["event","timestamp","group"],
+        properties: {
+          event:     { type: "string", enum: ["group_completed","group_timed_out"], description: "The event type that triggered this delivery" },
+          timestamp: { type: "string", format: "date-time", description: "ISO 8601 timestamp of delivery (server time)" },
+          group: {
+            type: "object",
+            required: ["id","policyId","policyName","aggregationKey","status","segmentCount","startTime","endTime","durationMs"],
+            properties: {
+              id:             { type: "string", format: "uuid" },
+              policyId:       { type: "string", format: "uuid" },
+              policyName:     { type: "string" },
+              aggregationKey: { type: "string" },
+              status:         { type: "string", enum: ["completed","timed_out"] },
+              segmentCount:   { type: "integer" },
+              startTime:      { type: "string", format: "date-time" },
+              endTime:        { type: "string", format: "date-time" },
+              durationMs:     { type: "integer" },
+            },
+          },
         },
       },
 
@@ -450,6 +513,456 @@ export const openApiSpec = {
         responses: {
           "200": { description: "Updated policy", content: { "application/json": { schema: { $ref: "#/components/schemas/Policy" } } } },
           "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+
+    // ── Webhooks ──────────────────────────────────────────────────────────
+    "/webhooks": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "List webhooks",
+        description: "Returns all registered webhook endpoints.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "Webhook list", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Webhook" } } } } },
+        },
+      },
+      post: {
+        tags: ["Webhooks"],
+        summary: "Create a webhook",
+        description: "Register a new endpoint. Requires editor or admin role.",
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["name","url"],
+                properties: {
+                  name:   { type: "string", example: "Slack alerts" },
+                  url:    { type: "string", format: "uri", example: "https://hooks.slack.com/services/xxx" },
+                  secret: { type: "string", description: "Optional HMAC-SHA256 signing secret. Omit or empty string for no signature.", example: "" },
+                  events: { type: "array", items: { type: "string", enum: ["group_completed","group_timed_out"] }, default: ["group_completed","group_timed_out"] },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Webhook created", content: { "application/json": { schema: { $ref: "#/components/schemas/Webhook" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+        },
+      },
+    },
+
+    "/webhooks/{id}": {
+      put: {
+        tags: ["Webhooks"],
+        summary: "Update a webhook",
+        description: "Update any field on an existing webhook. Requires editor or admin role.",
+        security: [{ cookieAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  name:     { type: "string" },
+                  url:      { type: "string", format: "uri" },
+                  secret:   { type: "string" },
+                  events:   { type: "array", items: { type: "string", enum: ["group_completed","group_timed_out"] } },
+                  isActive: { type: "boolean" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated webhook", content: { "application/json": { schema: { $ref: "#/components/schemas/Webhook" } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["Webhooks"],
+        summary: "Delete a webhook",
+        description: "Permanently removes the webhook and all its delivery history. Requires editor or admin role.",
+        security: [{ cookieAuth: [] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+        responses: {
+          "204": { description: "Deleted" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+
+    "/webhooks/deliveries": {
+      get: {
+        tags: ["Webhooks"],
+        summary: "List delivery log",
+        description: "Returns recent webhook delivery attempts across all webhooks, or scoped to a single webhook. Includes status, HTTP response code, and error messages.",
+        security: [{ cookieAuth: [] }],
+        parameters: [
+          { name: "webhookId", in: "query", schema: { type: "string", format: "uuid" }, description: "Filter to deliveries for a specific webhook" },
+          { name: "limit",     in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 100 }, description: "Maximum number of deliveries to return" },
+        ],
+        responses: {
+          "200": { description: "Delivery list", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/WebhookDelivery" } } } } },
+        },
+      },
+    },
+
+    // ── Audit ─────────────────────────────────────────────────────────────
+    "/audit": {
+      get: {
+        tags: ["Audit"],
+        summary: "Query audit log",
+        description: "Returns paginated audit log entries. Requires authentication. Supports filtering by action, actor, entity type, and time range.",
+        security: [{ cookieAuth: [] }],
+        parameters: [
+          { name: "entityType", in: "query", schema: { type: "string" }, description: "Filter by entity type (e.g. policy, user)" },
+          { name: "entityId",   in: "query", schema: { type: "string" }, description: "Filter by entity ID" },
+          { name: "action",     in: "query", schema: { type: "string" }, description: "Filter by action (partial match, e.g. policy.created)" },
+          { name: "actor",      in: "query", schema: { type: "string" }, description: "Filter by actor email (partial match)" },
+          { $ref: "#/components/parameters/from" },
+          { $ref: "#/components/parameters/to" },
+          { name: "limit",  in: "query", schema: { type: "integer", minimum: 1, maximum: 500, default: 200 } },
+          { name: "offset", in: "query", schema: { type: "integer", minimum: 0, default: 0 } },
+        ],
+        responses: {
+          "200": {
+            description: "Paginated audit log",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    rows:   { type: "array", items: { type: "object", additionalProperties: true } },
+                    total:  { type: "integer", description: "Total matching entries (for pagination)" },
+                    limit:  { type: "integer" },
+                    offset: { type: "integer" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    // ── System ────────────────────────────────────────────────────────────
+    "/system/health": {
+      get: {
+        tags: ["System"],
+        summary: "System health",
+        description: "Returns CPU, memory, disk, backend process stats, and database metrics. Samples CPU over 250ms. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": {
+            description: "Health snapshot",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    timestamp: { type: "string", format: "date-time" },
+                    backend:   { type: "object", additionalProperties: true },
+                    host:      { type: "object", additionalProperties: true },
+                    system:    { type: "object", additionalProperties: true },
+                    database:  { type: "object", additionalProperties: true },
+                  },
+                },
+              },
+            },
+          },
+          "403": { description: "Forbidden — admin role required" },
+        },
+      },
+    },
+
+    "/system/config/{key}": {
+      get: {
+        tags: ["System"],
+        summary: "Get system config value",
+        description: "Returns the JSONB value stored for the given config key. Admin only.",
+        security: [{ cookieAuth: [] }],
+        parameters: [{ name: "key", in: "path", required: true, schema: { type: "string" }, example: "smtp" }],
+        responses: {
+          "200": { description: "Config value (arbitrary JSON)", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      put: {
+        tags: ["System"],
+        summary: "Set system config value",
+        description: "Upserts a JSONB value for the given config key. Admin only.",
+        security: [{ cookieAuth: [] }],
+        parameters: [{ name: "key", in: "path", required: true, schema: { type: "string" } }],
+        requestBody: {
+          required: true,
+          content: { "application/json": { schema: { type: "object", additionalProperties: true } } },
+        },
+        responses: {
+          "200": { description: "Saved", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" } } } } } },
+        },
+      },
+    },
+
+    "/system/config/smtp/test": {
+      post: {
+        tags: ["System"],
+        summary: "Test SMTP connection",
+        description: "Attempts to verify the provided SMTP credentials without sending an email. Admin only.",
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["host","port","secure","user","password"],
+                properties: {
+                  host:     { type: "string", example: "smtp.example.com" },
+                  port:     { type: "integer", example: 587 },
+                  secure:   { type: "boolean", example: false },
+                  user:     { type: "string" },
+                  password: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Connection verified", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, message: { type: "string" } } } } } },
+          "400": { description: "Connection failed", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, error: { type: "string" } } } } } },
+        },
+      },
+    },
+
+    "/system/logs/{service}": {
+      get: {
+        tags: ["System"],
+        summary: "Read service log",
+        description: "Returns the tail of a supervisor-managed log file. Admin only.",
+        security: [{ cookieAuth: [] }],
+        parameters: [
+          { name: "service", in: "path", required: true, schema: { type: "string", enum: ["backend","nginx","postgres"] } },
+          { name: "lines",   in: "query", schema: { type: "integer", minimum: 1, maximum: 2000, default: 200 } },
+        ],
+        responses: {
+          "200": {
+            description: "Log lines",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    service: { type: "string" },
+                    lines:   { type: "array", items: { type: "string" } },
+                    errors:  { type: "array", items: { type: "string" }, description: "Lines containing error/warn/fatal keywords" },
+                  },
+                },
+              },
+            },
+          },
+          "404": { description: "Unknown service" },
+        },
+      },
+    },
+
+    "/system/logs/sizes": {
+      get: {
+        tags: ["System"],
+        summary: "Log file sizes",
+        description: "Returns the size of each supervisor log file. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": {
+            description: "Log sizes",
+            content: {
+              "application/json": {
+                schema: { type: "array", items: { type: "object", properties: { file: { type: "string" }, size_bytes: { type: "integer" }, size_human: { type: "string" }, modified: { type: "string", format: "date-time" } } } },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    "/system/logs/rotate": {
+      post: {
+        tags: ["System"],
+        summary: "Rotate logs",
+        description: "Forces logrotate on the eventagg log config. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "Rotation result", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, output: { type: "string" } } } } } },
+        },
+      },
+    },
+
+    // ── Admin ─────────────────────────────────────────────────────────────
+    "/admin/export/policies": {
+      get: {
+        tags: ["Admin"],
+        summary: "Export policies",
+        description: "Downloads all policies as a JSON bundle. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": {
+            description: "Policy bundle JSON",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    version:     { type: "string" },
+                    exported_at: { type: "string", format: "date-time" },
+                    exported_by: { type: "string" },
+                    policies:    { type: "array", items: { type: "object", additionalProperties: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    "/admin/import/policies": {
+      post: {
+        tags: ["Admin"],
+        summary: "Import policies",
+        description: "Imports a policy bundle. Existing policies matched by name are updated; new ones are created. Admin only.",
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                required: ["version","policies"],
+                properties: {
+                  version:  { type: "string" },
+                  policies: { type: "array", items: { type: "object", additionalProperties: true } },
+                },
+              },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Import result",
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { imported: { type: "integer" }, updated: { type: "integer" }, errors: { type: "array", items: { type: "string" } } } },
+              },
+            },
+          },
+        },
+      },
+    },
+
+    "/admin/backup/info": {
+      get: {
+        tags: ["Admin"],
+        summary: "Backup info",
+        description: "Returns database size and row counts for key tables. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "Backup info", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+        },
+      },
+    },
+
+    "/admin/backup": {
+      post: {
+        tags: ["Admin"],
+        summary: "Download backup",
+        description: "Runs pg_dump and streams a full SQL backup. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "SQL dump file", content: { "application/sql": { schema: { type: "string", format: "binary" } } } },
+        },
+      },
+    },
+
+    "/admin/restore": {
+      post: {
+        tags: ["Admin"],
+        summary: "Restore from backup",
+        description: "Executes a PostgreSQL SQL dump against the live database. Destructive — use with caution. Admin only.",
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: { "application/sql": { schema: { type: "string", format: "binary" } } },
+        },
+        responses: {
+          "200": { description: "Restore completed", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, message: { type: "string" } } } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+        },
+      },
+    },
+
+    "/admin/db/stats": {
+      get: {
+        tags: ["Admin"],
+        summary: "Database table statistics",
+        description: "Returns per-table size, live rows, dead rows, and vacuum history from pg_stat_user_tables. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "DB stats", content: { "application/json": { schema: { type: "object", additionalProperties: true } } } },
+        },
+      },
+    },
+
+    "/admin/db/vacuum": {
+      post: {
+        tags: ["Admin"],
+        summary: "VACUUM ANALYZE",
+        description: "Runs VACUUM ANALYZE on the entire database to reclaim storage and update planner stats. Admin only.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "Vacuum complete", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" }, message: { type: "string" } } } } } },
+        },
+      },
+    },
+
+    "/admin/db/purge": {
+      post: {
+        tags: ["Admin"],
+        summary: "Purge old data",
+        description: "Deletes completed events and audit log entries older than the specified number of days (minimum 30). Admin only.",
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["days"], properties: { days: { type: "integer", minimum: 30, example: 90 } } },
+            },
+          },
+        },
+        responses: {
+          "200": {
+            description: "Purge result",
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    ok:                { type: "boolean" },
+                    deleted_completed: { type: "integer" },
+                    deleted_audit:     { type: "integer" },
+                    message:           { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          "400": { $ref: "#/components/responses/BadRequest" },
         },
       },
     },

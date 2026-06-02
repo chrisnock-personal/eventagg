@@ -20,7 +20,8 @@
     "jsonwebtoken": "^9.0.2",
     "cookie-parser": "^1.4.6",
     "bcryptjs": "^2.4.3",
-    "net-snmp": "^3.11.0"
+    "net-snmp": "^3.11.0",
+    "nodemailer": "^6.9.14"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
@@ -33,6 +34,7 @@
     "@types/jsonwebtoken": "^9.0.6",
     "@types/cookie-parser": "^1.4.7",
     "@types/bcryptjs": "^2.4.6",
-    "@types/net-snmp": "^3.11.0"
+    "@types/net-snmp": "^3.11.0",
+    "@types/nodemailer": "^6.4.15"
   }
 }

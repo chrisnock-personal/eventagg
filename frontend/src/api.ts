@@ -175,7 +175,7 @@ function fetchAuditLog(params: { entityType?: string; action?: string; actor?: s
   if (params.from)       qs.set("from",       params.from);
   if (params.to)         qs.set("to",         params.to);
   if (params.limit)      qs.set("limit",      String(params.limit));
-  return request<any[]>(`/audit?${qs}`);
+  return request<{ rows: any[]; total: number }>(`/audit?${qs}`).then(r => r.rows);
 }
 
 function fetchPolicies(): Promise<Policy[]> {
@@ -252,6 +252,75 @@ function snmpRulesUpdate(id: string, body: any): Promise<any> { return request<a
 function snmpRulesDelete(id: string): Promise<void> { return request<void>(`/snmp/rules/${id}`, { method: "DELETE" }); }
 function snmpLog(limit = 100): Promise<any[]> { return request<any[]>(`/snmp/log?limit=${limit}`); }
 
+// ─── System / Health ─────────────────────────────────────────────────────────
+
+function fetchSystemHealth(): Promise<any> { return request<any>("/system/health"); }
+function fetchLogSizes(): Promise<any[]>    { return request<any[]>("/system/logs/sizes"); }
+function fetchServiceLog(service: string, lines?: number): Promise<any> {
+  return request<any>(`/system/logs/${service}?lines=${lines ?? 200}`);
+}
+function rotateLogs(): Promise<any> { return request<any>("/system/logs/rotate", { method: "POST" }); }
+
+function getSystemConfig(key: string): Promise<any> { return request<any>(`/system/config/${key}`); }
+function setSystemConfig(key: string, value: unknown): Promise<any> {
+  return request<any>(`/system/config/${key}`, { method: "PUT", body: JSON.stringify(value) });
+}
+function testSmtp(cfg: { host: string; port: number; secure: boolean; user: string; password: string }): Promise<any> {
+  return request<any>("/system/config/smtp/test", { method: "POST", body: JSON.stringify(cfg) });
+}
+
+// ─── Admin ────────────────────────────────────────────────────────────────────
+
+function exportPolicies(): Promise<Blob> {
+  return fetch(`${BASE}/admin/export/policies`, { credentials: "include" }).then(r => {
+    if (!r.ok) throw new Error(`Export failed: ${r.status}`);
+    return r.blob();
+  });
+}
+
+function importPolicies(bundle: unknown): Promise<any> {
+  return request<any>("/admin/import/policies", { method: "POST", body: JSON.stringify(bundle) });
+}
+
+function getBackupInfo(): Promise<any> { return request<any>("/admin/backup/info"); }
+
+function downloadBackup(): Promise<Blob> {
+  return fetch(`${BASE}/admin/backup`, { credentials: "include", method: "POST" }).then(r => {
+    if (!r.ok) throw new Error(`Backup failed: ${r.status}`);
+    return r.blob();
+  });
+}
+
+function restoreBackup(sql: string): Promise<any> {
+  return fetch(`${BASE}/admin/restore`, {
+    credentials: "include",
+    method: "POST",
+    headers: { "Content-Type": "application/sql" },
+    body: sql,
+  }).then(async r => {
+    if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error ?? `Restore failed: ${r.status}`); }
+    return r.json();
+  });
+}
+
+function getDbStats(): Promise<any>     { return request<any>("/admin/db/stats"); }
+function runVacuum(): Promise<any>      { return request<any>("/admin/db/vacuum", { method: "POST" }); }
+function purgeDb(days: number): Promise<any> {
+  return request<any>("/admin/db/purge", { method: "POST", body: JSON.stringify({ days }) });
+}
+
+function fetchAuditLogPaged(params: { entityType?: string; action?: string; actor?: string; from?: string; to?: string; limit?: number; offset?: number } = {}): Promise<{ rows: any[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params.entityType) qs.set("entityType", params.entityType);
+  if (params.action)     qs.set("action",     params.action);
+  if (params.actor)      qs.set("actor",      params.actor);
+  if (params.from)       qs.set("from",       params.from);
+  if (params.to)         qs.set("to",         params.to);
+  if (params.limit)      qs.set("limit",      String(params.limit));
+  if (params.offset)     qs.set("offset",     String(params.offset));
+  return request<{ rows: any[]; total: number }>(`/audit?${qs}`);
+}
+
 // ─── API object — zero TypeScript syntax, plain property references only ──────
 
 export const api = {
@@ -300,5 +369,25 @@ export const api = {
     update:     updateWebhook,
     delete:     deleteWebhook,
     deliveries: fetchWebhookDeliveries,
+  },
+  system: {
+    health:    fetchSystemHealth,
+    logSizes:  fetchLogSizes,
+    log:       fetchServiceLog,
+    rotateLogs,
+    getConfig: getSystemConfig,
+    setConfig: setSystemConfig,
+    testSmtp,
+  },
+  admin: {
+    exportPolicies,
+    importPolicies,
+    backupInfo:   getBackupInfo,
+    backup:       downloadBackup,
+    restore:      restoreBackup,
+    dbStats:      getDbStats,
+    vacuum:       runVacuum,
+    purge:        purgeDb,
+    auditPaged:   fetchAuditLogPaged,
   },
 };

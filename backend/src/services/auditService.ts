@@ -60,28 +60,56 @@ export interface AuditLogFilters {
   from?:       string;
   to?:         string;
   limit?:      number;
+  offset?:     number;
 }
 
-export async function queryAuditLog(filters: AuditLogFilters = {}): Promise<unknown[]> {
+function buildAuditConditions(filters: AuditLogFilters): { where: string; params: unknown[]; nextI: number } {
   const conditions: string[] = [];
   const params: unknown[] = [];
   let i = 1;
 
   if (filters.entityType) { conditions.push(`entity_type = $${i++}`); params.push(filters.entityType); }
   if (filters.entityId)   { conditions.push(`entity_id = $${i++}`);   params.push(filters.entityId); }
-  if (filters.action)     { conditions.push(`action = $${i++}`);       params.push(filters.action); }
-  if (filters.actor)      { conditions.push(`actor = $${i++}`);        params.push(filters.actor); }
-  if (filters.from)       { conditions.push(`event_time >= $${i++}`);  params.push(filters.from); }
-  if (filters.to)         { conditions.push(`event_time <= $${i++}`);  params.push(filters.to); }
+  if (filters.action)     { conditions.push(`action ILIKE $${i++}`);  params.push(`%${filters.action}%`); }
+  if (filters.actor)      { conditions.push(`actor ILIKE $${i++}`);   params.push(`%${filters.actor}%`); }
+  if (filters.from)       { conditions.push(`event_time >= $${i++}`); params.push(filters.from); }
+  if (filters.to)         { conditions.push(`event_time <= $${i++}`); params.push(filters.to); }
 
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-  const limit = Math.min(filters.limit ?? 200, 500);
+  return { where: conditions.length ? `WHERE ${conditions.join(" AND ")}` : "", params, nextI: i };
+}
+
+export async function queryAuditLog(filters: AuditLogFilters = {}): Promise<unknown[]> {
+  const { where, params, nextI } = buildAuditConditions(filters);
+  const limit  = Math.min(filters.limit ?? 200, 500);
+  const offset = filters.offset ?? 0;
 
   return query(
     `SELECT id, event_time, entity_type, entity_id, action,
             policy_id, aggregation_key, actor, source_ip, metadata
      FROM audit_log ${where}
-     ORDER BY event_time DESC LIMIT ${limit}`,
-    params
+     ORDER BY event_time DESC LIMIT $${nextI} OFFSET $${nextI + 1}`,
+    [...params, limit, offset]
   );
+}
+
+export async function queryAuditLogPaged(filters: AuditLogFilters = {}): Promise<{ rows: unknown[]; total: number }> {
+  const { where, params, nextI } = buildAuditConditions(filters);
+  const limit  = Math.min(filters.limit ?? 100, 500);
+  const offset = filters.offset ?? 0;
+
+  const [rows, countRows] = await Promise.all([
+    query(
+      `SELECT id, event_time, entity_type, entity_id, action,
+              policy_id, aggregation_key, actor, source_ip, metadata
+       FROM audit_log ${where}
+       ORDER BY event_time DESC LIMIT $${nextI} OFFSET $${nextI + 1}`,
+      [...params, limit, offset]
+    ),
+    query<{ total: string }>(
+      `SELECT COUNT(*) AS total FROM audit_log ${where}`,
+      params
+    ),
+  ]);
+
+  return { rows, total: parseInt(countRows[0]?.total ?? "0") };
 }

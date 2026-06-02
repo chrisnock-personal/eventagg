@@ -1809,7 +1809,533 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
   );
 }
 
-function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies, onIngest }: {
+// ─── Admin panel shared helpers ───────────────────────────────────────────────
+
+function PctBar({ pct, color }: { pct: number; color: string }) {
+  const c = pct >= 90 ? C.danger : pct >= 75 ? C.warn : color;
+  return (
+    <div style={{ height: 6, background: C.border, borderRadius: 3, overflow: "hidden", marginTop: 6 }}>
+      <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: c, borderRadius: 3, transition: "width 0.4s" }} />
+    </div>
+  );
+}
+
+function AdminCard({ label, value, sub, pct, color }: { label: string; value: string; sub?: string; pct?: number; color: string }) {
+  return (
+    <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px", flex: 1 }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "monospace", color }}>{value}</div>
+      {sub && <div style={{ fontSize: 10, color: C.textMuted, marginTop: 2 }}>{sub}</div>}
+      {pct !== undefined && <PctBar pct={pct} color={color} />}
+    </div>
+  );
+}
+
+// ─── Admin panel: System Health ───────────────────────────────────────────────
+
+function HealthPanel() {
+  const [health,    setHealth]    = useState<any>(null);
+  const [loading,   setLoading]   = useState(true);
+  const [err,       setErr]       = useState("");
+  const [logSvc,    setLogSvc]    = useState("backend");
+  const [logData,   setLogData]   = useState<any>(null);
+  const [logLoading,setLogLoading]= useState(false);
+  const [rotating,  setRotating]  = useState(false);
+  const [rotateMsg, setRotateMsg] = useState("");
+
+  function loadHealth() {
+    setLoading(true); setErr("");
+    api.system.health().then(setHealth).catch(e => setErr(e.message ?? "Failed")).finally(() => setLoading(false));
+  }
+  function loadLog(svc: string) {
+    setLogLoading(true); setLogData(null);
+    api.system.log(svc, 300).then(setLogData).catch(() => {}).finally(() => setLogLoading(false));
+  }
+  useEffect(() => { loadHealth(); }, []);
+  useEffect(() => { loadLog(logSvc); }, [logSvc]);
+
+  function rotate() {
+    setRotating(true); setRotateMsg("");
+    api.system.rotateLogs().then(r => setRotateMsg(r.output ?? "Done")).catch(e => setRotateMsg(e.message ?? "Error")).finally(() => setRotating(false));
+  }
+
+  const h = health;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>System Health</div>
+        <button onClick={loadHealth} disabled={loading} style={{ padding: "6px 14px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", cursor: loading ? "default" : "pointer", fontFamily: "inherit", color: C.textMid }}>↻ Refresh</button>
+      </div>
+
+      {loading && <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div>}
+      {err && <div style={{ padding: 16, background: C.dangerLight, borderRadius: 8, color: C.danger, fontSize: 12 }}>{err}</div>}
+      {h && (
+        <>
+          <div style={{ display: "flex", gap: 10 }}>
+            <AdminCard label="CPU" value={`${h.system.cpu_pct}%`} sub="current utilisation" pct={h.system.cpu_pct} color={C.info} />
+            <AdminCard label="Memory" value={`${h.system.mem_used_pct}%`} sub={`${h.system.mem_used_mb} / ${h.system.mem_total_mb} MB`} pct={h.system.mem_used_pct} color={C.accent} />
+            <AdminCard label="Disk" value={`${h.system.disk_used_pct}%`} sub={`${h.system.disk_used_mb} / ${h.system.disk_total_mb} MB`} pct={h.system.disk_used_pct} color={C.purple} />
+            <AdminCard label="Backend Uptime" value={h.backend.uptime_human} sub={`Node ${h.backend.node_version}`} color={C.accent} />
+          </div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <AdminCard label="DB Size" value={h.database.size} sub={`${h.database.active_queries} active queries`} color={C.info} />
+            <AdminCard label="In Progress" value={String(h.database.in_progress)} sub="event groups" color={C.warn} />
+            <AdminCard label="Completed (24h)" value={String(h.database.completed_24h)} sub="event groups" color={C.accent} />
+            <AdminCard label="Timed Out (24h)" value={String(h.database.timed_out_24h)} sub="event groups" color={C.timeout} />
+          </div>
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Table Sizes</div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ background: C.surfaceAlt }}>
+                {["Table","Size","Rows"].map(h => <th key={h} style={{ padding: "6px 14px", textAlign: "left" as const, fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {(h.database.table_sizes ?? []).map((t: any) => (
+                  <tr key={t.table} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: C.text }}>{t.table}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: C.textMid }}>{t.size}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: C.textMuted }}>{Number(t.rows).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Log viewer */}
+          <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", gap: 8, alignItems: "center" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.07em", flex: 1 }}>Logs</span>
+              {[["backend","backend"],["nginx","nginx (error)"],["nginx-access","nginx (access)"],["postgres","postgres"]].map(([svc, label]) => (
+                <button key={svc} onClick={() => setLogSvc(svc)} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${logSvc === svc ? C.accent : C.border}`, borderRadius: 5, background: logSvc === svc ? C.accentLight : "none", cursor: "pointer", fontFamily: "monospace", color: logSvc === svc ? C.accent : C.textMid, fontWeight: logSvc === svc ? 700 : 400 }}>{label}</button>
+              ))}
+              <button onClick={rotate} disabled={rotating} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: "none", cursor: rotating ? "default" : "pointer", fontFamily: "inherit", color: C.textMid }}>Rotate</button>
+            </div>
+            {rotateMsg && <div style={{ padding: "6px 14px", fontSize: 11, color: C.accent, background: C.accentLight, borderBottom: `1px solid ${C.border}` }}>{rotateMsg}</div>}
+            <div style={{ maxHeight: 360, overflowY: "auto", background: "#1A1916", padding: "10px 14px" }}>
+              {logLoading && <div style={{ color: "#8A8680", fontSize: 11, fontFamily: "monospace" }}>Loading…</div>}
+              {logData && (logData.lines ?? []).slice(-200).map((line: string, i: number) => {
+                const isErr = /error|warn|fatal/i.test(line);
+                return <div key={i} style={{ fontSize: 10, fontFamily: "monospace", color: isErr ? "#FCA5A5" : "#D1FAE5", lineHeight: 1.5, whiteSpace: "pre-wrap" as const, wordBreak: "break-all" as const }}>{line}</div>;
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin panel: Audit Log ───────────────────────────────────────────────────
+
+function AuditPanel() {
+  const [rows,    setRows]    = useState<any[]>([]);
+  const [total,   setTotal]   = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [action,  setAction]  = useState("");
+  const [actor,   setActor]   = useState("");
+  const [limit]               = useState(100);
+  const [offset,  setOffset]  = useState(0);
+
+  function load(off: number) {
+    setLoading(true);
+    api.admin.auditPaged({ action: action || undefined, actor: actor || undefined, limit, offset: off })
+      .then(r => { setRows(r.rows); setTotal(r.total); setOffset(off); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { load(0); }, []);
+
+  const actionColors: Record<string, string> = {
+    "user.login": C.accent, "user.logout": C.textMuted, "user.created": C.info,
+    "user.updated": C.info, "user.deleted": C.danger, "user.password_changed": C.purple,
+    "policy.created": C.accent, "policy.updated": C.warn, "policy.deleted": C.danger,
+    "policy.toggled": C.info, "event.ingested": C.textMuted,
+    "event.group_opened": C.accent, "event.group_completed": C.purple,
+  };
+
+  const pages = Math.max(1, Math.ceil(total / limit));
+  const page  = Math.floor(offset / limit) + 1;
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Audit Log</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const }}>
+        <input value={action} onChange={e => setAction(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)} placeholder="Filter by action…"
+          style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surface, outline: "none", width: 180 }} />
+        <input value={actor} onChange={e => setActor(e.target.value)} onKeyDown={e => e.key === "Enter" && load(0)} placeholder="Filter by actor…"
+          style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surface, outline: "none", width: 160 }} />
+        <button onClick={() => load(0)} style={{ padding: "6px 14px", fontSize: 11, border: `1px solid ${C.accent}`, borderRadius: 6, background: C.accentLight, cursor: "pointer", fontFamily: "inherit", color: C.accent, fontWeight: 700 }}>Search</button>
+        <span style={{ fontSize: 11, color: C.textMuted, marginLeft: "auto" }}>{total.toLocaleString()} entries</span>
+        <button onClick={() => load(offset)} style={{ padding: "6px 12px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", color: C.textMid }}>↻</button>
+      </div>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+        {loading ? <div style={{ padding: 40, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div> : (
+          <div style={{ overflowX: "auto" as const }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ background: C.surfaceAlt }}>
+                {["Time","Action","Entity","Actor","Source IP","Details"].map(h => (
+                  <th key={h} style={{ padding: "8px 14px", textAlign: "left" as const, fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.07em", whiteSpace: "nowrap" as const }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {rows.length === 0 && <tr><td colSpan={6} style={{ padding: 32, textAlign: "center", color: C.textMuted }}>No entries.</td></tr>}
+                {rows.map((e: any, i: number) => (
+                  <tr key={e.id ?? i} style={{ borderTop: `1px solid ${C.border}`, background: i % 2 === 0 ? "none" : C.surfaceAlt + "60" }}>
+                    <td style={{ padding: "7px 14px", color: C.textMuted, whiteSpace: "nowrap" as const, fontFamily: "monospace", fontSize: 11 }}>{e.event_time ? new Date(e.event_time).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "medium" }) : "—"}</td>
+                    <td style={{ padding: "7px 14px", whiteSpace: "nowrap" as const }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: (actionColors[e.action] ?? C.textMuted) + "18", color: actionColors[e.action] ?? C.textMuted, fontFamily: "monospace" }}>{e.action ?? "—"}</span>
+                    </td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", fontSize: 11, color: C.textMid, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>{e.entity_type ? `${e.entity_type}:${e.entity_id ?? ""}` : "—"}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", fontSize: 11, color: C.textMid, whiteSpace: "nowrap" as const }}>{e.actor ?? "—"}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", fontSize: 11, color: C.textMuted, whiteSpace: "nowrap" as const }}>{e.source_ip ?? "—"}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", fontSize: 10, color: C.textMuted, maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+                      {e.metadata ? JSON.stringify(e.metadata).slice(0, 80) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      {pages > 1 && (
+        <div style={{ display: "flex", gap: 6, justifyContent: "center", alignItems: "center" }}>
+          <button onClick={() => load(Math.max(0, offset - limit))} disabled={page <= 1} style={{ padding: "4px 12px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: C.surface, cursor: page <= 1 ? "default" : "pointer", fontFamily: "inherit", color: page <= 1 ? C.textMuted : C.text }}>← Prev</button>
+          <span style={{ fontSize: 11, color: C.textMuted }}>Page {page} of {pages}</span>
+          <button onClick={() => load(offset + limit)} disabled={page >= pages} style={{ padding: "4px 12px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: C.surface, cursor: page >= pages ? "default" : "pointer", fontFamily: "inherit", color: page >= pages ? C.textMuted : C.text }}>Next →</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin panel: Import / Export ─────────────────────────────────────────────
+
+function ImportExportPanel() {
+  const [exporting, setExporting] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<any>(null);
+  const [importErr, setImportErr] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  function doExport() {
+    setExporting(true);
+    api.admin.exportPolicies().then(blob => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `eventagg-policies-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
+    }).catch(e => alert(e.message ?? "Export failed")).finally(() => setExporting(false));
+  }
+
+  function doImport(file: File) {
+    setImporting(true); setImportResult(null); setImportErr("");
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const bundle = JSON.parse(e.target!.result as string);
+        api.admin.importPolicies(bundle)
+          .then(r => setImportResult(r))
+          .catch(ex => setImportErr(ex.message ?? "Import failed"))
+          .finally(() => setImporting(false));
+      } catch { setImportErr("Invalid JSON file"); setImporting(false); }
+    };
+    reader.readAsText(file);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Import / Export Policies</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Export</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Download all policies as a JSON bundle you can re-import into any Aggre/Gator instance.</div>
+          <button onClick={doExport} disabled={exporting} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: exporting ? C.borderStrong : C.accent, color: "#fff", cursor: exporting ? "default" : "pointer", fontFamily: "inherit" }}>
+            {exporting ? "Exporting…" : "⬇ Download policies.json"}
+          </button>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Import</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Upload a policy bundle JSON. Existing policies (matched by name) will be updated; new ones will be created.</div>
+          <input type="file" accept=".json" ref={fileRef} style={{ display: "none" }} onChange={e => { if (e.target.files?.[0]) doImport(e.target.files[0]); e.target.value = ""; }} />
+          <button onClick={() => fileRef.current?.click()} disabled={importing} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.accent}`, borderRadius: 6, background: importing ? C.borderStrong : C.accentLight, color: C.accent, cursor: importing ? "default" : "pointer", fontFamily: "inherit" }}>
+            {importing ? "Importing…" : "⬆ Choose file…"}
+          </button>
+          {importErr && <div style={{ marginTop: 10, fontSize: 11, color: C.danger, background: C.dangerLight, padding: "6px 10px", borderRadius: 5 }}>{importErr}</div>}
+          {importResult && (
+            <div style={{ marginTop: 10, fontSize: 11, background: C.accentLight, padding: "8px 12px", borderRadius: 5 }}>
+              <div style={{ fontWeight: 700, color: C.accent, marginBottom: 4 }}>Import complete</div>
+              <div style={{ color: C.textMid }}>Created: {importResult.imported} · Updated: {importResult.updated}</div>
+              {importResult.errors?.length > 0 && <div style={{ color: C.danger, marginTop: 4 }}>{importResult.errors.join("; ")}</div>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin panel: Backup & Restore ────────────────────────────────────────────
+
+function BackupPanel() {
+  const [info,      setInfo]      = useState<any>(null);
+  const [backing,   setBacking]   = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreOk, setRestoreOk] = useState("");
+  const [restoreErr,setRestoreErr]= useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    api.admin.backupInfo().then(setInfo).catch(() => {});
+  }, []);
+
+  function doBackup() {
+    setBacking(true);
+    api.admin.backup().then(blob => {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `eventagg-backup-${new Date().toISOString().slice(0,10)}.sql`;
+      a.click();
+    }).catch(e => alert(e.message ?? "Backup failed")).finally(() => setBacking(false));
+  }
+
+  function doRestore(file: File) {
+    if (!window.confirm(`Restore from "${file.name}"? This will execute the SQL dump against the current database. Proceed?`)) return;
+    setRestoring(true); setRestoreOk(""); setRestoreErr("");
+    const reader = new FileReader();
+    reader.onload = e => {
+      const sql = e.target!.result as string;
+      api.admin.restore(sql)
+        .then(() => setRestoreOk("Restore completed successfully."))
+        .catch(ex => setRestoreErr(ex.message ?? "Restore failed"))
+        .finally(() => setRestoring(false));
+    };
+    reader.readAsText(file);
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Backup & Restore</div>
+      {info && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <AdminCard label="Database Size" value={info.db_size} color={C.info} />
+          <AdminCard label="Policies" value={String(info.counts.policies ?? "—")} color={C.accent} />
+          <AdminCard label="In Progress" value={String(info.counts.in_progress ?? "—")} color={C.warn} />
+          <AdminCard label="Completed" value={String(info.counts.completed ?? "—")} color={C.accent} />
+          <AdminCard label="Audit Entries" value={String(info.counts.audit_entries ?? "—")} color={C.textMid} />
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Backup</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Download a full <code>pg_dump</code> SQL backup of the database. Store it safely — it contains all data.</div>
+          <button onClick={doBackup} disabled={backing} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: backing ? C.borderStrong : C.accent, color: "#fff", cursor: backing ? "default" : "pointer", fontFamily: "inherit" }}>
+            {backing ? "Creating backup…" : "⬇ Download backup.sql"}
+          </button>
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Restore</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 8 }}>Upload a <code>.sql</code> backup file to restore. <strong style={{ color: C.danger }}>This will execute the SQL against the live database.</strong></div>
+          <div style={{ fontSize: 11, color: C.warn, marginBottom: 12, background: C.warnLight, padding: "6px 10px", borderRadius: 5 }}>⚠ Use with extreme caution. This is a destructive operation.</div>
+          <input type="file" accept=".sql" ref={fileRef} style={{ display: "none" }} onChange={e => { if (e.target.files?.[0]) doRestore(e.target.files[0]); e.target.value = ""; }} />
+          <button onClick={() => fileRef.current?.click()} disabled={restoring} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.danger}`, borderRadius: 6, background: restoring ? C.borderStrong : C.dangerLight, color: C.danger, cursor: restoring ? "default" : "pointer", fontFamily: "inherit" }}>
+            {restoring ? "Restoring…" : "⬆ Choose .sql file"}
+          </button>
+          {restoreOk  && <div style={{ marginTop: 10, fontSize: 11, color: C.accent, background: C.accentLight, padding: "6px 10px", borderRadius: 5 }}>{restoreOk}</div>}
+          {restoreErr && <div style={{ marginTop: 10, fontSize: 11, color: C.danger, background: C.dangerLight, padding: "6px 10px", borderRadius: 5 }}>{restoreErr}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin panel: DB Maintenance ─────────────────────────────────────────────
+
+function DbMaintenancePanel() {
+  const [stats,   setStats]   = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [vacuumMsg, setVacuumMsg] = useState("");
+  const [vacuuming, setVacuuming] = useState(false);
+  const [days,    setDays]    = useState("90");
+  const [purging, setPurging] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<any>(null);
+  const [purgeErr, setPurgeErr] = useState("");
+
+  function loadStats() {
+    setLoading(true);
+    api.admin.dbStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
+  }
+  useEffect(() => { loadStats(); }, []);
+
+  function doVacuum() {
+    setVacuuming(true); setVacuumMsg("");
+    api.admin.vacuum().then(r => setVacuumMsg(r.message ?? "Done")).catch(e => setVacuumMsg(e.message ?? "Error")).finally(() => setVacuuming(false));
+  }
+
+  function doPurge() {
+    const d = parseInt(days);
+    if (isNaN(d) || d < 30) { setPurgeErr("Minimum retention is 30 days"); return; }
+    if (!window.confirm(`Delete completed events and audit log entries older than ${d} days? This cannot be undone.`)) return;
+    setPurging(true); setPurgeResult(null); setPurgeErr("");
+    api.admin.purge(d)
+      .then(r => { setPurgeResult(r); loadStats(); })
+      .catch(e => setPurgeErr(e.message ?? "Purge failed"))
+      .finally(() => setPurging(false));
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Database Maintenance</div>
+        <button onClick={loadStats} style={{ padding: "6px 14px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", color: C.textMid }}>↻ Refresh</button>
+      </div>
+
+      {stats && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <AdminCard label="DB Size" value={stats.db_size} color={C.info} />
+          <AdminCard label="Purgeable (90d) — Completed" value={stats.purgeable_90d?.completed ?? "—"} color={C.warn} />
+          <AdminCard label="Purgeable (90d) — Audit" value={stats.purgeable_90d?.audit ?? "—"} color={C.warn} />
+        </div>
+      )}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>VACUUM ANALYZE</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Reclaims storage from dead tuples and updates planner statistics. Safe to run at any time.</div>
+          <button onClick={doVacuum} disabled={vacuuming} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: vacuuming ? C.borderStrong : C.accent, color: "#fff", cursor: vacuuming ? "default" : "pointer", fontFamily: "inherit" }}>
+            {vacuuming ? "Running…" : "Run VACUUM ANALYZE"}
+          </button>
+          {vacuumMsg && <div style={{ marginTop: 10, fontSize: 11, color: C.accent, background: C.accentLight, padding: "6px 10px", borderRadius: 5 }}>{vacuumMsg}</div>}
+        </div>
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Purge Old Data</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Delete completed events and audit log entries older than the specified number of days.</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+            <input type="number" value={days} onChange={e => setDays(e.target.value)} min={30} style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: "monospace", width: 80, color: C.text, background: C.surfaceAlt, outline: "none" }} />
+            <span style={{ fontSize: 12, color: C.textMuted }}>days</span>
+            <button onClick={doPurge} disabled={purging} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.danger}`, borderRadius: 6, background: purging ? C.borderStrong : C.dangerLight, color: C.danger, cursor: purging ? "default" : "pointer", fontFamily: "inherit" }}>
+              {purging ? "Purging…" : "Purge"}
+            </button>
+          </div>
+          {purgeErr    && <div style={{ fontSize: 11, color: C.danger, background: C.dangerLight, padding: "6px 10px", borderRadius: 5 }}>{purgeErr}</div>}
+          {purgeResult && <div style={{ fontSize: 11, color: C.accent, background: C.accentLight, padding: "8px 10px", borderRadius: 5 }}>Deleted {purgeResult.deleted_completed?.toLocaleString()} completed events and {purgeResult.deleted_audit?.toLocaleString()} audit entries.</div>}
+        </div>
+      </div>
+
+      {loading ? <div style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading table stats…</div> : stats && (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ padding: "10px 16px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Table Statistics</div>
+          <div style={{ overflowX: "auto" as const }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ background: C.surfaceAlt }}>
+                {["Table","Size","Live Rows","Dead Rows","Last Autovacuum"].map(h => (
+                  <th key={h} style={{ padding: "6px 14px", textAlign: "left" as const, fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.06em", whiteSpace: "nowrap" as const }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {(stats.tables ?? []).map((t: any) => (
+                  <tr key={t.table} style={{ borderTop: `1px solid ${C.border}` }}>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: C.text }}>{t.table}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: C.textMid }}>{t.size}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: C.textMid }}>{Number(t.rows).toLocaleString()}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", color: Number(t.dead_rows) > 10000 ? C.warn : C.textMuted }}>{Number(t.dead_rows).toLocaleString()}</td>
+                    <td style={{ padding: "7px 14px", fontFamily: "monospace", fontSize: 10, color: C.textMuted }}>{t.last_autovacuum ? new Date(t.last_autovacuum).toLocaleString("en-GB", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin panel: Settings (SMTP) ─────────────────────────────────────────────
+
+function SettingsPanel() {
+  const [cfg,     setCfg]     = useState({ host: "", port: 587, secure: false, user: "", password: "", from: "" });
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+  const [testMsg, setTestMsg] = useState("");
+
+  useEffect(() => {
+    api.system.getConfig("smtp").then((v: any) => {
+      if (v) setCfg({ host: v.host ?? "", port: v.port ?? 587, secure: v.secure ?? false, user: v.user ?? "", password: v.password ?? "", from: v.from ?? "" });
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  function save() {
+    setSaving(true); setSaveMsg("");
+    api.system.setConfig("smtp", cfg).then(() => setSaveMsg("Saved.")).catch(e => setSaveMsg(e.message ?? "Error")).finally(() => setSaving(false));
+  }
+
+  function testConn() {
+    setTesting(true); setTestMsg("");
+    api.system.testSmtp({ host: cfg.host, port: cfg.port, secure: cfg.secure, user: cfg.user, password: cfg.password })
+      .then((r: any) => setTestMsg(r.message ?? "Connection successful"))
+      .catch(e => setTestMsg(e.message ?? "Connection failed"))
+      .finally(() => setTesting(false));
+  }
+
+  const inp = (label: string, key: keyof typeof cfg, type: string = "text") => (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <label style={{ fontSize: 11, fontWeight: 700, color: C.textMid }}>{label}</label>
+      {type === "checkbox" ? (
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+          <input type="checkbox" checked={!!cfg[key]} onChange={e => setCfg(c => ({ ...c, [key]: e.target.checked }))} style={{ accentColor: C.accent }} />
+          <span style={{ fontSize: 12, color: C.textMid }}>Use TLS/SSL</span>
+        </label>
+      ) : (
+        <input type={type} value={String(cfg[key])} onChange={e => setCfg(c => ({ ...c, [key]: type === "number" ? parseInt(e.target.value) || 0 : e.target.value }))}
+          style={{ padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: type === "password" ? "monospace" : "inherit", color: C.text, background: C.surface, outline: "none", width: "100%" }} />
+      )}
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Settings — Email Notifications</div>
+      <div style={{ fontSize: 12, color: C.textMuted, background: C.accentLight, border: `1px solid ${C.accentSoft}`, borderRadius: 7, padding: "10px 14px" }}>
+        Email notifications are sent to all admin users when an event group <strong>times out</strong> (no grave event received within the policy timeout window).
+      </div>
+      {loading ? <div style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div> : (
+        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 14 }}>SMTP Configuration</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+            {inp("SMTP Host", "host")}
+            {inp("Port", "port", "number")}
+            {inp("Username", "user")}
+            {inp("Password", "password", "password")}
+            {inp("From Address", "from")}
+            {inp("TLS / SSL", "secure", "checkbox")}
+          </div>
+          {(saveMsg || testMsg) && (
+            <div style={{ marginBottom: 12, fontSize: 11, padding: "6px 10px", borderRadius: 5, background: (saveMsg || testMsg).includes("fail") || (saveMsg || testMsg).includes("Error") || (saveMsg || testMsg).includes("failed") ? C.dangerLight : C.accentLight, color: (saveMsg || testMsg).includes("fail") || (saveMsg || testMsg).includes("Error") || (saveMsg || testMsg).includes("failed") ? C.danger : C.accent }}>
+              {saveMsg || testMsg}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={save} disabled={saving} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: saving ? C.borderStrong : C.accent, color: "#fff", cursor: saving ? "default" : "pointer", fontFamily: "inherit" }}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button onClick={testConn} disabled={testing || !cfg.host} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", color: C.textMid, cursor: testing || !cfg.host ? "default" : "pointer", fontFamily: "inherit" }}>
+              {testing ? "Testing…" : "Test connection"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Admin view type ──────────────────────────────────────────────────────────
+type AdminView = "health" | "audit-admin" | "import-export" | "backup" | "db" | "settings";
+
+function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies, onIngest, onAdminNav }: {
   user: import("./api").SessionUser;
   policies: Policy[];
   appUsers: import("./api").AppUser[];
@@ -1817,6 +2343,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
   onUsersChanged: () => void;
   onOpenPolicies: () => void;
   onIngest: () => void;
+  onAdminNav: (view: AdminView) => void;
 }) {
   const [open,    setOpen]    = useState(false);
   const [section, setSection] = useState<null | "policies" | "accounts" | "snmp" | "webhooks">(null);
@@ -1897,10 +2424,10 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                 </>
               )}
               {[
-                ...(user.role !== "viewer" ? [{ icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const }] : []),
-                ...(user.role === "admin"  ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const }] : []),
-                { icon: "📡", label: "SNMP",     desc: "Trap receiver & routing rules", s: "snmp" as const },
-                { icon: "🔔", label: "Webhooks", desc: "Notify external endpoints on group events", s: "webhooks" as const },
+                ...(user.role !== "viewer" ? [{ icon: "⚙", label: "Policies",  desc: "Manage aggregation policies",  s: "policies" as const, admin: false }] : []),
+                ...(user.role === "admin"  ? [{ icon: "👤", label: "Accounts", desc: "Add, remove, disable users", s: "accounts" as const, admin: false }] : []),
+                { icon: "📡", label: "SNMP",     desc: "Trap receiver & routing rules", s: "snmp" as const, admin: false },
+                { icon: "🔔", label: "Webhooks", desc: "Notify external endpoints on group events", s: "webhooks" as const, admin: false },
               ].map(item => (
                 <button key={item.s} onClick={() => setSection(item.s)}
                   style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
@@ -1914,6 +2441,31 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                   <span style={{ color: C.textMuted }}>›</span>
                 </button>
               ))}
+              {user.role === "admin" && (
+                <>
+                  <div style={{ padding: "6px 14px 3px", fontSize: 9, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.1em", borderTop: `1px solid ${C.border}` }}>Administration</div>
+                  {([
+                    { icon: "🖥", label: "System Health", desc: "CPU, memory, disk & logs",     v: "health" as AdminView },
+                    { icon: "📋", label: "Audit Log",     desc: "Full paginated audit history",  v: "audit-admin" as AdminView },
+                    { icon: "📦", label: "Import/Export", desc: "Policy bundles",                v: "import-export" as AdminView },
+                    { icon: "💾", label: "Backup",        desc: "pg_dump & restore",             v: "backup" as AdminView },
+                    { icon: "🗄", label: "DB Maintenance",desc: "VACUUM, purge old data",        v: "db" as AdminView },
+                    { icon: "✉",  label: "Settings",      desc: "SMTP email notifications",      v: "settings" as AdminView },
+                  ] as { icon: string; label: string; desc: string; v: AdminView }[]).map(item => (
+                    <button key={item.v} onClick={() => { setOpen(false); setSection(null); onAdminNav(item.v); }}
+                      style={{ width: "100%", padding: "9px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.surfaceAlt; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                      <span style={{ fontSize: 14, width: 22, textAlign: "center" as const }}>{item.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: C.text }}>{item.label}</div>
+                        <div style={{ fontSize: 10, color: C.textMuted }}>{item.desc}</div>
+                      </div>
+                      <span style={{ color: C.textMuted }}>›</span>
+                    </button>
+                  ))}
+                </>
+              )}
               <button onClick={onSignOut}
                 style={{ width: "100%", padding: "10px 14px", border: "none", background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center", color: C.danger, fontSize: 12, fontWeight: 600 }}
                 onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.dangerLight; }}
@@ -3021,6 +3573,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
   // Top-level view
   const [view,           setView]        = useState<"events" | "reports">("events");
   const [reportSection,  setReportSection] = useState<"overview" | "policies" | "explorer" | "audit">("overview");
+  const [adminView,      setAdminView]   = useState<AdminView | null>(null);
 
   // Live highlighting — track which group IDs changed and why
   const [highlighted,    setHighlighted] = useState<HighlightedGroup[]>([]);
@@ -3366,8 +3919,8 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
             </button>
             <div style={{ display: "flex", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
               {(["events", "reports"] as const).map(v => (
-                <button key={v} onClick={() => setView(v)}
-                  style={{ padding: "5px 14px", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: view === v ? 700 : 400, color: view === v ? C.accent : C.textMid, background: view === v ? C.surface : "none", boxShadow: view === v ? "0 1px 3px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s", textTransform: "capitalize" as const }}>
+                <button key={v} onClick={() => { setView(v); setAdminView(null); }}
+                  style={{ padding: "5px 14px", border: "none", borderRadius: 5, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: !adminView && view === v ? 700 : 400, color: !adminView && view === v ? C.accent : C.textMid, background: !adminView && view === v ? C.surface : "none", boxShadow: !adminView && view === v ? "0 1px 3px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s", textTransform: "capitalize" as const }}>
                   {v === "events" ? "Event Groups" : "Reports"}
                 </button>
               ))}
@@ -3381,6 +3934,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
               onUsersChanged={onUsersChanged}
               onOpenPolicies={() => setShowPolicies(true)}
               onIngest={() => setShowIngest(true)}
+              onAdminNav={v => { setAdminView(v); }}
             />
           </div>
         </div>
@@ -3388,8 +3942,23 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
 
       <div style={{ padding: "28px 32px", maxWidth: 1400, margin: "0 auto" }}>
 
+        {/* ── Admin views ── */}
+        {adminView && (
+          <div>
+            <button onClick={() => setAdminView(null)} style={{ marginBottom: 16, padding: "5px 12px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", color: C.textMid, display: "flex", alignItems: "center", gap: 5 }}>
+              ‹ Back
+            </button>
+            {adminView === "health"        && <HealthPanel />}
+            {adminView === "audit-admin"   && <AuditPanel />}
+            {adminView === "import-export" && <ImportExportPanel />}
+            {adminView === "backup"        && <BackupPanel />}
+            {adminView === "db"            && <DbMaintenancePanel />}
+            {adminView === "settings"      && <SettingsPanel />}
+          </div>
+        )}
+
         {/* ── Reports view ── */}
-        {view === "reports" && (
+        {!adminView && view === "reports" && (
           <>
           <StatsBar events={events} eventsTotal={eventStats?.totalGroups ?? eventsTotal} policies={policies} eventStats={eventStats} />
 
@@ -3505,7 +4074,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
         )}
 
         {/* ── Events view ── */}
-        {view === "events" && (<>
+        {!adminView && view === "events" && (<>
         <StatsBar events={events} eventsTotal={eventsTotal} policies={policies} eventStats={eventStats} />
 
         {/* Filters — single row */}
