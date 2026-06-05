@@ -23,11 +23,11 @@ export interface InProgressEvent {
   policy_id: string;
   aggregation_key: string;
   key_field: string;
-  segment_count: number;
-  cradle_segment_id: string | null;
+  raw_event_count: number;
+  cradle_raw_event_id: string | null;
   started_at: string;
   last_seen_at: string;
-  last_segment_at: string;
+  last_raw_event_at: string;
   expires_at: string | null;
   created_at: string;
 }
@@ -37,9 +37,9 @@ export interface CompletedEvent {
   policy_id: string;
   aggregation_key: string;
   key_field: string;
-  segment_count: number;
-  cradle_segment_id: string;
-  grave_segment_id: string | null;
+  raw_event_count: number;
+  cradle_raw_event_id: string;
+  grave_raw_event_id: string | null;
   started_at: string;
   ended_at: string;
   duration_ms: number;
@@ -48,7 +48,7 @@ export interface CompletedEvent {
   close_reason: string | null;
 }
 
-export interface EventSegment {
+export interface RawEvent {
   id: string;
   in_progress_id: string | null;
   completed_id: string | null;
@@ -87,19 +87,19 @@ export interface EventGroupSummary {
   aggregationKey: string;
   keyField: string;
   status: "in_progress" | "completed" | "timed_out";
-  segmentCount: number;
+  rawEventCount: number;
   startTime: string;
   endTime: string | null;
   durationMs: number | null;
   closeReason: string | null;
-  lastSegmentAt: string | null;
+  lastRawEventAt: string | null;
 }
 
 export interface EventGroupDetail extends EventGroupSummary {
-  segments: SegmentDetail[];
+  rawEvents: RawEventDetail[];
 }
 
-export interface SegmentDetail {
+export interface RawEventDetail {
   eventId: string;
   sequence: number;
   isCradle: boolean;
@@ -137,13 +137,13 @@ export interface PaginatedResponse<T> {
 // ─── Audit action constants ───────────────────────────────────────────────────
 
 export const AuditAction = {
-  GROUP_OPENED:    "group.opened",
-  SEGMENT_APPENDED:"segment.appended",
-  GROUP_PROMOTED:  "group.promoted",
-  GROUP_EXPIRED:   "group.expired",
-  GROUP_DELETED:   "group.deleted",
-  POLICY_CREATED:  "policy.created",
-  POLICY_UPDATED:  "policy.updated",
+  GROUP_OPENED:       "group.opened",
+  RAW_EVENT_APPENDED: "raw_event.appended",
+  GROUP_PROMOTED:     "group.promoted",
+  GROUP_EXPIRED:      "group.expired",
+  GROUP_DELETED:      "group.deleted",
+  POLICY_CREATED:     "policy.created",
+  POLICY_UPDATED:     "policy.updated",
   POLICY_DEACTIVATED: "policy.deactivated",
 } as const;
 

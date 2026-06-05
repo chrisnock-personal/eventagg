@@ -5,7 +5,7 @@ import { Request, Response, NextFunction } from "express";
 // If the env var is not set, auth is disabled (dev/local mode).
 // Clients send the key as:  X-API-Key: <key>
 //
-// Per-policy key support: the ingest_api_key column on event_segments already
+// Per-policy key support: the ingest_api_key column on raw_events already
 // records the key used — a future migration can add a keys table for per-policy
 // keys validated here.
 

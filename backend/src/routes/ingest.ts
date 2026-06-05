@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { ingestSegment, fireGroupCompletedWebhook } from "../services/ingestService";
+import { ingestRawEvent, fireGroupCompletedWebhook } from "../services/ingestService";
 import { statsCache, performanceCache } from "../cache";
 import { audit } from "../services/auditService";
 
@@ -15,7 +15,7 @@ const ingestSchema = z.object({
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const input = ingestSchema.parse(req.body);
-    const result = await ingestSegment({
+    const result = await ingestRawEvent({
       policyId:  input.policyId,
       body:      input.body as Record<string, unknown>,
       sourceIp:  req.ip,
@@ -35,7 +35,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
         policyId:       input.policyId,
         aggregationKey: result.aggregationKey,
         sourceIp:       req.ip,
-        metadata:       { action: result.action, segmentId: result.segmentId },
+        metadata:       { action: result.action, rawEventId: result.rawEventId },
       });
     }
 

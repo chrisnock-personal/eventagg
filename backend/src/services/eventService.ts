@@ -2,7 +2,7 @@ import { query, queryOne } from "../db/pool";
 import {
   EventGroupSummary,
   EventGroupDetail,
-  SegmentDetail,
+  RawEventDetail,
   PaginatedResponse,
 } from "../types";
 
@@ -30,12 +30,12 @@ function inProgressToSummary(
     aggregationKey: row.aggregation_key as string,
     keyField: row.key_field as string,
     status: "in_progress",
-    segmentCount: row.segment_count as number,
+    rawEventCount: row.raw_event_count as number,
     startTime: row.started_at as string,
     endTime: null,
     durationMs: null,
     closeReason: null,
-    lastSegmentAt: (row.last_segment_at ?? row.started_at) as string,
+    lastRawEventAt: (row.last_raw_event_at ?? row.started_at) as string,
   };
 }
 
@@ -50,16 +50,16 @@ function completedToSummary(
     aggregationKey: row.aggregation_key as string,
     keyField: row.key_field as string,
     status: (row.status as "completed" | "timed_out") ?? "completed",
-    segmentCount: row.segment_count as number,
+    rawEventCount: row.raw_event_count as number,
     startTime: row.started_at as string,
     endTime: row.ended_at as string,
     durationMs: row.duration_ms as number,
     closeReason: (row.close_reason as string | null) ?? null,
-    lastSegmentAt: null,
+    lastRawEventAt: null,
   };
 }
 
-function segmentToDetail(row: Record<string, unknown>): SegmentDetail {
+function rawEventToDetail(row: Record<string, unknown>): RawEventDetail {
   return {
     eventId: row.id as string,
     sequence: row.sequence as number,
@@ -90,7 +90,7 @@ export async function getEventPerformance(filters: EventQueryFilters): Promise<{
   // Slowest 50 completed groups sorted by duration desc
   const ceRows = await query<Record<string, unknown>>(
     `SELECT e.id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
-            e.segment_count, e.started_at, e.ended_at, e.duration_ms
+            e.raw_event_count, e.started_at, e.ended_at, e.duration_ms
      FROM completed_events e JOIN policies p ON p.id = e.policy_id
      ${ceWhere}
      ORDER BY e.duration_ms DESC NULLS LAST
@@ -100,7 +100,7 @@ export async function getEventPerformance(filters: EventQueryFilters): Promise<{
   // All in-progress groups sorted by age (oldest first)
   const ipRows = await query<Record<string, unknown>>(
     `SELECT e.id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
-            e.segment_count, e.started_at
+            e.raw_event_count, e.started_at
      FROM in_progress_events e JOIN policies p ON p.id = e.policy_id
      ${ipWhere}
      ORDER BY e.started_at ASC`, params
@@ -156,8 +156,8 @@ export async function getEventPerformance(filters: EventQueryFilters): Promise<{
 
 export async function getEventStats(filters: EventQueryFilters): Promise<{
   totalGroups: number; completed: number; inProgress: number; timedOut: number;
-  totalSegments: number; avgDurationMs: number;
-  byPolicy: { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalSegments: number; avgDurationMs: number }[];
+  totalRawEvents: number; avgDurationMs: number;
+  byPolicy: { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalRawEvents: number; avgDurationMs: number }[];
   throughput: { bucket: string; opened: number; closed: number }[];
 }> {
   const status = filters.status ?? "all";
@@ -172,54 +172,54 @@ export async function getEventStats(filters: EventQueryFilters): Promise<{
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
   // In-progress count
-  const ipRow = await queryOne<{ cnt: string; segs: string }>(
-    `SELECT COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.segment_count),0)::TEXT AS segs
+  const ipRow = await queryOne<{ cnt: string; rawevts: string }>(
+    `SELECT COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts
      FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${where}`, params
   );
 
   // Completed count — split by status
-  const ceRow = await queryOne<{ cnt: string; segs: string; avg_dur: string; timed_out_cnt: string }>(
+  const ceRow = await queryOne<{ cnt: string; rawevts: string; avg_dur: string; timed_out_cnt: string }>(
     `SELECT COUNT(*)::TEXT AS cnt,
-            COALESCE(SUM(e.segment_count),0)::TEXT AS segs,
+            COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts,
             COALESCE(AVG(e.duration_ms),0)::TEXT AS avg_dur,
             COUNT(*) FILTER (WHERE e.status = 'timed_out')::TEXT AS timed_out_cnt
      FROM completed_events e JOIN policies p ON p.id = e.policy_id ${where}`, params
   );
 
-  const inProgressCount = status === "completed" || status === "timed_out" ? 0 : parseInt(ipRow?.cnt ?? "0");
-  const completedCount  = status === "in_progress" ? 0 : parseInt(ceRow?.cnt ?? "0");
-  const timedOutCount   = status === "in_progress" ? 0 : parseInt(ceRow?.timed_out_cnt ?? "0");
-  const totalSegments   = (status !== "completed" && status !== "timed_out" ? parseInt(ipRow?.segs ?? "0") : 0)
-                        + (status !== "in_progress" ? parseInt(ceRow?.segs ?? "0") : 0);
-  const avgDurationMs   = status !== "in_progress" ? parseFloat(ceRow?.avg_dur ?? "0") : 0;
+  const inProgressCount  = status === "completed" || status === "timed_out" ? 0 : parseInt(ipRow?.cnt ?? "0");
+  const completedCount   = status === "in_progress" ? 0 : parseInt(ceRow?.cnt ?? "0");
+  const timedOutCount    = status === "in_progress" ? 0 : parseInt(ceRow?.timed_out_cnt ?? "0");
+  const totalRawEvents   = (status !== "completed" && status !== "timed_out" ? parseInt(ipRow?.rawevts ?? "0") : 0)
+                         + (status !== "in_progress" ? parseInt(ceRow?.rawevts ?? "0") : 0);
+  const avgDurationMs    = status !== "in_progress" ? parseFloat(ceRow?.avg_dur ?? "0") : 0;
 
   // Per-policy breakdown — include timed_out split
-  const polRows = await query<{ policy_id: string; policy_name: string; status: string; cnt: string; segs: string; avg_dur: string }>(
+  const polRows = await query<{ policy_id: string; policy_name: string; status: string; cnt: string; rawevts: string; avg_dur: string }>(
     `SELECT e.policy_id, p.name AS policy_name, 'ip' AS status,
-            COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.segment_count),0)::TEXT AS segs, '0' AS avg_dur
+            COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts, '0' AS avg_dur
      FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${where}
      GROUP BY e.policy_id, p.name
      UNION ALL
      SELECT e.policy_id, p.name, e.status::text,
-            COUNT(*)::TEXT, COALESCE(SUM(e.segment_count),0)::TEXT, COALESCE(AVG(e.duration_ms),0)::TEXT
+            COUNT(*)::TEXT, COALESCE(SUM(e.raw_event_count),0)::TEXT, COALESCE(AVG(e.duration_ms),0)::TEXT
      FROM completed_events e JOIN policies p ON p.id = e.policy_id ${where}
      GROUP BY e.policy_id, p.name, e.status`, params
   );
 
-  const polMap = new Map<string, { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalSegments: number; durSum: number; durCnt: number }>();
+  const polMap = new Map<string, { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalRawEvents: number; durSum: number; durCnt: number }>();
   for (const r of polRows) {
-    const ex = polMap.get(r.policy_id) ?? { policyId: r.policy_id, policyName: r.policy_name, total: 0, completed: 0, timedOut: 0, inProgress: 0, totalSegments: 0, durSum: 0, durCnt: 0 };
+    const ex = polMap.get(r.policy_id) ?? { policyId: r.policy_id, policyName: r.policy_name, total: 0, completed: 0, timedOut: 0, inProgress: 0, totalRawEvents: 0, durSum: 0, durCnt: 0 };
     const cnt = parseInt(r.cnt);
-    ex.total += cnt; ex.totalSegments += parseInt(r.segs);
-    if (r.status === "completed")   { ex.completed += cnt; ex.durSum += parseFloat(r.avg_dur) * cnt; ex.durCnt += cnt; }
-    else if (r.status === "timed_out") { ex.timedOut += cnt; ex.durSum += parseFloat(r.avg_dur) * cnt; ex.durCnt += cnt; }
+    ex.total += cnt; ex.totalRawEvents += parseInt(r.rawevts);
+    if (r.status === "completed")      { ex.completed += cnt; ex.durSum += parseFloat(r.avg_dur) * cnt; ex.durCnt += cnt; }
+    else if (r.status === "timed_out") { ex.timedOut  += cnt; ex.durSum += parseFloat(r.avg_dur) * cnt; ex.durCnt += cnt; }
     else { ex.inProgress += cnt; }
     polMap.set(r.policy_id, ex);
   }
   const byPolicy = Array.from(polMap.values()).map(p => ({
     policyId: p.policyId, policyName: p.policyName, total: p.total,
     completed: p.completed, timedOut: p.timedOut, inProgress: p.inProgress,
-    totalSegments: p.totalSegments,
+    totalRawEvents: p.totalRawEvents,
     avgDurationMs: p.durCnt > 0 ? p.durSum / p.durCnt : 0,
   }));
 
@@ -252,7 +252,7 @@ export async function getEventStats(filters: EventQueryFilters): Promise<{
   }
   const throughput = Array.from(tpMap.entries()).sort(([a],[b]) => a.localeCompare(b)).map(([bucket, v]) => ({ bucket, ...v }));
 
-  return { totalGroups: inProgressCount + completedCount, completed: completedCount - timedOutCount, timedOut: timedOutCount, inProgress: inProgressCount, totalSegments, avgDurationMs, byPolicy, throughput };
+  return { totalGroups: inProgressCount + completedCount, completed: completedCount - timedOutCount, timedOut: timedOutCount, inProgress: inProgressCount, totalRawEvents, avgDurationMs, byPolicy, throughput };
 }
 
 // ─── List events (both stores, unified) ───────────────────────────────────────
@@ -300,7 +300,7 @@ export async function listEvents(
       params.push(filters.to);
     }
 
-    // Body search — EXISTS subquery against event_segments
+    // Body search — EXISTS subquery against raw_events
     // Using EXISTS avoids JOIN fan-out and DISTINCT complications
     if (bodySearchMode === "pair") {
       const eqIdx = filters.bodySearch!.indexOf("=");
@@ -312,9 +312,9 @@ export async function listEvents(
         // Nested path — jsonb_path_exists with string cast
         conditions.push(
           `EXISTS (
-            SELECT 1 FROM event_segments seg
-            WHERE  seg.${idCol} = e.id
-            AND    jsonb_path_exists(seg.body, $${i++})
+            SELECT 1 FROM raw_events re
+            WHERE  re.${idCol} = e.id
+            AND    jsonb_path_exists(re.body, $${i++})
           )`
         );
         params.push(`$.${field} == "${value}"`);
@@ -323,11 +323,11 @@ export async function listEvents(
         // also fall back to casting stored value to text for numeric matches
         conditions.push(
           `EXISTS (
-            SELECT 1 FROM event_segments seg
-            WHERE  seg.${idCol} = e.id
+            SELECT 1 FROM raw_events re
+            WHERE  re.${idCol} = e.id
             AND    (
-              seg.body @> $${i}::jsonb
-              OR seg.body->$${i + 1} = $${i + 2}::jsonb
+              re.body @> $${i}::jsonb
+              OR re.body->$${i + 1} = $${i + 2}::jsonb
             )
           )`
         );
@@ -342,9 +342,9 @@ export async function listEvents(
       const idCol = store === "in_progress" ? "in_progress_id" : "completed_id";
       conditions.push(
         `EXISTS (
-          SELECT 1 FROM event_segments seg
-          WHERE  seg.${idCol} = e.id
-          AND    seg.body::text ILIKE $${i++}
+          SELECT 1 FROM raw_events re
+          WHERE  re.${idCol} = e.id
+          AND    re.body::text ILIKE $${i++}
         )`
       );
       params.push(`%${filters.bodySearch!.trim()}%`);
@@ -392,7 +392,6 @@ export async function listEvents(
   }
 
   // Sort unified result set by startTime desc, then paginate in memory
-  // (For large scale, push pagination into DB per-store; fine for POC)
   results.sort(
     (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
   );
@@ -408,7 +407,7 @@ export async function listEvents(
   };
 }
 
-// ─── Get single event group with segments ─────────────────────────────────────
+// ─── Get single event group with raw events ───────────────────────────────────
 
 export async function getEventById(
   id: string
@@ -423,10 +422,10 @@ export async function getEventById(
   );
 
   if (ip) {
-    const segments = await getSegments({ inProgressId: id });
+    const rawEvents = await getRawEvents({ inProgressId: id });
     return {
       ...inProgressToSummary(ip, ip.policy_name as string),
-      segments,
+      rawEvents,
     };
   }
 
@@ -440,42 +439,42 @@ export async function getEventById(
   );
 
   if (ce) {
-    const segments = await getSegments({ completedId: id });
+    const rawEvents = await getRawEvents({ completedId: id });
     return {
       ...completedToSummary(ce, ce.policy_name as string),
-      segments,
+      rawEvents,
     };
   }
 
   return null;
 }
 
-// ─── Get segments for a group ─────────────────────────────────────────────────
+// ─── Get raw events for a group ───────────────────────────────────────────────
 
-async function getSegments(
+async function getRawEvents(
   filter: { inProgressId?: string; completedId?: string }
-): Promise<SegmentDetail[]> {
+): Promise<RawEventDetail[]> {
   let rows: Record<string, unknown>[];
 
   if (filter.inProgressId) {
     rows = await query<Record<string, unknown>>(
-      `SELECT * FROM event_segments WHERE in_progress_id = $1 ORDER BY sequence ASC`,
+      `SELECT * FROM raw_events WHERE in_progress_id = $1 ORDER BY sequence ASC`,
       [filter.inProgressId]
     );
   } else {
     rows = await query<Record<string, unknown>>(
-      `SELECT * FROM event_segments WHERE completed_id = $1 ORDER BY sequence ASC`,
+      `SELECT * FROM raw_events WHERE completed_id = $1 ORDER BY sequence ASC`,
       [filter.completedId]
     );
   }
 
-  return rows.map(segmentToDetail);
+  return rows.map(rawEventToDetail);
 }
 
-export async function getSegmentsForEvent(
+export async function getRawEventsForEvent(
   groupId: string
-): Promise<SegmentDetail[] | null> {
+): Promise<RawEventDetail[] | null> {
   const detail = await getEventById(groupId);
   if (!detail) return null;
-  return detail.segments;
+  return detail.rawEvents;
 }

@@ -150,7 +150,7 @@ async function runPartitionJob(): Promise<void> {
 }
 
 // ─── Timeout background job ───────────────────────────────────────────────────
-// Runs every 60s. Finds in-progress groups where last_segment_at + policy.timeout_ms
+// Runs every 60s. Finds in-progress groups where last_raw_event_at + policy.timeout_ms
 // is in the past, and promotes them to completed_events with status='timed_out'.
 async function runTimeoutJob(): Promise<void> {
   try {
@@ -161,17 +161,17 @@ async function runTimeoutJob(): Promise<void> {
       policy_name: string;
       aggregation_key: string;
       key_field: string;
-      segment_count: number;
-      cradle_segment_id: string | null;
+      raw_event_count: number;
+      cradle_raw_event_id: string | null;
       started_at: string;
-      last_segment_at: string;
+      last_raw_event_at: string;
     }>(
       `SELECT e.id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
-              e.segment_count, e.cradle_segment_id, e.started_at, e.last_segment_at
+              e.raw_event_count, e.cradle_raw_event_id, e.started_at, e.last_raw_event_at
        FROM   in_progress_events e
        JOIN   policies p ON p.id = e.policy_id
        WHERE  p.timeout_ms IS NOT NULL
-         AND  e.last_segment_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`
+         AND  e.last_raw_event_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`
     );
 
     if (timedOut.length === 0) return;
@@ -186,8 +186,8 @@ async function runTimeoutJob(): Promise<void> {
           // Promote to completed_events with timed_out status
           const [completed] = await client.query<{ id: string }>(
             `INSERT INTO completed_events
-               (policy_id, aggregation_key, key_field, segment_count,
-                cradle_segment_id, grave_segment_id, started_at, ended_at,
+               (policy_id, aggregation_key, key_field, raw_event_count,
+                cradle_raw_event_id, grave_raw_event_id, started_at, ended_at,
                 status, close_reason)
              VALUES ($1, $2, $3, $4, $5, $5, $6, NOW(), 'timed_out', 'policy_timeout')
              RETURNING id`,
@@ -195,15 +195,15 @@ async function runTimeoutJob(): Promise<void> {
               group.policy_id,
               group.aggregation_key,
               group.key_field,
-              group.segment_count,
-              group.cradle_segment_id ?? '00000000-0000-0000-0000-000000000000',
+              group.raw_event_count,
+              group.cradle_raw_event_id ?? '00000000-0000-0000-0000-000000000000',
               group.started_at,
             ]
           ).then(r => r.rows);
 
-          // Re-point segments to the completed record
+          // Re-point raw events to the completed record
           await client.query(
-            `UPDATE event_segments
+            `UPDATE raw_events
              SET    in_progress_id = NULL, completed_id = $1
              WHERE  in_progress_id = $2`,
             [completed.id, group.id]
@@ -226,7 +226,7 @@ async function runTimeoutJob(): Promise<void> {
               policyName: group.policy_name,
               aggregationKey: group.aggregation_key,
               status: "timed_out",
-              segmentCount: group.segment_count,
+              rawEventCount: group.raw_event_count,
               startTime: group.started_at,
               endTime: endedAt.toISOString(),
               durationMs: endedAt.getTime() - new Date(group.started_at).getTime(),

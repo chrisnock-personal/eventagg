@@ -4,7 +4,7 @@ import {
   Policy,
   EventGroupSummary,
   EventGroupDetail,
-  SegmentDetail,
+  RawEventDetail,
   IngestResult,
   EventStats,
   Webhook,
@@ -39,7 +39,7 @@ const GROUP_COLS: ColDef[] = [
 ];
 
 const SEG_COLS: ColDef[] = [
-  { key: "id",         label: "Segment ID",      defaultWidth: 175, minWidth: 120 },
+  { key: "id",         label: "Raw Event ID",     defaultWidth: 175, minWidth: 120 },
   { key: "groupId",    label: "Event Group ID",   defaultWidth: 160, minWidth: 120 },
   { key: "policy",     label: "Policy",           defaultWidth: 195, minWidth: 120 },
   { key: "aggKey",     label: "Aggregation Key",  defaultWidth: 130, minWidth: 90  },
@@ -238,12 +238,12 @@ function DurationInput({ value, onChange }: { value: number | null; onChange: (v
             <option value="hours">hours</option>
             <option value="days">days</option>
           </select>
-          <span style={{ fontSize: 11, color: C.textMuted }}>since last segment received</span>
+          <span style={{ fontSize: 11, color: C.textMuted }}>since last raw event received</span>
         </div>
       )}
       {enabled && (
         <div style={{ paddingLeft: 46, fontSize: 10, color: C.textMuted, lineHeight: 1.5 }}>
-          Clock starts at cradle and resets on each new segment. Group is promoted to <code style={{ fontFamily: "monospace" }}>timed_out</code> when no segment arrives within this window.
+          Clock starts at cradle and resets on each new raw event. Group is promoted to <code style={{ fontFamily: "monospace" }}>timed_out</code> when no raw event arrives within this window.
         </div>
       )}
     </div>
@@ -280,7 +280,7 @@ function PolicyEditor({ policy, onSave, onDelete, onClose }: {
             <div style={{ marginTop: 10 }}><FInput label="Description" value={form.description} onChange={v => set("description", v)} placeholder="Human-readable purpose" /></div>
           </div>
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
-            <SectionLabel text="Conditions — all three evaluated against every ingested segment body" />
+            <SectionLabel text="Conditions — all three evaluated against every ingested raw event body" />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
               <div style={{ padding: "14px 16px", borderRadius: 8, border: `2px solid ${C.info}50`, background: C.infoLight }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: C.info, letterSpacing: "0.05em", marginBottom: 12 }}>⬡ AGGREGATION KEY</div>
@@ -303,7 +303,7 @@ function PolicyEditor({ policy, onSave, onDelete, onClose }: {
           </div>
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
             <SectionLabel text="⏱ Auto-timeout" />
-            <div style={{ marginBottom: 8, fontSize: 11, color: C.textMuted }}>Automatically close groups that stop receiving segments. Defaults to off — grave segment required to close.</div>
+            <div style={{ marginBottom: 8, fontSize: 11, color: C.textMuted }}>Automatically close groups that stop receiving raw events. Defaults to off — grave raw event required to close.</div>
             <DurationInput value={form.timeoutMs} onChange={v => set("timeoutMs", v)} />
           </div>
           {error && <div style={{ padding: "8px 12px", borderRadius: 6, background: C.dangerLight, color: C.danger, fontSize: 12 }}>{error}</div>}
@@ -356,12 +356,12 @@ function ValidatePolicyPanel({ pol }: { pol: Policy }) {
       const outcome = !keyOk
         ? { bg: C.dangerLight, color: C.danger, border: C.danger+"40", label: "✕  Key unresolvable",             desc: `body.${pol.keyField} is missing. Ingest would return 422 Unprocessable Entity.` }
         : isCradle && isGrave
-        ? { bg: C.warnLight,   color: C.warn,   border: C.warn+"40",   label: "⚠  Cradle + Grave simultaneously", desc: "Both conditions matched. A group would open and immediately close with one segment." }
+        ? { bg: C.warnLight,   color: C.warn,   border: C.warn+"40",   label: "⚠  Cradle + Grave simultaneously", desc: "Both conditions matched. A group would open and immediately close with one raw event." }
         : isCradle
         ? { bg: C.accentLight, color: C.accent, border: C.accentSoft,  label: "▶  Opens a new group",             desc: `POST /api/v1/events/ingest → 201 Created. New in_progress group with key "${keyResolved}".` }
         : isGrave
         ? { bg: C.dangerLight, color: C.danger, border: C.danger+"40", label: "■  Closes an open group",          desc: `POST /api/v1/events/ingest → 200 OK. Group for key "${keyResolved}" promoted to completed_events.` }
-        : { bg: C.infoLight,   color: C.info,   border: C.info+"40",   label: "+  Intermediate segment",           desc: `POST /api/v1/events/ingest → 200 OK. Segment appended to existing group for key "${keyResolved}".` };
+        : { bg: C.infoLight,   color: C.info,   border: C.info+"40",   label: "+  Intermediate raw event",         desc: `POST /api/v1/events/ingest → 200 OK. Raw event appended to existing group for key "${keyResolved}".` };
       setResult({ checks, outcome });
     } catch { setParseErr("Invalid JSON — check your event body"); setResult(null); }
   }
@@ -542,7 +542,7 @@ function PoliciesPanel({ policies, onSave, onDelete, onToggle, onClose }: {
             <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.6, marginBottom: 20 }}>
               {confirm.activating
                 ? <><strong>{confirm.pol.name}</strong> will immediately start accepting ingest events. New groups will open when the cradle condition is matched.</>
-                : <><strong>{confirm.pol.name}</strong> will stop processing new events. Existing open groups are preserved in <code style={{ fontFamily: "monospace", fontSize: 11 }}>in_progress_events</code> until a grave segment is received.</>
+                : <><strong>{confirm.pol.name}</strong> will stop processing new events. Existing open groups are preserved in <code style={{ fontFamily: "monospace", fontSize: 11 }}>in_progress_events</code> until a grave raw event is received.</>
               }
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -559,8 +559,8 @@ function PoliciesPanel({ policies, onSave, onDelete, onToggle, onClose }: {
 }
 
 // ─── Event Detail Panel ───────────────────────────────────────────────────────
-function EventDetail({ event, policy, onClose, initialSegmentId }: { event: EventGroupDetail; policy: Policy | undefined; onClose: () => void; initialSegmentId?: string }) {
-  const initialIdx = initialSegmentId ? event.segments.findIndex(s => s.eventId === initialSegmentId) : null;
+function EventDetail({ event, policy, onClose, initialRawEventId }: { event: EventGroupDetail; policy: Policy | undefined; onClose: () => void; initialRawEventId?: string }) {
+  const initialIdx = initialRawEventId ? event.rawEvents.findIndex(s => s.eventId === initialRawEventId) : null;
   const [openSeg,  setOpenSeg]  = useState<number | null>(initialIdx !== null && initialIdx >= 0 ? initialIdx : null);
   const [detailTab, setDetailTab] = useState<"list"|"timeline">("list");
   const [timelineSeg, setTimelineSeg] = useState<number | null>(null);
@@ -586,14 +586,14 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
         startTime: event.startTime,
         endTime: event.endTime,
         durationMs: event.endTime ? new Date(event.endTime).getTime() - new Date(event.startTime).getTime() : null,
-        segmentCount: event.segments.length,
-        segments: event.segments.map(s => ({ eventId: s.eventId, sequence: s.sequence, timestamp: s.timestamp, body: s.body })),
+        rawEventCount: event.rawEvents.length,
+        rawEvents: event.rawEvents.map(s => ({ eventId: s.eventId, sequence: s.sequence, timestamp: s.timestamp, body: s.body })),
       };
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `eventagg-group-${event.aggregationKey}-${Date.now()}.json`; a.click();
     } else {
       const rows = [["sequence","eventId","timestamp","body"]];
-      event.segments.forEach(s => rows.push([String(s.sequence), s.eventId, s.timestamp, JSON.stringify(s.body)]));
+      event.rawEvents.forEach(s => rows.push([String(s.sequence), s.eventId, s.timestamp, JSON.stringify(s.body)]));
       const csv = rows.map(r => r.map(v => v.includes(",") || v.includes('"') ? `"${v.replace(/"/g,'""')}"` : v).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv" });
       const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `eventagg-group-${event.aggregationKey}-${Date.now()}.csv`; a.click();
@@ -624,7 +624,7 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
               {showExportMenu && (
                 <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, boxShadow: "0 4px 20px rgba(0,0,0,0.12)", zIndex: 50, minWidth: 180, padding: 6 }}>
                   <div style={{ padding: "4px 10px 6px", fontSize: 10, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.07em" }}>Export group</div>
-                  {([{ fmt: "JSON" as const, icon: "{ }", desc: "Full group + segments" }, { fmt: "CSV" as const, icon: "⊞", desc: "Segments as rows" }]).map(opt => (
+                  {([{ fmt: "JSON" as const, icon: "{ }", desc: "Full group + raw events" }, { fmt: "CSV" as const, icon: "⊞", desc: "Raw events as rows" }]).map(opt => (
                     <button key={opt.fmt} onClick={() => handleExport(opt.fmt)}
                       style={{ width: "100%", padding: "7px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "flex-start" }}
                       onMouseEnter={e => (e.currentTarget.style.background = C.surfaceAlt)}
@@ -649,8 +649,8 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
           <div style={{ margin: "12px 24px 0", background: C.timeoutLight, border: `1px solid ${C.timeoutSoft}`, borderRadius: 8, padding: "10px 14px" }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: C.timeout, marginBottom: 3 }}>⏱ Group timed out — no grave received</div>
             <div style={{ fontSize: 11, color: C.timeout, opacity: 0.9, lineHeight: 1.5 }}>
-              Auto-closed after <strong>{fmtMs(policy.timeoutMs)}</strong> with no grave segment.
-              Clock started at cradle and reset on each subsequent segment.
+              Auto-closed after <strong>{fmtMs(policy.timeoutMs)}</strong> with no grave raw event.
+              Clock started at cradle and reset on each subsequent raw event.
             </div>
           </div>
         )}
@@ -665,9 +665,9 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
           </div>
         )}
         <div style={{ padding: "14px 24px", flex: 1 }}>
-          {/* Segments heading + List/Timeline toggle */}
+          {/* Raw Events heading + List/Timeline toggle */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <SectionLabel text={`Segments (${event.segments.length})`} />
+            <SectionLabel text={`Raw Events (${event.rawEvents.length})`} />
             <div style={{ display: "flex", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: 2, gap: 2 }}>
               {(["list","timeline"] as const).map(t => (
                 <button key={t} onClick={() => setDetailTab(t)}
@@ -684,7 +684,7 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
               {/* Track */}
               <div style={{ position: "relative", height: 8, background: C.surfaceAlt, borderRadius: 4, margin: "28px 8px 52px" }}>
                 <div style={{ position: "absolute", inset: 0, background: `linear-gradient(90deg, ${C.accentSoft}, ${C.accent})`, borderRadius: 4, opacity: 0.25 }} />
-                {event.segments.map((seg, i) => {
+                {event.rawEvents.map((seg, i) => {
                   const pct = Math.min(((new Date(seg.timestamp).getTime() - startMs) / totalMs) * 100, 96);
                   const isCradle = policy && String(resolvePath(seg.body, policy.cradleField)) === policy.cradleValue;
                   const isGrave  = policy && String(resolvePath(seg.body, policy.graveField))  === policy.graveValue;
@@ -706,8 +706,8 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
 
               {/* Gap labels */}
               <div style={{ position: "relative", height: 20, margin: "8px 8px 0" }}>
-                {event.segments.slice(0,-1).map((seg, i) => {
-                  const next = event.segments[i+1];
+                {event.rawEvents.slice(0,-1).map((seg, i) => {
+                  const next = event.rawEvents[i+1];
                   const sp = Math.min(((new Date(seg.timestamp).getTime() - startMs) / totalMs) * 100, 96);
                   const ep = Math.min(((new Date(next.timestamp).getTime() - startMs) / totalMs) * 100, 96);
                   const gapMs = new Date(next.timestamp).getTime() - new Date(seg.timestamp).getTime();
@@ -726,29 +726,29 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
                 <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>{event.endTime ? fmt(event.endTime) : "ongoing"}</span>
               </div>
 
-              {/* Selected segment */}
+              {/* Selected raw event */}
               {timelineSeg !== null && (
                 <div style={{ marginTop: 12, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: "10px 12px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700 }}>Segment {event.segments[timelineSeg].sequence}</span>
-                    <span style={{ fontSize: 10, color: C.textMuted }}>{fmt(event.segments[timelineSeg].timestamp)}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700 }}>Raw Event {event.rawEvents[timelineSeg].sequence}</span>
+                    <span style={{ fontSize: 10, color: C.textMuted }}>{fmt(event.rawEvents[timelineSeg].timestamp)}</span>
                   </div>
                   <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 4, padding: "8px 10px", overflow: "auto", maxHeight: 160 }}>
-                    {JSON.stringify(event.segments[timelineSeg].body, null, 2)}
+                    {JSON.stringify(event.rawEvents[timelineSeg].body, null, 2)}
                   </pre>
                 </div>
               )}
-              {timelineSeg === null && <div style={{ marginTop: 10, fontSize: 10, color: C.textMuted, textAlign: "center" as const }}>Click any segment dot to inspect its body</div>}
+              {timelineSeg === null && <div style={{ marginTop: 10, fontSize: 10, color: C.textMuted, textAlign: "center" as const }}>Click any raw event dot to inspect its body</div>}
             </div>
           )}
 
           {/* ── List tab ── */}
           {detailTab === "list" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {event.segments.map((seg, i) => {
+            {event.rawEvents.map((seg, i) => {
               const isCradle  = policy && String(resolvePath(seg.body, policy.cradleField)) === policy.cradleValue;
               const isGrave   = policy && String(resolvePath(seg.body, policy.graveField))  === policy.graveValue;
-              const isLastSeg = event.status === "timed_out" && i === event.segments.length - 1;
+              const isLastSeg = event.status === "timed_out" && i === event.rawEvents.length - 1;
               const borderColor = isCradle ? C.accent + "55" : isGrave ? C.danger + "55" : isLastSeg ? C.timeout + "55" : C.border;
               const dotColor    = isCradle ? C.accent : isGrave ? C.danger : isLastSeg ? C.timeout : C.borderStrong;
               return (
@@ -770,7 +770,7 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
                   </div>
                   {openSeg === i && (
                     <div style={{ padding: "10px 14px", borderTop: `1px solid ${C.border}`, background: C.surfaceAlt }}>
-                      <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 700 }}>SEGMENT ID</div>
+                      <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 700 }}>RAW EVENT ID</div>
                       <div style={{ fontSize: 11, fontFamily: "monospace", color: C.textMid, marginBottom: 8 }}>{seg.eventId}</div>
                       <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 700 }}>BODY</div>
                       <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", overflowX: "auto", lineHeight: 1.5, maxHeight: 200, overflowY: "auto" }}>{JSON.stringify(seg.body, null, 2)}</pre>
@@ -779,7 +779,7 @@ function EventDetail({ event, policy, onClose, initialSegmentId }: { event: Even
                 </div>
               );
             })}
-            {/* Timeout marker at end of segment list */}
+            {/* Timeout marker at end of raw event list */}
             {event.status === "timed_out" && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: C.timeoutLight, border: `1px solid ${C.timeoutSoft}`, borderRadius: 8 }}>
                 <span style={{ fontSize: 16 }}>⏱</span>
@@ -853,10 +853,10 @@ function IngestModal({ policies, onIngest, onClose }: {
     setSubmitting(true);
     try {
       const res = await onIngest({ policyId, body: parsed });
-      const msgs = [`Segment ingested. Key: "${res.aggregationKey}".`];
-      if (res.action === "group_opened")    msgs.push("▶ Cradle matched — new group opened.");
-      if (res.action === "group_promoted")  msgs.push("■ Grave matched — group promoted to completed.");
-      if (res.action === "segment_appended") msgs.push("Appended to existing in-progress group.");
+      const msgs = [`Raw event ingested. Key: "${res.aggregationKey}".`];
+      if (res.action === "group_opened")       msgs.push("▶ Cradle matched — new group opened.");
+      if (res.action === "group_promoted")     msgs.push("■ Grave matched — group promoted to completed.");
+      if (res.action === "raw_event_appended") msgs.push("Appended to existing in-progress group.");
       setResult({ ok: true, msg: msgs.join(" ") });
     } catch (e: any) { setResult({ ok: false, msg: e.message ?? "Ingest failed." }); }
     finally { setSubmitting(false); }
@@ -866,7 +866,7 @@ function IngestModal({ policies, onIngest, onClose }: {
     <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,22,0.5)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ width: 600, background: C.surface, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
         <div style={{ padding: "16px 22px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-          <div><div style={{ fontSize: 15, fontWeight: 800 }}>Ingest Event Segment</div><div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Policy resolves key, cradle, and grave from the body</div></div>
+          <div><div style={{ fontSize: 15, fontWeight: 800 }}>Ingest Raw Event</div><div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Policy resolves key, cradle, and grave from the body</div></div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.textMuted }}>×</button>
         </div>
         <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
@@ -1209,7 +1209,7 @@ function StatsBar({ events, eventsTotal, policies, eventStats }: {
   const completed  = eventStats ? eventStats.completed    : events.filter(e => e.status === "completed").length;
   const inProgress = eventStats ? eventStats.inProgress   : events.filter(e => e.status === "in_progress").length;
   const timedOut   = eventStats ? eventStats.timedOut     : events.filter(e => e.status === "timed_out").length;
-  const segments   = eventStats ? eventStats.totalSegments: events.reduce((a, e) => a + e.segmentCount, 0);
+  const rawEvtCount = eventStats ? eventStats.totalRawEvents : events.reduce((a, e) => a + e.rawEventCount, 0);
   const compRate   = total ? Math.round((completed  / total) * 100) : 0;
   const ipRate     = total ? Math.round((inProgress / total) * 100) : 0;
   const toRate     = total ? Math.round((timedOut   / total) * 100) : 0;
@@ -1220,7 +1220,7 @@ function StatsBar({ events, eventsTotal, policies, eventStats }: {
     { label: "In Progress",  value: String(inProgress),         sub: `${ipRate}% of total`,   color: C.warn    },
     { label: "Timed Out",    value: String(timedOut),           sub: timedOut > 0 ? `${toRate}% of total` : null, color: timedOut > 0 ? C.timeout : C.textMuted },
     { label: "Policies",     value: String(policies.length),    sub: null,                    color: C.purple  },
-    { label: "Segments",     value: String(segments),           sub: null,                    color: C.info    },
+    { label: "Raw Events",   value: String(rawEvtCount),        sub: null,                    color: C.info    },
   ];
   return (
     <div style={{ display: "flex", gap: 1, marginBottom: 20 }}>
@@ -2418,7 +2418,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                     <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>＋</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: C.accent }}>Ingest Event</div>
-                      <div style={{ fontSize: 10, color: C.textMuted }}>Manually send an event segment</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>Manually send a raw event</div>
                     </div>
                   </button>
                 </>
@@ -2610,7 +2610,7 @@ function JawIcon({ size = 32 }: { size?: number }) {
 }
 
 // ─── Highlighted group state ──────────────────────────────────────────────────
-interface HighlightedGroup { id: string; reason: "new" | "promoted" | "segment"; }
+interface HighlightedGroup { id: string; reason: "new" | "promoted" | "raw-event"; }
 
 // ─── Pie chart slices component ──────────────────────────────────────────────
 function PieSlices({ data, hovered, setHovered }: { data: { label: string; value: number; color: string }[]; hovered: number | null; setHovered: (i: number | null) => void }) {
@@ -2933,9 +2933,9 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
     );
   }
 
-  // Build segment counts from byPolicy (approximation — backend throughput doesn't include segments)
-  // We show the same buckets scaled by avg segment count
-  const avgSegsPerGroup = stats.totalGroups > 0 ? stats.totalSegments / stats.totalGroups : 2.5;
+  // Build raw event counts from byPolicy (approximation — backend throughput doesn't include raw events)
+  // We show the same buckets scaled by avg raw event count
+  const avgSegsPerGroup = stats.totalGroups > 0 ? stats.totalRawEvents / stats.totalGroups : 2.5;
   const tpWithSegs = tp.map(b => ({
     ...b,
     segOpened: Math.round(b.opened * avgSegsPerGroup),
@@ -2962,12 +2962,12 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
     ? stats.byPolicy
     : stats.byPolicy.filter(p => policyFilter.includes(p.policyId));
   const groupPieData = filteredByPolicy.map((p, i) => ({ label: p.policyName.replace("EXAMPLE - ", ""), value: p.total,         color: pieColors[i % pieColors.length] }));
-  const segPieData   = filteredByPolicy.map((p, i) => ({ label: p.policyName.replace("EXAMPLE - ", ""), value: p.totalSegments, color: pieColors[i % pieColors.length] }));
+  const segPieData   = filteredByPolicy.map((p, i) => ({ label: p.policyName.replace("EXAMPLE - ", ""), value: p.totalRawEvents, color: pieColors[i % pieColors.length] }));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {renderChart("Event Group Throughput — Over Time", tp,         grpSeries as any, grpPinned, setGrpPinned, grpHovered, setGrpHovered)}
-      {renderChart("Segment Throughput — Over Time",     tpWithSegs, segSeries as any, segPinned, setSegPinned, segHovered, setSegHovered)}
+      {renderChart("Raw Event Throughput — Over Time",   tpWithSegs, segSeries as any, segPinned, setSegPinned, segHovered, setSegHovered)}
 
       {/* ── Pie charts ── */}
       {stats.byPolicy.length > 0 && (
@@ -2979,7 +2979,7 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
             </div>
             <div style={{ width: 1, background: C.border, alignSelf: "stretch" }} />
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 10 }}>Segments per Policy</div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 10 }}>Raw Events per Policy</div>
               <PieSlices data={segPieData} hovered={pieHovered} setHovered={setPieHovered} />
             </div>
           </div>
@@ -3028,7 +3028,7 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
       {/* ── KPI summary row ── */}
       {(() => {
         const completionRate = stats.totalGroups > 0 ? Math.round((stats.completed / stats.totalGroups) * 100) : 0;
-        const avgSegs = stats.totalGroups > 0 ? (stats.totalSegments / stats.totalGroups).toFixed(1) : "0";
+        const avgSegs = stats.totalGroups > 0 ? (stats.totalRawEvents / stats.totalGroups).toFixed(1) : "0";
         const throughput = tp.length > 0 ? Math.round(tp.slice(-6).reduce((a, b) => a + b.opened, 0) / 6) : 0;
         const stale = stats.inProgress;
         return (
@@ -3090,7 +3090,7 @@ function ReportsPolicyStats({ policies, stats }: { policies: Policy[]; stats: Ev
                     { label: "Completed",    value: pol.completed.toLocaleString(),           color: C.accent  },
                     { label: "Timed Out",    value: (pol.timedOut ?? 0).toLocaleString(),     color: (pol.timedOut ?? 0) > 0 ? C.timeout : C.textMuted },
                     { label: "In Progress",  value: pol.inProgress.toLocaleString(),          color: pol.inProgress > 0 ? C.warn : C.textMuted },
-                    { label: "Segments",     value: pol.totalSegments.toLocaleString(),       color: C.info    },
+                    { label: "Raw Events",   value: pol.totalRawEvents.toLocaleString(),      color: C.info    },
                     { label: "Avg Duration", value: pol.avgDurationMs ? fmtMs(pol.avgDurationMs) : "—", color: C.purple },
                   ] as { label: string; value: string; color: string }[]).map(s => (
                     <div key={s.label}>
@@ -3272,7 +3272,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
     const endTs   = detail.endTime ? new Date(detail.endTime).getTime() : Date.now();
     const startTs = new Date(detail.startTime).getTime();
     const totalMs = endTs - startTs;
-    const segs    = detail.segments;
+    const segs    = detail.rawEvents;
     return (
       <div style={{ background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 8, padding: "14px 16px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
@@ -3289,7 +3289,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
             <button onClick={() => setOpenDetail(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: C.textMuted, lineHeight: 1 }}>×</button>
           </div>
         </div>
-        {segs.length === 0 ? <div style={{ padding: "16px 0", textAlign: "center", color: C.textMuted, fontSize: 12 }}>No segments loaded.</div> : (
+        {segs.length === 0 ? <div style={{ padding: "16px 0", textAlign: "center", color: C.textMuted, fontSize: 12 }}>No raw events loaded.</div> : (
           <>
             <div style={{ position: "relative", height: 8, background: C.border, borderRadius: 4, margin: "28px 0 52px" }}>
               <div style={{ position: "absolute", inset: 0, background: `linear-gradient(90deg, ${C.accentSoft}, ${C.accent})`, borderRadius: 4, opacity: 0.25 }} />
@@ -3334,7 +3334,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
             {openSeg !== null && segs[openSeg] && (
               <div style={{ marginTop: 10, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "10px 12px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700 }}>Segment {segs[openSeg].sequence}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700 }}>Raw Event {segs[openSeg].sequence}</span>
                   <span style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace" }}>{fmt(segs[openSeg].timestamp)}</span>
                 </div>
                 <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 4, padding: "8px 10px", overflowX: "auto", maxHeight: 120, overflowY: "auto" }}>
@@ -3342,7 +3342,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
                 </pre>
               </div>
             )}
-            {openSeg === null && <div style={{ marginTop: 8, fontSize: 9, color: C.textMuted, textAlign: "center" as const }}>Click a dot to inspect segment body</div>}
+            {openSeg === null && <div style={{ marginTop: 8, fontSize: 9, color: C.textMuted, textAlign: "center" as const }}>Click a dot to inspect raw event body</div>}
           </>
         )}
       </div>
@@ -3365,12 +3365,12 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
           {isCompleted
             ? <>
               <td style={{ padding: "9px 12px" }}><span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: (g.durationMs??0)>86400000?C.danger:(g.durationMs??0)>3600000?C.warn:C.textMid }}>{fmtMs(g.durationMs??0)}</span></td>
-              <td style={{ padding: "9px 12px", textAlign: "center" as const }}><span style={{ fontSize: 11 }}>{g.segmentCount}</span></td>
+              <td style={{ padding: "9px 12px", textAlign: "center" as const }}><span style={{ fontSize: 11 }}>{g.rawEventCount}</span></td>
               <td style={{ padding: "9px 12px" }}><span style={{ fontSize: 11, color: C.textMuted }}>{g.endTime ? timeAgo(g.endTime) : "—"}</span></td>
             </>
             : <>
               <td style={{ padding: "9px 12px" }}><span style={{ fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: warn ? C.warn : C.textMid }}>{fmtMs(ageMs)}</span></td>
-              <td style={{ padding: "9px 12px", textAlign: "center" as const }}><span style={{ fontSize: 11 }}>{g.segmentCount}</span></td>
+              <td style={{ padding: "9px 12px", textAlign: "center" as const }}><span style={{ fontSize: 11 }}>{g.rawEventCount}</span></td>
               <td style={{ padding: "9px 12px" }}><span style={{ fontSize: 11, color: C.textMuted }}>{timeAgo(g.startTime)}</span></td>
             </>
           }
@@ -3393,7 +3393,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
   const allGroups = [...completed, ...inProgress];
   const slowest   = completed[0];
   const fastest   = completed.length > 0 ? completed[completed.length - 1] : null;
-  const mostSegs  = [...allGroups].sort((a, b) => b.segmentCount - a.segmentCount)[0];
+  const mostSegs  = [...allGroups].sort((a, b) => b.rawEventCount - a.rawEventCount)[0];
   const staleCount = inProgress.filter(e => Date.now() - new Date(e.startTime).getTime() > 86400000).length;
 
   return (
@@ -3405,7 +3405,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
           {([
             { label: "Slowest Group",     value: slowest  ? fmtMs(slowest.durationMs ?? 0)  : "—", sub: slowest?.aggregationKey  ?? "", color: C.danger },
             { label: "Fastest Completed", value: fastest  ? fmtMs(fastest.durationMs ?? 0)  : "—", sub: fastest?.aggregationKey  ?? "", color: C.accent },
-            { label: "Most Segments",     value: mostSegs ? String(mostSegs.segmentCount)    : "—", sub: mostSegs?.aggregationKey ?? "", color: C.info   },
+            { label: "Most Raw Events",   value: mostSegs ? String(mostSegs.rawEventCount)   : "—", sub: mostSegs?.aggregationKey ?? "", color: C.info   },
             { label: "Stale Open",        value: String(staleCount),                               sub: "open > 24h",                   color: staleCount > 0 ? C.warn : C.textMid },
           ] as { label: string; value: string; sub: string; color: string }[]).map(s => (
             <div key={s.label} style={{ flex: 1, background: C.surface, border: `1px solid ${C.border}`, padding: "10px 14px" }}>
@@ -3488,8 +3488,8 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
   );
 }
 
-// ─── Flat segment type for the segments tab ───────────────────────────────────
-interface FlatSegment extends SegmentDetail {
+// ─── Flat raw event type for the raw events tab ───────────────────────────────
+interface FlatRawEvent extends RawEventDetail {
   groupId: string;
   policyName: string;
   aggregationKey: string;
@@ -3566,7 +3566,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
   const [loading,        setLoading]     = useState(true);
   const [loadError,      setLoadError]   = useState<string | null>(null);
   const [selected,       setSelected]    = useState<EventGroupDetail | null>(null);
-  const [focusSegmentId, setFocusSegmentId] = useState<string | undefined>(undefined);
+  const [focusRawEventId, setFocusRawEventId] = useState<string | undefined>(undefined);
   const [showPolicies,   setShowPolicies]  = useState(false);
   const [showIngest,     setShowIngest]    = useState(false);
 
@@ -3580,10 +3580,10 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
   const prevEventsRef    = useRef<EventGroupSummary[]>([]);
 
   // Tabs
-  const [activeTab,      setActiveTab]   = useState<"groups" | "segments">("groups");
+  const [activeTab,      setActiveTab]   = useState<"groups" | "raw-events">("groups");
 
-  // Flat segments (loaded when segments tab is active)
-  const [segments,       setSegments]    = useState<FlatSegment[]>([]);
+  // Flat raw events (loaded when raw events tab is active)
+  const [rawEvents,      setRawEvents]   = useState<FlatRawEvent[]>([]);
   const [segsLoading,    setSegsLoading] = useState(false);
   const [segPage,        setSegPage]     = useState(1);
 
@@ -3676,8 +3676,8 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
             newHighlights.push({ id: e.id, reason: "new" });
           } else if (p.status === "in_progress" && e.status === "completed") {
             newHighlights.push({ id: e.id, reason: "promoted" });
-          } else if (p.segmentCount !== e.segmentCount) {
-            newHighlights.push({ id: e.id, reason: "segment" });
+          } else if (p.rawEventCount !== e.rawEventCount) {
+            newHighlights.push({ id: e.id, reason: "raw-event" });
           }
         });
         if (newHighlights.length > 0) {
@@ -3696,22 +3696,22 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
     finally { setLoading(false); }
   }, [statusFilter, policyFilter, keyFilter, fromFilter, toFilter, bodySearch, page]);
 
-  // ── Load flat segments (for segments tab) ─────────────────────────────────
-  const loadSegments = useCallback(async () => {
-    if (events.length === 0) { setSegments([]); return; }
+  // ── Load flat raw events (for raw events tab) ─────────────────────────────
+  const loadRawEvents = useCallback(async () => {
+    if (events.length === 0) { setRawEvents([]); return; }
     setSegsLoading(true);
     try {
-      const all: FlatSegment[] = [];
+      const all: FlatRawEvent[] = [];
       await Promise.all(events.map(async ev => {
         try {
           const detail = await api.events.get(ev.id);
-          detail.segments.forEach(seg => all.push({ ...seg, groupId: ev.id, policyName: ev.policyName, aggregationKey: ev.aggregationKey }));
+          detail.rawEvents.forEach(re => all.push({ ...re, groupId: ev.id, policyName: ev.policyName, aggregationKey: ev.aggregationKey }));
         } catch { /* skip failed group */ }
       }));
       all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      setSegments(all);
+      setRawEvents(all);
       setSegPage(1);
-    } catch (e: any) { console.error("Failed to load segments:", e); }
+    } catch (e: any) { console.error("Failed to load raw events:", e); }
     finally { setSegsLoading(false); }
   }, [events]);
 
@@ -3721,11 +3721,11 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
   // bodySearch gets its own effect so loadEvents always fires even when page is already 1
   useEffect(() => { loadEvents(); loadEventStats(); }, [bodySearch]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!autoRefresh) return; const id = setInterval(loadEvents, 10000); return () => clearInterval(id); }, [autoRefresh, loadEvents]);
-  useEffect(() => { if (activeTab === "segments") loadSegments(); }, [activeTab, loadSegments]);
+  useEffect(() => { if (activeTab === "raw-events") loadRawEvents(); }, [activeTab, loadRawEvents]);
 
   // ── Detail / CRUD ─────────────────────────────────────────────────────────
-  async function openDetail(id: string, segmentId?: string) {
-    try { setFocusSegmentId(segmentId); setSelected(await api.events.get(id)); } catch (e: any) { console.error(e); }
+  async function openDetail(id: string, rawEventId?: string) {
+    try { setFocusRawEventId(rawEventId); setSelected(await api.events.get(id)); } catch (e: any) { console.error(e); }
   }
   async function savePolicy(form: PolicyForm) {
     const payload = { name: form.name, domain: form.domain, keyField: form.keyField, cradleField: form.cradleField, cradleValue: form.cradleValue, graveField: form.graveField, graveValue: form.graveValue, description: form.description || null, timeoutMs: form.timeoutMs ?? null };
@@ -3751,11 +3751,11 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
       if (format === "JSON") {
         let payload: unknown;
         if (section === "overview") {
-          payload = { exportedAt: new Date().toISOString(), section: "overview", dateRange, summary: { totalGroups: eventStats?.totalGroups, completed: eventStats?.completed, inProgress: eventStats?.inProgress, totalSegments: eventStats?.totalSegments, avgDurationMs: eventStats?.avgDurationMs }, throughput: eventStats?.throughput, byPolicy: eventStats?.byPolicy };
+          payload = { exportedAt: new Date().toISOString(), section: "overview", dateRange, summary: { totalGroups: eventStats?.totalGroups, completed: eventStats?.completed, inProgress: eventStats?.inProgress, totalRawEvents: eventStats?.totalRawEvents, avgDurationMs: eventStats?.avgDurationMs }, throughput: eventStats?.throughput, byPolicy: eventStats?.byPolicy };
         } else if (section === "policies") {
           payload = { exportedAt: new Date().toISOString(), section: "policy_stats", dateRange, byPolicy: eventStats?.byPolicy };
         } else {
-          payload = { exportedAt: new Date().toISOString(), section: "group_explorer", dateRange, events: events.map(e => ({ id: e.id, policyName: e.policyName, aggregationKey: e.aggregationKey, status: e.status, segmentCount: e.segmentCount, startTime: e.startTime, endTime: e.endTime, durationMs: e.durationMs })) };
+          payload = { exportedAt: new Date().toISOString(), section: "group_explorer", dateRange, events: events.map(e => ({ id: e.id, policyName: e.policyName, aggregationKey: e.aggregationKey, status: e.status, rawEventCount: e.rawEventCount, startTime: e.startTime, endTime: e.endTime, durationMs: e.durationMs })) };
         }
         const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
         const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "eventagg-" + section + "-" + Date.now() + ".json"; a.click();
@@ -3808,37 +3808,37 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
           + "<div class='stat'><div class='val' style='color:#1A1916'>" + (eventStats?.totalGroups.toLocaleString() ?? "—") + "</div><div class='lbl'>Event Groups</div></div>"
           + "<div class='stat'><div class='val' style='color:#1D6B4E'>" + (eventStats?.completed.toLocaleString() ?? "—") + "</div><div class='lbl'>Completed</div></div>"
           + "<div class='stat'><div class='val' style='color:#B45309'>" + (eventStats?.inProgress.toLocaleString() ?? "—") + "</div><div class='lbl'>In Progress</div></div>"
-          + "<div class='stat'><div class='val' style='color:#1D4ED8'>" + (eventStats?.totalSegments.toLocaleString() ?? "—") + "</div><div class='lbl'>Segments</div></div>"
+          + "<div class='stat'><div class='val' style='color:#1D4ED8'>" + (eventStats?.totalRawEvents.toLocaleString() ?? "—") + "</div><div class='lbl'>Raw Events</div></div>"
           + "</div>";
 
         let body = "";
         if (section === "overview") {
           const tp = eventStats?.throughput ?? [];
-          const avgSegs = (eventStats?.totalGroups ?? 0) > 0 ? (eventStats?.totalSegments ?? 0) / (eventStats?.totalGroups ?? 1) : 2.5;
+          const avgSegs = (eventStats?.totalGroups ?? 0) > 0 ? (eventStats?.totalRawEvents ?? 0) / (eventStats?.totalGroups ?? 1) : 2.5;
           const grpData = tp.map(b => ({ bucket: b.bucket, v1: b.opened, v2: b.closed, v3: Math.max(b.opened - b.closed, 0) }));
           const segData = tp.map(b => ({ bucket: b.bucket, v1: Math.round(b.opened * avgSegs), v2: Math.round(b.closed * avgSegs) }));
           const polRows = (eventStats?.byPolicy ?? []).map(p => {
             const rate = p.total ? Math.round((p.completed / p.total) * 100) : 0;
-            return "<tr><td>" + p.policyName.replace("EXAMPLE - ", "") + "</td><td>" + p.total + "</td><td>" + p.completed + "</td><td>" + p.inProgress + "</td><td>" + p.totalSegments + "</td><td>" + (p.avgDurationMs ? fmtMs(p.avgDurationMs) : "—") + "</td><td>" + rate + "%</td></tr>";
+            return "<tr><td>" + p.policyName.replace("EXAMPLE - ", "") + "</td><td>" + p.total + "</td><td>" + p.completed + "</td><td>" + p.inProgress + "</td><td>" + p.totalRawEvents + "</td><td>" + (p.avgDurationMs ? fmtMs(p.avgDurationMs) : "—") + "</td><td>" + rate + "%</td></tr>";
           }).join("");
           body = "<h2>Throughput</h2>"
             + "<div class='chart'>" + buildSvgChart("Event Group Throughput — Over Time", grpData, "#1D6B4E", "Opened", "#1D4ED8", "Closed", "#B45309", "In Progress") + "</div>"
-            + "<div class='chart'>" + buildSvgChart("Segment Throughput — Over Time", segData, "#6D28D9", "Segs Opened", "#8B5CF6", "Segs Closed") + "</div>"
+            + "<div class='chart'>" + buildSvgChart("Raw Event Throughput — Over Time", segData, "#6D28D9", "Raw Events Opened", "#8B5CF6", "Raw Events Closed") + "</div>"
             + "<h2>Policy Breakdown</h2>"
-            + "<table><thead><tr><th>Policy</th><th>Total</th><th>Completed</th><th>In Progress</th><th>Segments</th><th>Avg Duration</th><th>Rate</th></tr></thead>"
+            + "<table><thead><tr><th>Policy</th><th>Total</th><th>Completed</th><th>In Progress</th><th>Raw Events</th><th>Avg Duration</th><th>Rate</th></tr></thead>"
             + "<tbody>" + polRows + "</tbody></table>";
         } else if (section === "policies") {
           const rows = (eventStats?.byPolicy ?? []).map(p => {
             const rate = p.total ? Math.round((p.completed / p.total) * 100) : 0;
-            return "<tr><td>" + p.policyName.replace("EXAMPLE - ", "") + "</td><td>" + p.total + "</td><td>" + p.completed + "</td><td>" + p.inProgress + "</td><td>" + p.totalSegments + "</td><td>" + (p.avgDurationMs ? fmtMs(p.avgDurationMs) : "—") + "</td><td>" + rate + "%</td></tr>";
+            return "<tr><td>" + p.policyName.replace("EXAMPLE - ", "") + "</td><td>" + p.total + "</td><td>" + p.completed + "</td><td>" + p.inProgress + "</td><td>" + p.totalRawEvents + "</td><td>" + (p.avgDurationMs ? fmtMs(p.avgDurationMs) : "—") + "</td><td>" + rate + "%</td></tr>";
           }).join("");
           body = "<h2>Policy Statistics</h2>"
-            + "<table><thead><tr><th>Policy</th><th>Total</th><th>Completed</th><th>In Progress</th><th>Segments</th><th>Avg Duration</th><th>Rate</th></tr></thead>"
+            + "<table><thead><tr><th>Policy</th><th>Total</th><th>Completed</th><th>In Progress</th><th>Raw Events</th><th>Avg Duration</th><th>Rate</th></tr></thead>"
             + "<tbody>" + rows + "</tbody></table>";
         } else {
           const rows = events.map(e => {
             const dur = e.durationMs ? fmtMs(e.durationMs) : "—";
-            return "<tr><td style='font-family:monospace;font-size:10px'>" + e.id.slice(0,18) + "…</td><td>" + e.policyName.replace("EXAMPLE - ", "") + "</td><td style='font-family:monospace'>" + e.aggregationKey + "</td><td>" + e.status.replace("_", " ") + "</td><td>" + e.segmentCount + "</td><td>" + dur + "</td></tr>";
+            return "<tr><td style='font-family:monospace;font-size:10px'>" + e.id.slice(0,18) + "…</td><td>" + e.policyName.replace("EXAMPLE - ", "") + "</td><td style='font-family:monospace'>" + e.aggregationKey + "</td><td>" + e.status.replace("_", " ") + "</td><td>" + e.rawEventCount + "</td><td>" + dur + "</td></tr>";
           }).join("");
           body = "<h2>Group Explorer (" + events.length + " groups)</h2>"
             + "<table><thead><tr><th>ID</th><th>Policy</th><th>Key</th><th>Status</th><th>Segs</th><th>Duration</th></tr></thead>"
@@ -3861,7 +3861,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
     // Build export from eventStats + current events — in production this would call a backend endpoint
     setTimeout(() => {
       if (format === "CSV") {
-        const headers = ["id","policyName","aggregationKey","keyField","status","segmentCount","startTime","endTime","durationMs"];
+        const headers = ["id","policyName","aggregationKey","keyField","status","rawEventCount","startTime","endTime","durationMs"];
         const rows = events.map(e => headers.map(h => {
           const v = (e as unknown as Record<string, unknown>)[h];
           return v === null || v === undefined ? "" : String(v).includes(",") ? `"${v}"` : String(v);
@@ -3891,7 +3891,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
         @keyframes slideDown  { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
         .hl-new      { animation: slideDown 0.3s ease, flashGreen 3s ease forwards; }
         .hl-promoted { animation: flashGreen 3s ease forwards; }
-        .hl-segment  { animation: flashAmber 3s ease forwards; }
+        .hl-raw-event { animation: flashAmber 3s ease forwards; }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-thumb { background: ${C.borderStrong}; border-radius: 3px; }
@@ -4138,10 +4138,10 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
           {/* Tab bar + column toggle */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: `1px solid ${C.border}`, padding: "0 16px" }}>
             <div style={{ display: "flex" }}>
-              {(["groups", "segments"] as const).map(tab => (
+              {(["groups", "raw-events"] as const).map(tab => (
                 <button key={tab} onClick={() => setActiveTab(tab)}
                   style={{ padding: "10px 18px", fontSize: 12, fontWeight: 600, fontFamily: "inherit", border: "none", background: "none", cursor: "pointer", color: activeTab === tab ? C.accent : C.textMuted, borderBottom: `2px solid ${activeTab === tab ? C.accent : "transparent"}`, marginBottom: -1, transition: "color 0.15s" }}>
-                  {tab === "groups" ? "Event Groups" : "Segments"}
+                  {tab === "groups" ? "Event Groups" : "Raw Events"}
                 </button>
               ))}
             </div>
@@ -4178,7 +4178,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                     </div>
                     {([
                       { format: "CSV"  as const, icon: "📄", desc: "Flat file — one row per group, all columns" },
-                      { format: "JSON" as const, icon: "{ }", desc: "Full detail — groups with nested segments" },
+                      { format: "JSON" as const, icon: "{ }", desc: "Full detail — groups with nested raw events" },
                     ]).map(opt => (
                       <button key={opt.format} onClick={() => handleExport(opt.format)}
                         style={{ width: "100%", padding: "8px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "flex-start" }}
@@ -4242,7 +4242,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                         {groupVisible.has("source")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>body.{ev.keyField}</span></td>}
                         {groupVisible.has("status")    && <td style={{ padding: "10px 10px" }}><StatusBadge status={ev.status} /></td>}
                         {groupVisible.has("startTime") && <td style={{ padding: "10px 10px" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{fmt(ev.startTime)}</span></td>}
-                        {groupVisible.has("segs")      && <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{ev.segmentCount}</span></td>}
+                        {groupVisible.has("segs")      && <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid }}>{ev.rawEventCount}</span></td>}
                         <td style={{ padding: "10px 10px", textAlign: "center" }}><span style={{ fontSize: 13, color: C.textMuted }}>›</span></td>
                       </tr>
                     ))}
@@ -4252,10 +4252,10 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
             </div>
           )}
 
-          {/* ── SEGMENTS TAB ── */}
-          {activeTab === "segments" && (
+          {/* ── RAW EVENTS TAB ── */}
+          {activeTab === "raw-events" && (
             <div style={{ overflowX: "auto" }}>
-              {segsLoading && <div style={{ padding: 48, textAlign: "center", color: C.textMuted, fontSize: 14 }}>Loading segments…</div>}
+              {segsLoading && <div style={{ padding: 48, textAlign: "center", color: C.textMuted, fontSize: 14 }}>Loading raw events…</div>}
               {!segsLoading && (
                 <table style={{ borderCollapse: "collapse", width: "100%", tableLayout: "fixed" }}>
                   <colgroup>{activeSegCols.map(c => <col key={c.key} style={{ width: segWidths[c.key] ?? c.defaultWidth }} />)}</colgroup>
@@ -4265,10 +4265,10 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
                     </tr>
                   </thead>
                   <tbody>
-                    {segments.length === 0 && (
-                      <tr><td colSpan={activeSegCols.length} style={{ padding: 48, textAlign: "center", color: C.textMuted, fontSize: 14 }}>No segments to display. Switch to Event Groups tab and ensure events are loaded.</td></tr>
+                    {rawEvents.length === 0 && (
+                      <tr><td colSpan={activeSegCols.length} style={{ padding: 48, textAlign: "center", color: C.textMuted, fontSize: 14 }}>No raw events to display. Switch to Event Groups tab and ensure events are loaded.</td></tr>
                     )}
-                    {segments.slice((segPage - 1) * PER_PAGE, segPage * PER_PAGE).map(seg => (
+                    {rawEvents.slice((segPage - 1) * PER_PAGE, segPage * PER_PAGE).map(seg => (
                       <tr key={seg.eventId} style={{ cursor: "pointer" }} onClick={() => openDetail(seg.groupId, seg.eventId)}>
                         {segVisible.has("id")         && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.accent, fontWeight: 700, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.eventId}</span></td>}
                         {segVisible.has("groupId")    && <td style={{ padding: "10px 10px", overflow: "hidden" }}><span style={{ fontSize: 12, fontFamily: "inherit", color: C.textMid, fontWeight: 400, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{seg.groupId}</span></td>}
@@ -4304,9 +4304,9 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
           </div>
         )}
 
-        {/* Pagination — segments tab */}
-        {activeTab === "segments" && segments.length > PER_PAGE && (() => {
-          const segTotalPages = Math.ceil(segments.length / PER_PAGE);
+        {/* Pagination — raw events tab */}
+        {activeTab === "raw-events" && rawEvents.length > PER_PAGE && (() => {
+          const segTotalPages = Math.ceil(rawEvents.length / PER_PAGE);
           return (
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 14 }}>
               <Btn label="← Prev" onClick={() => setSegPage(p => Math.max(1, p - 1))} small />
@@ -4325,7 +4325,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
 
         {/* Legend */}
         <div style={{ display: "flex", gap: 16, marginTop: 20, justifyContent: "center", flexWrap: "wrap" }}>
-          {[{ color: C.accent, bg: C.accentLight, label: "completed_events — durable (WAL)" }, { color: C.warn, bg: C.warnLight, label: "in_progress_events — hot" }, { color: C.purple, bg: C.purpleLight, label: "Policy-driven — key, cradle & grave from body" }, { color: C.info, bg: C.infoLight, label: "⬡ Key path resolved from segment body" }].map(({ color, bg, label }) => (
+          {[{ color: C.accent, bg: C.accentLight, label: "completed_events — durable (WAL)" }, { color: C.warn, bg: C.warnLight, label: "in_progress_events — hot" }, { color: C.purple, bg: C.purpleLight, label: "Policy-driven — key, cradle & grave from body" }, { color: C.info, bg: C.infoLight, label: "⬡ Key path resolved from raw event body" }].map(({ color, bg, label }) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.textMuted }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: bg, border: `1px solid ${color}`, display: "inline-block" }} />
               {label}
@@ -4335,7 +4335,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
         </>)}
       </div>
 
-      {selected && <EventDetail event={selected} policy={policies.find(p => p.id === selected.policyId)} onClose={() => { setSelected(null); setFocusSegmentId(undefined); }} initialSegmentId={focusSegmentId} />}
+      {selected && <EventDetail event={selected} policy={policies.find(p => p.id === selected.policyId)} onClose={() => { setSelected(null); setFocusRawEventId(undefined); }} initialRawEventId={focusRawEventId} />}
       {showPolicies && <PoliciesPanel policies={policies} onSave={savePolicy} onDelete={deletePolicy} onToggle={togglePolicy} onClose={() => setShowPolicies(false)} />}
       {showIngest && <IngestModal policies={policies} onIngest={handleIngest} onClose={() => setShowIngest(false)} />}
     </div>

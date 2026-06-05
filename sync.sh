@@ -3,11 +3,10 @@
 # Syncs local source changes to the remote server and optionally rebuilds.
 #
 # Usage:
-#   ./sync.sh                    # sync + rebuild + restart
+#   ./sync.sh [user@ip]          # sync + rebuild + restart
 #   ./sync.sh --sync-only        # sync files only, no rebuild
 #   ./sync.sh --rebuild-only     # rebuild without syncing
 #   ./sync.sh --logs             # tail logs after deploy
-#   ./sync.sh --host user@ip     # override remote host
 
 set -e
 
@@ -21,25 +20,27 @@ SYNC_ONLY=false
 REBUILD_ONLY=false
 SHOW_LOGS=false
 
-for arg in "$@"; do
-  case $arg in
+while [[ $# -gt 0 ]]; do
+  case $1 in
     --sync-only)    SYNC_ONLY=true ;;
     --rebuild-only) REBUILD_ONLY=true ;;
     --logs)         SHOW_LOGS=true ;;
-    --host)         shift; REMOTE_HOST="$1" ;;
     --help|-h)
-      echo "Usage: ./sync.sh [--sync-only] [--rebuild-only] [--logs] [--host user@ip]"
+      echo "Usage: ./sync.sh [user@ip] [options]"
       echo ""
-      echo "  --sync-only     Sync files only, skip rebuild"
-      echo "  --rebuild-only  Rebuild on remote without syncing"
-      echo "  --logs          Tail backend logs after deploy"
-      echo "  --host user@ip  Override remote host (default: $REMOTE_HOST)"
+      echo "  user@ip            Remote host to deploy to (default: $REMOTE_HOST)"
+      echo "  --sync-only        Sync files only, skip rebuild"
+      echo "  --rebuild-only     Rebuild on remote without syncing"
+      echo "  --logs             Tail backend logs after deploy"
       echo ""
       echo "  Set AGGRE_REMOTE=user@host to change default remote"
       echo "  Set AGGRE_REMOTE_DIR=path  to change remote path"
       exit 0
       ;;
+    *@*)            REMOTE_HOST="$1" ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
   esac
+  shift
 done
 
 echo "🐊  Aggre/Gator Sync & Deploy"

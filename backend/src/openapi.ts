@@ -50,20 +50,20 @@ export const openApiSpec = {
 
       EventGroupSummary: {
         type: "object",
-        required: ["id","policyId","policyName","aggregationKey","keyField","status","segmentCount","startTime"],
+        required: ["id","policyId","policyName","aggregationKey","keyField","status","rawEventCount","startTime"],
         properties: {
-          id:             { type: "string", format: "uuid" },
-          policyId:       { type: "string", format: "uuid" },
-          policyName:     { type: "string" },
-          aggregationKey: { type: "string", example: "TRD-9001" },
-          keyField:       { type: "string", example: "body.tradeRef" },
-          status:         { type: "string", enum: ["in_progress","completed","timed_out"] },
-          segmentCount:   { type: "integer" },
-          startTime:      { type: "string", format: "date-time" },
-          endTime:        { type: "string", format: "date-time", nullable: true },
-          durationMs:     { type: "integer", nullable: true, description: "Duration in milliseconds (completed groups only)" },
-          closeReason:    { type: "string", nullable: true, enum: ["policy_timeout", null] },
-          lastSegmentAt:  { type: "string", format: "date-time", nullable: true },
+          id:              { type: "string", format: "uuid" },
+          policyId:        { type: "string", format: "uuid" },
+          policyName:      { type: "string" },
+          aggregationKey:  { type: "string", example: "TRD-9001" },
+          keyField:        { type: "string", example: "body.tradeRef" },
+          status:          { type: "string", enum: ["in_progress","completed","timed_out"] },
+          rawEventCount:   { type: "integer" },
+          startTime:       { type: "string", format: "date-time" },
+          endTime:         { type: "string", format: "date-time", nullable: true },
+          durationMs:      { type: "integer", nullable: true, description: "Duration in milliseconds (completed groups only)" },
+          closeReason:     { type: "string", nullable: true, enum: ["policy_timeout", null] },
+          lastRawEventAt:  { type: "string", format: "date-time", nullable: true },
         },
       },
 
@@ -72,18 +72,18 @@ export const openApiSpec = {
           { $ref: "#/components/schemas/EventGroupSummary" },
           {
             type: "object",
-            required: ["segments"],
+            required: ["rawEvents"],
             properties: {
-              segments: {
+              rawEvents: {
                 type: "array",
-                items: { $ref: "#/components/schemas/SegmentDetail" },
+                items: { $ref: "#/components/schemas/RawEventDetail" },
               },
             },
           },
         ],
       },
 
-      SegmentDetail: {
+      RawEventDetail: {
         type: "object",
         required: ["eventId","sequence","isCradle","isGrave","timestamp","body"],
         properties: {
@@ -103,7 +103,7 @@ export const openApiSpec = {
           completed:      { type: "integer" },
           inProgress:     { type: "integer" },
           timedOut:       { type: "integer" },
-          totalSegments:  { type: "integer" },
+          totalRawEvents: { type: "integer" },
           byPolicy: {
             type: "array",
             items: {
@@ -112,7 +112,7 @@ export const openApiSpec = {
                 policyId:   { type: "string", format: "uuid" },
                 policyName: { type: "string" },
                 count:      { type: "integer" },
-                segments:   { type: "integer" },
+                rawEvents:  { type: "integer" },
               },
             },
           },
@@ -132,14 +132,14 @@ export const openApiSpec = {
 
       IngestResult: {
         type: "object",
-        required: ["groupId","segmentId","aggregationKey","isCradle","isGrave","action","status"],
+        required: ["groupId","rawEventId","aggregationKey","isCradle","isGrave","action","status"],
         properties: {
           groupId:        { type: "string", format: "uuid" },
-          segmentId:      { type: "string", format: "uuid" },
+          rawEventId:     { type: "string", format: "uuid" },
           aggregationKey: { type: "string" },
           isCradle:       { type: "boolean" },
           isGrave:        { type: "boolean" },
-          action:         { type: "string", enum: ["group_opened","segment_appended","group_promoted"] },
+          action:         { type: "string", enum: ["group_opened","raw_event_appended","group_promoted"] },
           status:         { type: "string", enum: ["in_progress","completed"] },
         },
       },
@@ -196,14 +196,14 @@ export const openApiSpec = {
           timestamp: { type: "string", format: "date-time", description: "ISO 8601 timestamp of delivery (server time)" },
           group: {
             type: "object",
-            required: ["id","policyId","policyName","aggregationKey","status","segmentCount","startTime","endTime","durationMs"],
+            required: ["id","policyId","policyName","aggregationKey","status","rawEventCount","startTime","endTime","durationMs"],
             properties: {
               id:             { type: "string", format: "uuid" },
               policyId:       { type: "string", format: "uuid" },
               policyName:     { type: "string" },
               aggregationKey: { type: "string" },
               status:         { type: "string", enum: ["completed","timed_out"] },
-              segmentCount:   { type: "integer" },
+              rawEventCount:  { type: "integer" },
               startTime:      { type: "string", format: "date-time" },
               endTime:        { type: "string", format: "date-time" },
               durationMs:     { type: "integer" },
@@ -307,7 +307,7 @@ export const openApiSpec = {
           { $ref: "#/components/parameters/aggregationKey" },
           { $ref: "#/components/parameters/from" },
           { $ref: "#/components/parameters/to" },
-          { name: "bodySearch", in: "query", schema: { type: "string", maxLength: 500 }, description: "Full-text search across segment JSON bodies" },
+          { name: "bodySearch", in: "query", schema: { type: "string", maxLength: 500 }, description: "Full-text search across raw event JSON bodies" },
           { name: "page",  in: "query", schema: { type: "integer", minimum: 1, default: 1 } },
           { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 200, default: 50 } },
         ],
@@ -387,7 +387,7 @@ export const openApiSpec = {
       get: {
         tags: ["Events"],
         summary: "Get event group detail",
-        description: "Returns a single event group including all segments in sequence order.",
+        description: "Returns a single event group including all raw events in sequence order.",
         parameters: [
           { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
         ],

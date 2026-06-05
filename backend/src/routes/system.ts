@@ -234,7 +234,7 @@ router.post('/logs/rotate', requireAuth, adminOnly, (_req: Request, res: Respons
 
 const SERVICE_LOGS: Record<string, string> = {
   backend:         `${LOG_DIR}/backend.log`,
-  nginx:           '/var/log/nginx/error.log',
+  nginx:           `${LOG_DIR}/nginx-err.log`,
   'nginx-access':  '/var/log/nginx/access.log',
   postgres:        `${LOG_DIR}/postgres-err.log`,
 };

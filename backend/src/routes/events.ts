@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
-import { listEvents, getEventById, getSegmentsForEvent, getEventStats, getEventPerformance } from "../services/eventService";
+import { listEvents, getEventById, getRawEventsForEvent, getEventStats, getEventPerformance } from "../services/eventService";
 import { createError } from "../middleware/errorHandler";
 import { statsCache, performanceCache, cacheKey } from "../cache";
 import { TIMEOUTS } from "../middleware/timeout";
@@ -96,12 +96,12 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-// GET /api/v1/events/:id/segments
-router.get("/:id/segments", async (req: Request, res: Response, next: NextFunction) => {
+// GET /api/v1/events/:id/raw-events
+router.get("/:id/raw-events", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const segments = await getSegmentsForEvent(req.params.id);
-    if (!segments) return next(createError("Event group not found", 404));
-    res.json(segments);
+    const rawEvents = await getRawEventsForEvent(req.params.id);
+    if (!rawEvents) return next(createError("Event group not found", 404));
+    res.json(rawEvents);
   } catch (err) {
     next(err);
   }

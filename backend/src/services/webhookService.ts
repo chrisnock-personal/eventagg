@@ -33,7 +33,7 @@ export interface WebhookGroupPayload {
   policyName: string;
   aggregationKey: string;
   status: "completed" | "timed_out";
-  segmentCount: number;
+  rawEventCount: number;
   startTime: string;
   endTime: string;
   durationMs: number;

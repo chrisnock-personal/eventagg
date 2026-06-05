@@ -1,5 +1,5 @@
 import { query } from "../db/pool";
-import { ingestSegment } from "../services/ingestService";
+import { ingestRawEvent } from "../services/ingestService";
 import { normalizeTrap, RawTrap, invalidateRoutingCache } from "./trapNormalizer";
 import { statsCache, performanceCache } from "../cache";
 import * as dgram from "dgram";
@@ -62,7 +62,7 @@ async function processTrap(raw: RawTrap): Promise<void> {
       await logTrap(normalized);
       return;
     }
-    const result = await ingestSegment(normalized.ingestInput);
+    const result = await ingestRawEvent(normalized.ingestInput);
     stats.routed++;
     statsCache.invalidateAll();
     performanceCache.invalidateAll();

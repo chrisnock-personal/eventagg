@@ -28,17 +28,17 @@ export interface EventGroupSummary {
   id: string; policyId: string; policyName: string;
   aggregationKey: string; keyField: string;
   status: "in_progress" | "completed" | "timed_out";
-  segmentCount: number; startTime: string; endTime: string | null;
-  durationMs: number | null; closeReason: string | null; lastSegmentAt: string | null;
+  rawEventCount: number; startTime: string; endTime: string | null;
+  durationMs: number | null; closeReason: string | null; lastRawEventAt: string | null;
 }
 
-export interface SegmentDetail {
+export interface RawEventDetail {
   eventId: string; sequence: number; isCradle: boolean; isGrave: boolean;
   timestamp: string; body: Record<string, unknown>;
 }
 
 export interface EventGroupDetail extends EventGroupSummary {
-  segments: SegmentDetail[];
+  rawEvents: RawEventDetail[];
 }
 
 export interface PaginatedResponse<T> {
@@ -46,16 +46,16 @@ export interface PaginatedResponse<T> {
 }
 
 export interface IngestResult {
-  groupId: string; segmentId: string; aggregationKey: string;
+  groupId: string; rawEventId: string; aggregationKey: string;
   isCradle: boolean; isGrave: boolean;
-  action: "group_opened" | "segment_appended" | "group_promoted";
+  action: "group_opened" | "raw_event_appended" | "group_promoted";
   status: "in_progress" | "completed";
 }
 
 export interface EventStats {
   totalGroups: number; completed: number; inProgress: number; timedOut: number;
-  totalSegments: number; avgDurationMs: number;
-  byPolicy: { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalSegments: number; avgDurationMs: number }[];
+  totalRawEvents: number; avgDurationMs: number;
+  byPolicy: { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalRawEvents: number; avgDurationMs: number }[];
   throughput: { bucket: string; opened: number; closed: number }[];
 }
 
@@ -127,8 +127,8 @@ function fetchEvent(id: string): Promise<EventGroupDetail> {
   return request<EventGroupDetail>(`/events/${id}`);
 }
 
-function fetchSegments(id: string): Promise<SegmentDetail[]> {
-  return request<SegmentDetail[]>(`/events/${id}/segments`);
+function fetchRawEvents(id: string): Promise<RawEventDetail[]> {
+  return request<RawEventDetail[]>(`/events/${id}/raw-events`);
 }
 
 function sendIngest(body: { policyId: string; body: Record<string, unknown> }): Promise<IngestResult> {
@@ -349,7 +349,7 @@ export const api = {
     performance: fetchPerformance,
     list:        fetchEvents,
     get:         fetchEvent,
-    segments:    fetchSegments,
+    rawEvents:   fetchRawEvents,
   },
   ingest: {
     send: sendIngest,

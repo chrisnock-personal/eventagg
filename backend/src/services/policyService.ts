@@ -209,13 +209,13 @@ async function writeAudit(
 // ─── Retroactive timeout sweep for a specific policy ─────────────────────────
 export async function applyPolicyTimeout(policyId: string): Promise<number> {
   return withTransaction(async (client) => {
-    // 1. Backfill last_segment_at from actual max received_at per group
+    // 1. Backfill last_raw_event_at from actual max received_at per group
     await client.query(
       `UPDATE in_progress_events ip
-       SET    last_segment_at = COALESCE(
-                (SELECT MAX(s.received_at)
-                 FROM   event_segments s
-                 WHERE  s.in_progress_id = ip.id),
+       SET    last_raw_event_at = COALESCE(
+                (SELECT MAX(re.received_at)
+                 FROM   raw_events re
+                 WHERE  re.in_progress_id = ip.id),
                 ip.started_at
               )
        WHERE  ip.policy_id = $1`,
@@ -225,15 +225,15 @@ export async function applyPolicyTimeout(policyId: string): Promise<number> {
     // 2. Find groups that have now elapsed
     const timedOut = await client.query<{
       id: string; aggregation_key: string; key_field: string;
-      segment_count: number; cradle_segment_id: string | null; started_at: string;
+      raw_event_count: number; cradle_raw_event_id: string | null; started_at: string;
     }>(
       `SELECT e.id, e.aggregation_key, e.key_field,
-              e.segment_count, e.cradle_segment_id, e.started_at
+              e.raw_event_count, e.cradle_raw_event_id, e.started_at
        FROM   in_progress_events e
        JOIN   policies p ON p.id = e.policy_id
        WHERE  e.policy_id = $1
          AND  p.timeout_ms IS NOT NULL
-         AND  e.last_segment_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`,
+         AND  e.last_raw_event_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`,
       [policyId]
     );
 
@@ -243,18 +243,18 @@ export async function applyPolicyTimeout(policyId: string): Promise<number> {
     for (const group of timedOut.rows) {
       const [completed] = await client.query<{ id: string }>(
         `INSERT INTO completed_events
-           (policy_id, aggregation_key, key_field, segment_count,
-            cradle_segment_id, grave_segment_id, started_at, ended_at,
+           (policy_id, aggregation_key, key_field, raw_event_count,
+            cradle_raw_event_id, grave_raw_event_id, started_at, ended_at,
             status, close_reason)
          VALUES ($1, $2, $3, $4, $5, $5, $6, NOW(), 'timed_out', 'policy_timeout')
          RETURNING id`,
-        [policyId, group.aggregation_key, group.key_field, group.segment_count,
-         group.cradle_segment_id ?? '00000000-0000-0000-0000-000000000000',
+        [policyId, group.aggregation_key, group.key_field, group.raw_event_count,
+         group.cradle_raw_event_id ?? '00000000-0000-0000-0000-000000000000',
          group.started_at]
       ).then(r => r.rows);
 
       await client.query(
-        `UPDATE event_segments SET in_progress_id = NULL, completed_id = $1 WHERE in_progress_id = $2`,
+        `UPDATE raw_events SET in_progress_id = NULL, completed_id = $1 WHERE in_progress_id = $2`,
         [completed.id, group.id]
       );
       await client.query(`DELETE FROM in_progress_events WHERE id = $1`, [group.id]);
