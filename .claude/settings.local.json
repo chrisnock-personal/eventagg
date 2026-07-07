@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('devDependencies',{}\\).get\\('typescript','not found'\\)\\)\")",
+      "Bash(npx tsc *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(node -e ' *)",
+      "Bash(chmod +x *)",
+      "Bash(tsc --version)",
+      "Bash(grep -n \"queryAuditLogPaged\\\\|{ rows, total\" /home/chris/local-repos/open-event-aggregator/eventagg/backend/src/routes/audit.ts)",
+      "Bash(./sync.sh)",
+      "Bash(git *)"
+    ]
+  }
+}
