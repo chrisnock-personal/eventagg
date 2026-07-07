@@ -35,6 +35,7 @@ export interface EventGroupSummary {
 export interface RawEventDetail {
   eventId: string; sequence: number; isCradle: boolean; isGrave: boolean;
   timestamp: string; body: Record<string, unknown>;
+  eventSequenceNumber: number | null;
 }
 
 export interface EventGroupDetail extends EventGroupSummary {

@@ -67,6 +67,7 @@ function rawEventToDetail(row: Record<string, unknown>): RawEventDetail {
     isGrave: row.is_grave as boolean,
     timestamp: row.received_at as string,
     body: row.body as Record<string, unknown>,
+    eventSequenceNumber: (row.event_sequence_number as number | null) ?? null,
   };
 }
 

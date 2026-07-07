@@ -7,8 +7,9 @@ import { audit } from "../services/auditService";
 const router = Router();
 
 const ingestSchema = z.object({
-  policyId: z.string().uuid("policyId must be a valid UUID"),
-  body:     z.record(z.unknown()),
+  policyId:       z.string().uuid("policyId must be a valid UUID"),
+  body:           z.record(z.unknown()),
+  sequenceNumber: z.number().int().optional(),
 });
 
 // POST /api/v1/events/ingest
@@ -16,10 +17,11 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const input = ingestSchema.parse(req.body);
     const result = await ingestRawEvent({
-      policyId:  input.policyId,
-      body:      input.body as Record<string, unknown>,
-      sourceIp:  req.ip,
-      apiKey:    req.headers["x-api-key"] as string | undefined,
+      policyId:       input.policyId,
+      body:           input.body as Record<string, unknown>,
+      sourceIp:       req.ip,
+      apiKey:         req.headers["x-api-key"] as string | undefined,
+      sequenceNumber: input.sequenceNumber,
     });
 
     // Invalidate aggregate caches so next stats/performance request is fresh

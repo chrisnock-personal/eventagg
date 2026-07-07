@@ -565,6 +565,7 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
   const [detailTab, setDetailTab] = useState<"list"|"timeline">("list");
   const [timelineSeg, setTimelineSeg] = useState<number | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [sortBySeq, setSortBySeq] = useState(false);
   const expandedRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -605,6 +606,34 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
     ? new Date(event.endTime).getTime() - new Date(event.startTime).getTime()
     : Date.now() - new Date(event.startTime).getTime();
   const startMs = new Date(event.startTime).getTime();
+
+  const hasSeqNums = event.rawEvents.some(e => e.eventSequenceNumber != null);
+  const displayedRawEvents = sortBySeq
+    ? [...event.rawEvents].sort((a, b) => {
+        if (a.eventSequenceNumber == null && b.eventSequenceNumber == null) return 0;
+        if (a.eventSequenceNumber == null) return 1;
+        if (b.eventSequenceNumber == null) return -1;
+        return a.eventSequenceNumber - b.eventSequenceNumber;
+      })
+    : event.rawEvents;
+  const seqSortedOrder = hasSeqNums
+    ? [...event.rawEvents]
+        .sort((a, b) => {
+          if (a.eventSequenceNumber == null) return 1;
+          if (b.eventSequenceNumber == null) return -1;
+          return a.eventSequenceNumber - b.eventSequenceNumber;
+        })
+        .map(e => e.eventId)
+    : [];
+  const outOfOrderIds = new Set<string>(
+    hasSeqNums
+      ? event.rawEvents
+          .filter((e, i) => e.eventSequenceNumber != null && seqSortedOrder[i] !== e.eventId)
+          .map(e => e.eventId)
+      : []
+  );
+  const lastArrivedId = event.rawEvents[event.rawEvents.length - 1]?.eventId;
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,22,0.45)", zIndex: 100, display: "flex", alignItems: "flex-start", justifyContent: "flex-end" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ width: 520, height: "100vh", background: C.surface, borderLeft: `1px solid ${C.border}`, overflowY: "auto", display: "flex", flexDirection: "column", animation: "slideIn 0.2s ease" }}>
@@ -668,13 +697,21 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
           {/* Raw Events heading + List/Timeline toggle */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
             <SectionLabel text={`Raw Events (${event.rawEvents.length})`} />
-            <div style={{ display: "flex", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: 2, gap: 2 }}>
-              {(["list","timeline"] as const).map(t => (
-                <button key={t} onClick={() => setDetailTab(t)}
-                  style={{ padding: "3px 10px", border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: detailTab === t ? 700 : 400, color: detailTab === t ? C.accent : C.textMid, background: detailTab === t ? C.surface : "none", boxShadow: detailTab === t ? "0 1px 3px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s" }}>
-                  {t === "timeline" ? "⟡ Timeline" : "≡ List"}
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              {hasSeqNums && (
+                <button onClick={() => setSortBySeq(s => !s)}
+                  style={{ padding: "3px 10px", border: `1px solid ${sortBySeq ? C.purple : C.border}`, borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: sortBySeq ? 700 : 400, color: sortBySeq ? C.purple : C.textMid, background: sortBySeq ? C.purpleLight : "none", transition: "all 0.15s" }}>
+                  # Sort by Seq
                 </button>
-              ))}
+              )}
+              <div style={{ display: "flex", background: C.surfaceAlt, border: `1px solid ${C.border}`, borderRadius: 6, padding: 2, gap: 2 }}>
+                {(["list","timeline"] as const).map(t => (
+                  <button key={t} onClick={() => setDetailTab(t)}
+                    style={{ padding: "3px 10px", border: "none", borderRadius: 4, cursor: "pointer", fontFamily: "inherit", fontSize: 11, fontWeight: detailTab === t ? 700 : 400, color: detailTab === t ? C.accent : C.textMid, background: detailTab === t ? C.surface : "none", boxShadow: detailTab === t ? "0 1px 3px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s" }}>
+                    {t === "timeline" ? "⟡ Timeline" : "≡ List"}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -745,10 +782,10 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
           {/* ── List tab ── */}
           {detailTab === "list" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {event.rawEvents.map((seg, i) => {
+            {displayedRawEvents.map((seg, i) => {
               const isCradle  = policy && String(resolvePath(seg.body, policy.cradleField)) === policy.cradleValue;
               const isGrave   = policy && String(resolvePath(seg.body, policy.graveField))  === policy.graveValue;
-              const isLastSeg = event.status === "timed_out" && i === event.rawEvents.length - 1;
+              const isLastSeg = event.status === "timed_out" && seg.eventId === lastArrivedId;
               const borderColor = isCradle ? C.accent + "55" : isGrave ? C.danger + "55" : isLastSeg ? C.timeout + "55" : C.border;
               const dotColor    = isCradle ? C.accent : isGrave ? C.danger : isLastSeg ? C.timeout : C.borderStrong;
               return (
@@ -762,6 +799,8 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
                           {isCradle   && <span style={{ fontSize: 9, fontWeight: 700, color: C.accent,   background: C.accentLight,   padding: "1px 5px", borderRadius: 3 }}>CRADLE</span>}
                           {isGrave    && <span style={{ fontSize: 9, fontWeight: 700, color: C.danger,   background: C.dangerLight,   padding: "1px 5px", borderRadius: 3 }}>GRAVE</span>}
                           {isLastSeg  && <span style={{ fontSize: 9, fontWeight: 700, color: C.timeout,  background: C.timeoutLight,  padding: "1px 5px", borderRadius: 3 }}>LAST BEFORE TIMEOUT</span>}
+                          {seg.eventSequenceNumber != null && <span style={{ fontSize: 9, fontWeight: 700, color: C.purple, background: C.purpleLight, padding: "1px 5px", borderRadius: 3 }}>#{seg.eventSequenceNumber}</span>}
+                          {!sortBySeq && outOfOrderIds.has(seg.eventId) && <span style={{ fontSize: 9, fontWeight: 700, color: C.warn, background: C.warnLight, padding: "1px 5px", borderRadius: 3 }}>⚠ OUT OF ORDER</span>}
                         </div>
                         <div style={{ fontSize: 10, color: C.textMuted }}>{fmt(seg.timestamp)}</div>
                       </div>
@@ -772,6 +811,10 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
                     <div style={{ padding: "10px 14px", borderTop: `1px solid ${C.border}`, background: C.surfaceAlt }}>
                       <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 700 }}>RAW EVENT ID</div>
                       <div style={{ fontSize: 11, fontFamily: "monospace", color: C.textMid, marginBottom: 8 }}>{seg.eventId}</div>
+                      {seg.eventSequenceNumber != null && (<>
+                        <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 700 }}>EVENT SEQUENCE</div>
+                        <div style={{ fontSize: 11, fontFamily: "monospace", color: C.purple, marginBottom: 8 }}>#{seg.eventSequenceNumber}</div>
+                      </>)}
                       <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 4, fontWeight: 700 }}>BODY</div>
                       <pre style={{ margin: 0, fontSize: 11, fontFamily: "monospace", color: C.text, background: C.surface, border: `1px solid ${C.border}`, borderRadius: 6, padding: "8px 10px", overflowX: "auto", lineHeight: 1.5, maxHeight: 200, overflowY: "auto" }}>{JSON.stringify(seg.body, null, 2)}</pre>
                     </div>
