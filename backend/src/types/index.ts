@@ -61,6 +61,7 @@ export interface RawEvent {
   received_at: string;
   source_ip: string | null;
   ingest_api_key: string | null;
+  event_sequence_number: number | null;
 }
 
 export interface AuditLog {
@@ -106,6 +107,7 @@ export interface RawEventDetail {
   isGrave: boolean;
   timestamp: string;
   body: Record<string, unknown>;
+  eventSequenceNumber: number | null;
 }
 
 export interface PolicyResponse {

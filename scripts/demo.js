@@ -40,6 +40,7 @@ Scenarios:
   2  Network Link      — 2 steps via SNMP
   3  Order Lifecycle   — 5 steps via HTTP
   4  Telephone Call    — 8 steps via HTTP  (requires migration 014)
+  5  Out-of-Order      — 5 steps via HTTP  (sequence numbers arrive scrambled: 1,4,3,2,5)
   a  All scenarios in sequence
 `);
   process.exit(0);
@@ -200,8 +201,10 @@ function apiRequest(method, path, body = null) {
 async function apiGet(path)        { return apiRequest("GET",  path); }
 async function apiPost(path, body) { return apiRequest("POST", path, body); }
 
-async function ingestEvent(policyId, body) {
-  const res = await apiPost("/events/ingest", { policyId, body });
+async function ingestEvent(policyId, body, sequenceNumber) {
+  const payload = { policyId, body };
+  if (sequenceNumber !== undefined) payload.sequenceNumber = sequenceNumber;
+  const res = await apiPost("/events/ingest", payload);
   if (res.status !== 200 && res.status !== 201) {
     throw new Error(`Ingest failed (${res.status}): ${JSON.stringify(res.body)}`);
   }
@@ -218,7 +221,7 @@ async function findPolicy(name) {
 // ─── Display helpers ──────────────────────────────────────────────────────────
 const HR = gray("─".repeat(62));
 
-function stepHeader({ step, total, role, eventType, key, policyName, transport }) {
+function stepHeader({ step, total, role, eventType, key, policyName, transport, seqNum, note }) {
   const roleLabel = role === "CRADLE" ? green(`[CRADLE]`) :
                     role === "GRAVE"  ? red(`[GRAVE ]`) :
                                        yellow(`[MIDDLE]`);
@@ -227,6 +230,8 @@ function stepHeader({ step, total, role, eventType, key, policyName, transport }
   console.log(`  ${gray("Policy:")}     ${policyName}`);
   console.log(`  ${gray("Key:")}        ${cyan(key)}`);
   console.log(`  ${gray("Transport:")}  ${transport}`);
+  if (seqNum !== undefined) console.log(`  ${gray("Seq #:")}      ${magenta(`#${seqNum}`)}`);
+  if (note)                 console.log(`  ${gray("Note:")}       ${note}`);
   console.log(HR);
 }
 
@@ -336,7 +341,7 @@ async function scenarioOrder(policy) {
     const { role, eventType, body } = steps[i];
     stepHeader({ step: i + 1, total: steps.length, role, eventType, key, policyName: policy.name, transport });
     await waitForEnter();
-    const result = await ingestEvent(policy.id, body);
+    const result = await ingestEvent(policy.id, { ...body, eventType });
     stepOk("HTTP", `action=${result.action}  group=${(result.groupId || "").slice(0, 8)}…`);
   }
 }
@@ -387,8 +392,58 @@ async function scenarioCall(policy) {
     const { role, eventType, body } = steps[i];
     stepHeader({ step: i + 1, total: steps.length, role, eventType, key, policyName: policy.name, transport });
     await waitForEnter();
-    const result = await ingestEvent(policy.id, body);
+    const result = await ingestEvent(policy.id, { ...body, eventType });
     stepOk("HTTP", `action=${result.action}  group=${(result.groupId || "").slice(0, 8)}…`);
+  }
+}
+
+// ─── Scenario 5: Out-of-Order Events — HTTP ──────────────────────────────────
+// True sequence: created(1) → processing(2) → dispatched(3) → out-for-delivery(4) → delivered(5)
+// Arrival order:        1  →           4    →         3     →         2            →       5
+// Steps 2-4 arrive scrambled, simulating delayed messages from distributed microservices.
+async function scenarioOutOfOrder(policy) {
+  const key       = `ORD-OOO-${Date.now().toString(36).toUpperCase()}`;
+  const transport = `HTTP → ${API_BASE}`;
+
+  const steps = [
+    {
+      role: "CRADLE", eventType: "order.created", seqNum: 1,
+      body: { orderId: key, customer: "GlobalCo Ltd", items: 7, total: 3892.00, currency: "USD" },
+      note: "Emitted by order-service — arrives first (in order)",
+    },
+    {
+      role: "MIDDLE", eventType: "order.out-for-delivery", seqNum: 4,
+      body: { orderId: key, driver: "D-214", eta: "16:45", vehicleId: "VAN-099" },
+      note: yellow(`⚠  true position #4 — delayed delivery-service message arrives 2nd`),
+    },
+    {
+      role: "MIDDLE", eventType: "order.dispatched", seqNum: 3,
+      body: { orderId: key, carrier: "FastShip", trackingRef: `FSP-${Date.now()}`, depot: "NW-1" },
+      note: yellow(`⚠  true position #3 — buffered carrier-service message arrives 3rd`),
+    },
+    {
+      role: "MIDDLE", eventType: "order.processing", seqNum: 2,
+      body: { orderId: key, warehouseId: "WH-SOUTH", pickedBy: "OP-118", lane: "B4" },
+      note: yellow(`⚠  true position #2 — most delayed, warehouse-service arrives 4th`),
+    },
+    {
+      role: "GRAVE", eventType: "order.delivered", seqNum: 5,
+      body: { orderId: key, signedBy: "R. Patel", proofRef: `POD-${Date.now()}` },
+      note: "Emitted by delivery-service — arrives last (in order)",
+    },
+  ];
+
+  console.log();
+  console.log(gray(`  Arrival order:  created(#1)  →  out-for-delivery(#4)  →  dispatched(#3)  →  processing(#2)  →  delivered(#5)`));
+  console.log(gray(`  True order:     created(#1)  →  processing(#2)        →  dispatched(#3)  →  out-for-delivery(#4)  →  delivered(#5)`));
+  console.log(gray(`  In the UI: open the group and toggle "# Sort by Seq" to see true event order`));
+
+  for (let i = 0; i < steps.length; i++) {
+    const { role, eventType, body, seqNum, note } = steps[i];
+    stepHeader({ step: i + 1, total: steps.length, role, eventType, key, policyName: policy.name, transport, seqNum, note });
+    await waitForEnter();
+    const result = await ingestEvent(policy.id, { ...body, eventType }, seqNum);
+    stepOk("HTTP", `action=${result.action}  group=${(result.groupId || "").slice(0, 8)}…  seq=#${seqNum}`);
   }
 }
 
@@ -405,6 +460,7 @@ async function scenarioMenu(callAvailable) {
   } else {
     console.log(`  ${gray("4")}  ${gray("Telephone Call      (deploy migration 014 to enable)")}`);
   }
+  console.log(`  ${cyan("5")}  Out-of-Order Events ${gray("(5 steps · HTTP · sequence numbers)")}`);
   console.log(`  ${cyan("a")}  All in sequence`);
   console.log(`  ${cyan("q")}  Quit`);
   console.log();
@@ -491,13 +547,22 @@ async function main() {
       console.log(`\n  ${green("✓")} Telephone Call scenario complete.\n`);
     };
 
+    const runOutOfOrder = async () => {
+      console.log(`\n${magenta(bold("━━━  Scenario 5: Out-of-Order Events  (HTTP)  ━━━"))}`);
+      console.log(gray("  5 order events from distributed microservices — arrive as seqNums 1,4,3,2,5"));
+      console.log(gray("  Open the group in the UI and toggle \"# Sort by Seq\" to reveal true order"));
+      await scenarioOutOfOrder(orderPol);
+      console.log(`\n  ${green("✓")} Out-of-Order scenario complete.\n`);
+    };
+
     try {
       if      (choice === "1") await runTrade();
       else if (choice === "2") await runLink();
       else if (choice === "3") await runOrder();
       else if (choice === "4") await runCall();
-      else if (choice === "a") { await runTrade(); await runLink(); await runOrder(); await runCall(); }
-      else console.log(yellow("\n  Unknown choice — enter 1, 2, 3, 4, a, or q.\n"));
+      else if (choice === "5") await runOutOfOrder();
+      else if (choice === "a") { await runTrade(); await runLink(); await runOrder(); await runCall(); await runOutOfOrder(); }
+      else console.log(yellow("\n  Unknown choice — enter 1, 2, 3, 4, 5, a, or q.\n"));
     } catch (err) {
       console.log(red(`\n  Error: ${err.message}\n`));
     }

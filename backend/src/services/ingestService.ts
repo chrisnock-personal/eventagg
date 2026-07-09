@@ -24,6 +24,7 @@ export interface IngestInput {
   body: Record<string, unknown>;
   sourceIp?: string;
   apiKey?: string;
+  sequenceNumber?: number;
 }
 
 export interface IngestResult {
@@ -119,6 +120,7 @@ export async function ingestRawEvent(input: IngestInput): Promise<IngestResult> 
         body: input.body,
         sourceIp: input.sourceIp,
         apiKey: input.apiKey,
+        eventSequenceNumber: input.sequenceNumber,
       });
 
       if (rawEvent.isDuplicate) {
@@ -165,6 +167,7 @@ export async function ingestRawEvent(input: IngestInput): Promise<IngestResult> 
       body: input.body,
       sourceIp: input.sourceIp,
       apiKey: input.apiKey,
+      eventSequenceNumber: input.sequenceNumber,
     });
 
     // Idempotent duplicate — return existing group state without side-effects
@@ -292,6 +295,7 @@ async function insertRawEvent(
     body: Record<string, unknown>;
     sourceIp?: string;
     apiKey?: string;
+    eventSequenceNumber?: number;
   }
 ): Promise<{ id: string; isDuplicate: boolean }> {
   // ON CONFLICT on the unique indexes (sequence OR body_hash within group)
@@ -299,8 +303,8 @@ async function insertRawEvent(
   const result = await client.query<{ id: string }>(
     `INSERT INTO raw_events
        (in_progress_id, completed_id, policy_id, aggregation_key,
-        sequence, is_cradle, is_grave, body, source_ip, ingest_api_key)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        sequence, is_cradle, is_grave, body, source_ip, ingest_api_key, event_sequence_number)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT DO NOTHING
      RETURNING id`,
     [
@@ -314,6 +318,7 @@ async function insertRawEvent(
       JSON.stringify(opts.body),
       opts.sourceIp ?? null,
       opts.apiKey ?? null,
+      opts.eventSequenceNumber ?? null,
     ]
   );
 
