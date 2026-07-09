@@ -9,7 +9,15 @@
       "Bash(tsc --version)",
       "Bash(grep -n \"queryAuditLogPaged\\\\|{ rows, total\" /home/chris/local-repos/open-event-aggregator/eventagg/backend/src/routes/audit.ts)",
       "Bash(./sync.sh)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(podman ps *)",
+      "Bash(podman volume *)",
+      "Bash(podman images *)",
+      "Bash(podman build *)",
+      "Bash(podman-compose up *)",
+      "Bash(timeout 60 podman logs -f eventagg 2>&1)",
+      "Bash(sort -t: -k3)",
+      "Bash(awk -F'process.env.' '{print $2}')"
     ]
   }
 }
