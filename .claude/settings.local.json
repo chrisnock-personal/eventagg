@@ -7,7 +7,7 @@
       "Bash(node -e ' *)",
       "Bash(chmod +x *)",
       "Bash(tsc --version)",
-      "Bash(grep -n \"queryAuditLogPaged\\\\|{ rows, total\" /home/chris/local-repos/open-event-aggregator/eventagg/backend/src/routes/audit.ts)",
+      "Bash(grep -n \"queryAuditLogPaged\\\\|{ rows, total\" backend/src/routes/audit.ts)",
       "Bash(./sync.sh)",
       "Bash(git *)",
       "Bash(podman ps *)",
@@ -17,7 +17,14 @@
       "Bash(podman-compose up *)",
       "Bash(timeout 60 podman logs -f eventagg 2>&1)",
       "Bash(sort -t: -k3)",
-      "Bash(awk -F'process.env.' '{print $2}')"
+      "Bash(awk -F'process.env.' '{print $2}')",
+      "Bash(unzip -p docs/Aggre-Gator-Presentation_v2.pptx docProps/core.xml)",
+      "Bash(python3 -c ' *)",
+      "Bash(pdfinfo docs/Aggre-Gator-Presentation_v2.pdf)",
+      "Bash(pdftotext docs/Aggre-Gator-Presentation_v2.pdf -)",
+      "Bash(echo \"=== exit code $? \\(0 = still found, 1 = clean\\) ===\")",
+      "Bash(bash -n sync.sh)",
+      "Bash(./sync.sh --help)"
     ]
   }
 }

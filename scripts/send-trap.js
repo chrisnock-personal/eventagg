@@ -6,7 +6,7 @@
 //   node scripts/send-trap.js --list-policies
 //   node scripts/send-trap.js --policy <uuid> --key TRD-001 --event-type trade.initiated
 //   node scripts/send-trap.js --scenario trade --policy <uuid>
-//   node scripts/send-trap.js --scenario trade --policy <uuid> --host 192.168.1.135 --port 1162
+//   node scripts/send-trap.js --scenario trade --policy <uuid> --host <host> --port 1162
 
 const dgram = require("dgram");
 const http  = require("http");

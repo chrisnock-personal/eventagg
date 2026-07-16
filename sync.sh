@@ -11,7 +11,7 @@
 set -e
 
 # ─── Config ───────────────────────────────────────────────────────────────────
-REMOTE_HOST="${AGGRE_REMOTE:-chris@192.168.1.135}"
+REMOTE_HOST="${AGGRE_REMOTE:-}"
 REMOTE_DIR="${AGGRE_REMOTE_DIR:-~/Apps/open-event-aggregator/eventagg}"
 LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -28,12 +28,12 @@ while [[ $# -gt 0 ]]; do
     --help|-h)
       echo "Usage: ./sync.sh [user@ip] [options]"
       echo ""
-      echo "  user@ip            Remote host to deploy to (default: $REMOTE_HOST)"
+      echo "  user@ip            Remote host to deploy to (required unless AGGRE_REMOTE is set)"
       echo "  --sync-only        Sync files only, skip rebuild"
       echo "  --rebuild-only     Rebuild on remote without syncing"
       echo "  --logs             Tail backend logs after deploy"
       echo ""
-      echo "  Set AGGRE_REMOTE=user@host to change default remote"
+      echo "  Set AGGRE_REMOTE=user@host to set the default remote"
       echo "  Set AGGRE_REMOTE_DIR=path  to change remote path"
       exit 0
       ;;
@@ -42,6 +42,11 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+if [[ -z "$REMOTE_HOST" ]]; then
+  echo "Error: no remote host set. Pass user@ip, or set AGGRE_REMOTE=user@host." >&2
+  exit 1
+fi
 
 echo "🐊  Aggre/Gator Sync & Deploy"
 echo "    Local:  $LOCAL_DIR"

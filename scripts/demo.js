@@ -5,7 +5,7 @@
 //
 // Usage:
 //   node scripts/demo.js
-//   node scripts/demo.js --host 192.168.1.135 --port 1162 --api http://192.168.1.135:3001
+//   node scripts/demo.js --host <host> --port 1162 --api http://<host>:3001
 //   node scripts/demo.js --api-key <ingest-api-key>
 
 const dgram    = require("dgram");

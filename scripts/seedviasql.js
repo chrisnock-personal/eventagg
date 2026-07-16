@@ -4,12 +4,12 @@
 // SQL goes to stdout; pipe it into psql inside the container.
 //
 // Usage:
-//   node scripts/seedviasql.js --days 30 --groups 500 --api http://192.168.1.135:3001 | \
-//     ssh chris@192.168.1.135 "podman exec -i eventagg psql -U eventagg_user eventagg"
+//   node scripts/seedviasql.js --days 30 --groups 500 --api http://<host>:3001 | \
+//     ssh <user>@<host> "podman exec -i eventagg psql -U eventagg_user eventagg"
 //
 //   # Save to file first if you want to inspect before running:
-//   node scripts/seedviasql.js --days 90 --groups 1000 --api http://192.168.1.135:3001 > /tmp/seed.sql
-//   ssh chris@192.168.1.135 "podman exec -i eventagg psql -U eventagg_user eventagg" < /tmp/seed.sql
+//   node scripts/seedviasql.js --days 90 --groups 1000 --api http://<host>:3001 > /tmp/seed.sql
+//   ssh <user>@<host> "podman exec -i eventagg psql -U eventagg_user eventagg" < /tmp/seed.sql
 //
 // Options:
 //   --api       Base URL to fetch active policies from (default: http://localhost:3001)
