@@ -1,16 +1,37 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import rateLimit from "express-rate-limit";
 import { verifyCredentials, listUsers, createUser, updateUser, deleteUser, changePassword, forcePasswordChange } from "../services/userService";
 import { audit } from "../services/auditService";
 import { setSessionCookie, clearSessionCookie, requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { orgContextMiddleware } from "../middleware/orgContext";
 import { runWithOrgContext } from "../db/pool";
+import { config } from "../config";
 
 const router = Router();
 
+// Brute-force mitigation — keyed by IP (default keyGenerator), not username,
+// since keying by username would let an attacker spray many different
+// usernames unthrottled. skipSuccessfulRequests means a legitimate user who
+// eventually gets their password right doesn't burn through the budget on
+// the way there; only failed/invalid attempts count. Disabled under the
+// test suite — its fixture users each log in once or twice for real
+// coverage, but 27+ logins across the file happen against the same
+// in-memory store/IP within a single process, which would otherwise trip
+// this well before any test intends to exercise the limiter itself.
+const loginRateLimit = rateLimit({
+  windowMs: 15 * 60_000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  skip: () => config.nodeEnv === "test",
+  message: { error: "Too many login attempts — please wait before trying again" },
+});
+
 // ── POST /api/v1/auth/login ───────────────────────────────────────────────────
-router.post("/login", async (req: Request, res: Response, next: NextFunction) => {
+router.post("/login", loginRateLimit, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { username, password } = z.object({
       username: z.string().min(1),
