@@ -401,4 +401,4 @@ eventagg/
 
 ## Operations
 
-See [OPERATIONS.md](./OPERATIONS.md) for duplicate-detection internals, WAL archiving, rate limiting, partition management SQL, and query timeout/cache TTL reference.
+See [OPERATIONS.md](./OPERATIONS.md) for duplicate-detection internals, WAL archiving, rate limiting, partition management SQL, migration rollback procedure, and query timeout/cache TTL reference.

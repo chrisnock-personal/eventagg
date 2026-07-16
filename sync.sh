@@ -73,6 +73,12 @@ fi
 
 # ─── Rebuild ──────────────────────────────────────────────────────────────────
 if [ "$SYNC_ONLY" = false ]; then
+  echo "⚠️   Rebuilding restarts the container, which runs any new DB migrations."
+  echo "    If this deploy adds a migration, take a backup first (Administration →"
+  echo "    Backup in the UI, or pg_dump) so you can restore if it goes wrong —"
+  echo "    see OPERATIONS.md § Migrations & Rollback. Not blocking; proceeding in 3s..."
+  sleep 3
+  echo ""
   echo "🔨  Building and restarting on $REMOTE_HOST..."
   echo ""
 

@@ -137,6 +137,81 @@ ORDER  BY child.relname;
 
 ---
 
+## Migrations & Rollback
+
+Migrations run automatically on every container boot (`entrypoint.sh` →
+`node dist/db/migrate.js`, before `supervisord` starts). All pending
+migrations for that boot are applied inside a **single transaction**
+(`db/migrate.ts`): if any one of them throws, the whole batch rolls back and
+the schema is left exactly as it was — that's real protection against a
+migration failing halfway through, but it's a schema-shape safety net only.
+It doesn't help once a migration has committed and only then turns out to be
+wrong (a backfill that populated the wrong values, a partition rename that
+broke a query nobody tested), and it can't undo any application code that
+already ran against the new schema.
+
+There is no `down`/rollback tooling — 23 migrations in, several of them
+(partition renames, column backfills, data promotions) aren't cleanly
+reversible with a mechanical inverse anyway. Rather than maintain
+per-migration down-scripts that would mostly go untested, this project's
+rollback story is: **take a `pg_dump` backup immediately before deploying any
+change that adds a migration, and restore it if the deploy goes wrong.**
+
+### Rollback procedure
+
+1. **Before deploying**, take a backup — either via the UI (Administration →
+   Backup, superadmin only) or directly:
+   ```bash
+   ssh <remote-host> "podman exec eventagg pg_dump -U eventagg_user -d eventagg --clean --if-exists" \
+     > pre-deploy-backup-$(date +%Y%m%d-%H%M%S).sql
+   ```
+2. **Deploy as normal** (`./sync.sh`, which rebuilds and restarts the
+   container — `entrypoint.sh` applies any new migrations on that restart).
+3. **If something's wrong** — the app misbehaves, a migration corrupted data,
+   a query now errors — restore the pre-deploy backup via the UI (Backup panel
+   → restore) or:
+   ```bash
+   cat pre-deploy-backup-*.sql | ssh <remote-host> \
+     "podman exec -i eventagg psql -U eventagg_user -d eventagg -v ON_ERROR_STOP=1"
+   ```
+   This puts the schema *and* data back to exactly the pre-deploy state —
+   strictly stronger than a schema-only `down` migration would have given you.
+   The tradeoff: any real user data written between the backup and the
+   restore is lost, same as any point-in-time restore. For a deploy-time
+   rollback (minutes, not hours, between backup and restore) that's normally
+   an acceptable cost; it's not a substitute for a real backup/retention
+   policy (see WAL archiving above) for disaster recovery.
+4. Re-run `podman-compose up -d` if the restore was done against a stopped
+   app, or just confirm the app reconnects — the restore doesn't restart the
+   container itself.
+
+`sync.sh` prints a reminder to do this before every rebuild; it doesn't
+block on it, since not every deploy adds a migration and forcing a backup
+on every doc/script-only sync would just get skipped out of habit.
+
+### Convention for writing new migrations
+
+Existing migrations (001–023) aren't being retrofitted, but new ones should
+add a one-line reversibility note to their header comment, e.g.:
+
+```sql
+-- 024_add_widget_priority.sql
+-- Reversibility: trivial — `ALTER TABLE widgets DROP COLUMN priority` fully
+-- reverses this if needed; no backfill, no data loss on rollback.
+```
+
+```sql
+-- 025_backfill_widget_owner.sql
+-- Reversibility: none — backfills owner_id from a heuristic that can't be
+-- un-derived. Rollback is restore-from-backup only (see OPERATIONS.md).
+```
+
+This costs one line per migration and tells the next person (or the next
+deploy) whether a schema-level rollback is even possible before they reach
+for the backup.
+
+---
+
 ## Query Timeout Reference
 
 | Category   | Timeout | Route |
