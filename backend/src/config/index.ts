@@ -23,6 +23,23 @@ const envSchema = z.object({
 
   // CORS
   CORS_ORIGIN: z.string().default("*"),
+
+  // Auth
+  // JWT_SECRET is intentionally optional here (not required like PGPASSWORD)
+  // — session.ts auto-generates a random one at boot if unset, rather than
+  // refusing to start, matching this codebase's existing pattern for other
+  // secrets (organisations.ingest_api_key auto-generates too). The
+  // trade-off is documented there: sessions invalidate on every restart
+  // unless this is set explicitly.
+  // docker-compose.yml passes this through as "" (not unset) when the host
+  // doesn't set it — normalize "" to undefined here so config.jwtSecret is
+  // never a falsy-but-truthy-looking empty string downstream.
+  JWT_SECRET: z.string().optional().transform((v) => v || undefined),
+  // Only enable Secure cookies once you've actually put TLS in front (a
+  // reverse proxy, etc.) — this app's own nginx.conf serves plain HTTP, and
+  // a Secure cookie is silently dropped by the browser over HTTP, which
+  // would break every login. Defaults to false to match today's deployments.
+  COOKIE_SECURE: z.enum(["true", "false"]).default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -41,6 +58,9 @@ export const config = {
   port: parseInt(env.PORT, 10),
   nodeEnv: env.NODE_ENV,
   corsOrigin: env.CORS_ORIGIN,
+
+  jwtSecret: env.JWT_SECRET,
+  cookieSecure: env.COOKIE_SECURE === "true",
 
   db: {
     host: env.PGHOST,

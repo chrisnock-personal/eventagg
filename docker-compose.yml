@@ -30,6 +30,12 @@ services:
       NODE_ENV: "${NODE_ENV:-production}"
       CORS_ORIGIN: "*"
       PG_POOL_MAX: "10"
+      # Set explicitly for persistent sessions across restarts — if unset,
+      # a random secret is generated each boot (see middleware/session.ts).
+      JWT_SECRET: "${JWT_SECRET:-}"
+      # Only set to "true" once TLS is actually terminated in front of this
+      # app (e.g. a reverse proxy) — nginx.conf itself serves plain HTTP.
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       # ── SNMP trap receiver ───────────────────────────────────────────────
       SNMP_ENABLED: "${SNMP_ENABLED:-true}"
       SNMP_PORT: "${SNMP_PORT:-1162}"

@@ -317,12 +317,21 @@ node scripts/demo.js --host <host> --api-key <key>
 | `PG_POOL_IDLE_TIMEOUT_MS` | `30000` | Pool idle connection timeout |
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection acquire timeout |
 | `CORS_ORIGIN` | `*` | CORS origin |
-| `JWT_SECRET` | dev default | JWT signing secret — **change in production** |
+| `JWT_SECRET` | random per boot | JWT signing secret. **Set this explicitly in production** — if unset, a random secret is generated every time the process starts, invalidating every session on each restart. There is no insecure hardcoded fallback. |
+| `COOKIE_SECURE` | `false` | Marks the session cookie `Secure` (HTTPS-only). Only enable once you've put TLS in front of this app (see below) — this app's own nginx.conf serves plain HTTP, and browsers silently drop `Secure` cookies over HTTP, breaking every login. |
 | `ADMIN_PASSWORD` | `admin123` | Password set for the default org's admin on first boot |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
 | `SNMP_PORT` | `1162` | SNMP UDP listen port |
 | `SNMP_COMMUNITY` | `public` | Accepted SNMP community string |
 | `NODE_ENV` | `production` | Environment |
+
+### TLS
+
+This app's bundled nginx (`nginx.conf`) serves plain HTTP on port 8080 —
+there's no TLS termination built in. For a production deployment, put a
+TLS-terminating reverse proxy (e.g. nginx, Caddy, or a cloud load balancer)
+in front of it, forwarding to port 8080, and set `COOKIE_SECURE=true` once
+that's in place so session cookies are marked HTTPS-only.
 
 ---
 
