@@ -142,8 +142,13 @@ router.post('/restore', requireAuth, adminOnly, async (req: Request, res: Respon
     const port = process.env.PGPORT     || '5432';
     const db   = process.env.PGDATABASE || 'eventagg';
     const user = process.env.PGUSER     || 'eventagg_user';
+    // ON_ERROR_STOP=1 is essential here: without it, psql prints an error for
+    // a failing statement (e.g. a schema mismatch from a dump taken on an
+    // older version of this app) and just carries on to the next statement,
+    // exiting 0 regardless — silently leaving a partially-restored database
+    // while reporting success.
     await execAsync(
-      `psql -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
+      `psql -v ON_ERROR_STOP=1 -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
       { timeout: 1_800_000, maxBuffer: 1024 * 1024 * 100 }
     );
     res.json({ ok: true, message: 'Restore completed' });
