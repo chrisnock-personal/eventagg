@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool";
-import { requireAuth, requireRole, SessionUser } from "../middleware/session";
+import { requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { getSnmpStats, invalidateRoutingCache } from "../snmp/trapReceiver";
 
@@ -12,7 +12,7 @@ router.use(requireAuth);
 
 // Superadmin has no org to scope SNMP config to.
 router.use((req: Request, res: Response, next: NextFunction) => {
-  const user = (req as any).user as SessionUser;
+  const user = req.user!;
   if (!user.orgId) {
     return next(createError("Superadmin has no organisation context", 403));
   }
@@ -33,7 +33,7 @@ router.get("/status", (_req, res) => {
 // ── GET /api/v1/snmp/sources ──────────────────────────────────────────────────
 router.get("/sources", async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const sources = await query(
       `SELECT * FROM snmp_trap_sources WHERE org_id = $1 ORDER BY last_seen DESC NULLS LAST`,
       [orgId]
@@ -45,7 +45,7 @@ router.get("/sources", async (req, res, next) => {
 // ── POST /api/v1/snmp/sources ─────────────────────────────────────────────────
 router.post("/sources", requireRole("editor", "admin"), async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const body = z.object({
       name:        z.string().min(1),
       agentAddr:   z.string().min(1),
@@ -65,7 +65,7 @@ router.post("/sources", requireRole("editor", "admin"), async (req, res, next) =
 // ── PUT /api/v1/snmp/sources/:id ──────────────────────────────────────────────
 router.put("/sources/:id", requireRole("editor", "admin"), async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const body = z.object({
       name:        z.string().optional(),
       community:   z.string().optional(),
@@ -91,7 +91,7 @@ router.put("/sources/:id", requireRole("editor", "admin"), async (req, res, next
 // ── DELETE /api/v1/snmp/sources/:id ──────────────────────────────────────────
 router.delete("/sources/:id", requireRole("admin"), async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     await query(`DELETE FROM snmp_trap_sources WHERE id = $1 AND org_id = $2`, [req.params.id, orgId]);
     res.status(204).send();
   } catch (err) { next(err); }
@@ -100,7 +100,7 @@ router.delete("/sources/:id", requireRole("admin"), async (req, res, next) => {
 // ── GET /api/v1/snmp/rules ────────────────────────────────────────────────────
 router.get("/rules", async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const rules = await query(
       `SELECT r.*, p.name AS policy_name
        FROM snmp_routing_rules r
@@ -116,7 +116,7 @@ router.get("/rules", async (req, res, next) => {
 // ── POST /api/v1/snmp/rules ───────────────────────────────────────────────────
 router.post("/rules", requireRole("editor", "admin"), async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const body = z.object({
       priority:       z.number().int().default(100),
       matchCommunity: z.string().optional(),
@@ -145,7 +145,7 @@ router.post("/rules", requireRole("editor", "admin"), async (req, res, next) => 
 // ── PUT /api/v1/snmp/rules/:id ────────────────────────────────────────────────
 router.put("/rules/:id", requireRole("editor", "admin"), async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const body = z.object({
       priority:       z.number().int().optional(),
       matchCommunity: z.string().nullable().optional(),
@@ -184,7 +184,7 @@ router.put("/rules/:id", requireRole("editor", "admin"), async (req, res, next) 
 // ── DELETE /api/v1/snmp/rules/:id ─────────────────────────────────────────────
 router.delete("/rules/:id", requireRole("admin"), async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     await query(`DELETE FROM snmp_routing_rules WHERE id = $1 AND org_id = $2`, [req.params.id, orgId]);
     invalidateRoutingCache();
     res.status(204).send();
@@ -194,7 +194,7 @@ router.delete("/rules/:id", requireRole("admin"), async (req, res, next) => {
 // ── GET /api/v1/snmp/log ──────────────────────────────────────────────────────
 router.get("/log", async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const limit = Math.min(parseInt(String(req.query.limit ?? "100")), 500);
     const rows = await query(
       `SELECT * FROM snmp_trap_log WHERE org_id = $1 ORDER BY received_at DESC LIMIT $2`,

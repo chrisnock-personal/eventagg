@@ -34,6 +34,6 @@ export async function requireApiKey(req: Request, res: Response, next: NextFunct
     return;
   }
 
-  (req as any).org = { id: org.id, name: org.name } as RequestOrg;
+  req.org = { id: org.id, name: org.name };
   next();
 }

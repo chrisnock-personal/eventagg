@@ -24,7 +24,7 @@ const execAsync = promisify(exec);
 
 router.get('/export/policies', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const policies = await query(
       `SELECT name, domain, key_field, cradle_field, cradle_value,
               grave_field, grave_value, timeout_ms, description
@@ -36,7 +36,7 @@ router.get('/export/policies', requireAuth, adminOnly, orgContextMiddleware, asy
     const bundle = {
       version:     '1.0',
       exported_at: new Date().toISOString(),
-      exported_by: (req as any).user?.email,
+      exported_by: req.user?.email,
       policies,
     };
     res.setHeader('Content-Type', 'application/json');
@@ -49,7 +49,7 @@ router.get('/export/policies', requireAuth, adminOnly, orgContextMiddleware, asy
 
 router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const bundle = req.body as { version?: string; policies?: unknown[] };
     if (!bundle.version) return res.status(400).json({ error: 'Invalid bundle — missing version field' });
 
@@ -202,7 +202,7 @@ router.get('/db/stats', requireAuth, superadminOnly, async (_req: Request, res: 
 // caller's, which didn't match what their own purge call would do.
 router.get('/db/purgeable', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const [purgeable] = await query<{ completed: string; audit: string }>(
       `SELECT
         (SELECT COUNT(*) FROM completed_events WHERE org_id = $1 AND ended_at < now() - interval '90 days')::text AS completed,
@@ -222,7 +222,7 @@ router.post('/db/vacuum', requireAuth, superadminOnly, async (_req: Request, res
 
 router.post('/db/purge', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const days = parseInt((req.body as { days?: string }).days ?? '90');
     if (isNaN(days) || days < 30) return res.status(400).json({ error: 'Minimum retention is 30 days' });
 

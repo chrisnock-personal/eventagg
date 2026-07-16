@@ -63,7 +63,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
   try {
     const user = jwt.verify(token, SECRET) as SessionUser;
-    (req as any).user = user;
+    req.user = user;
     next();
   } catch {
     res.status(401).json({ error: "Session expired — please sign in again" });
@@ -72,7 +72,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    const user = (req as any).user as SessionUser | undefined;
+    const user = req.user;
     if (!user || !roles.includes(user.role)) {
       res.status(403).json({ error: `Forbidden — requires role: ${roles.join(" or ")}` });
       return;

@@ -3,7 +3,6 @@ import { z } from "zod";
 import { ingestRawEvent, fireGroupCompletedWebhook } from "../services/ingestService";
 import { statsCache, performanceCache } from "../cache";
 import { audit } from "../services/auditService";
-import { RequestOrg } from "../middleware/auth";
 import { orgContextMiddleware } from "../middleware/orgContext";
 
 const router = Router();
@@ -21,7 +20,7 @@ const ingestSchema = z.object({
 // POST /api/v1/events/ingest
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const org = (req as any).org as RequestOrg;
+    const org = req.org!;
     const input = ingestSchema.parse(req.body);
     const result = await ingestRawEvent(org.id, {
       policyId:       input.policyId,

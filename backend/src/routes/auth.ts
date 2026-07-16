@@ -54,7 +54,7 @@ router.post("/change-password", requireAuth, orgContextMiddleware, async (req: R
       newPassword:     z.string().min(6, "New password must be at least 6 characters"),
     }).parse(req.body);
 
-    const userId = (req as any).user.id;
+    const userId = req.user!.id;
     const result = await changePassword(userId, currentPassword, newPassword);
     if (!result.ok) return next(createError(result.error ?? "Password change failed", 400));
     res.json({ ok: true });
@@ -63,7 +63,7 @@ router.post("/change-password", requireAuth, orgContextMiddleware, async (req: R
 
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
 router.post("/logout", requireAuth, orgContextMiddleware, (req: Request, res: Response) => {
-  const user = (req as any).user;
+  const user = req.user!;
   audit({ entityType: "user", entityId: user.id, action: "user.logout", actor: user.username, sourceIp: req.ip, orgId: user.orgId });
   clearSessionCookie(res);
   res.status(204).send();
@@ -71,7 +71,7 @@ router.post("/logout", requireAuth, orgContextMiddleware, (req: Request, res: Re
 
 // ── GET /api/v1/auth/me ───────────────────────────────────────────────────────
 router.get("/me", requireAuth, (req: Request, res: Response) => {
-  res.json((req as any).user);
+  res.json(req.user);
 });
 
 // ── Users CRUD (admin only) ───────────────────────────────────────────────────
@@ -87,7 +87,7 @@ const userBodySchema = z.object({
 // GET /api/v1/auth/users
 router.get("/users", requireAuth, requireRole("admin"), orgContextMiddleware, async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     res.json(await listUsers(orgId));
   } catch (err) { next(err); }
 });
@@ -102,7 +102,7 @@ router.post("/users", requireAuth, requireRole("admin"), orgContextMiddleware, a
       role:     z.enum(["viewer", "editor", "admin"]).default("viewer"),
     }).parse(req.body);
 
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const user = await createUser({ ...body, orgId });
     res.status(201).json(user);
   } catch (err) { next(err); }
@@ -112,7 +112,7 @@ router.post("/users", requireAuth, requireRole("admin"), orgContextMiddleware, a
 router.put("/users/:id", requireAuth, requireRole("admin"), orgContextMiddleware, async (req, res, next) => {
   try {
     const input = userBodySchema.parse(req.body);
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const user = await updateUser(orgId, req.params.id, input);
     if (!user) return next(createError("User not found", 404));
     res.json(user);
@@ -122,7 +122,7 @@ router.put("/users/:id", requireAuth, requireRole("admin"), orgContextMiddleware
 // DELETE /api/v1/auth/users/:id
 router.delete("/users/:id", requireAuth, requireRole("admin"), orgContextMiddleware, async (req, res, next) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const deleted = await deleteUser(orgId, req.params.id);
     if (!deleted) return next(createError("User not found", 404));
     res.status(204).send();

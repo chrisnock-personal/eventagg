@@ -5,7 +5,7 @@ import { createError } from "../middleware/errorHandler";
 import { statsCache, performanceCache, cacheKey } from "../cache";
 import { TIMEOUTS } from "../middleware/timeout";
 import { withStatementTimeout } from "../db/pool";
-import { requireAuth, SessionUser } from "../middleware/session";
+import { requireAuth } from "../middleware/session";
 
 const router = Router();
 
@@ -14,7 +14,7 @@ router.use(requireAuth);
 // Superadmin has no org to scope events to — reject rather than silently
 // returning empty/all-org data.
 router.use((req: Request, res: Response, next: NextFunction) => {
-  const user = (req as any).user as SessionUser;
+  const user = req.user!;
   if (!user.orgId) {
     return next(createError("Superadmin has no organisation context", 403));
   }
@@ -43,7 +43,7 @@ const statsQuerySchema = z.object({
 // GET /api/v1/events/stats
 router.get("/stats", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const filters = statsQuerySchema.parse(req.query);
     const key = cacheKey("stats", { orgId, ...filters } as Record<string, unknown>);
     const cached = statsCache.get(key);
@@ -71,7 +71,7 @@ const performanceQuerySchema = z.object({
 // GET /api/v1/events/performance
 router.get("/performance", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const filters = performanceQuerySchema.parse(req.query);
     const key = cacheKey("perf", { orgId, ...filters } as Record<string, unknown>);
     const cached = performanceCache.get(key);
@@ -92,7 +92,7 @@ router.get("/performance", async (req: Request, res: Response, next: NextFunctio
 // GET /api/v1/events — paginated list
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const filters = listQuerySchema.parse(req.query);
     const result = await listEvents(orgId, filters);
     res.json(result);
@@ -104,7 +104,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 // GET /api/v1/events/:id
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const group = await getEventById(orgId, req.params.id);
     if (!group) return next(createError("Event group not found", 404));
     res.json(group);
@@ -116,7 +116,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // GET /api/v1/events/:id/raw-events
 router.get("/:id/raw-events", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const rawEvents = await getRawEventsForEvent(orgId, req.params.id);
     if (!rawEvents) return next(createError("Event group not found", 404));
     res.json(rawEvents);
@@ -128,7 +128,7 @@ router.get("/:id/raw-events", async (req: Request, res: Response, next: NextFunc
 // DELETE /api/v1/events/:id  (soft delete - audit log only, not yet implemented as a DB field for brevity)
 router.delete("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const group = await getEventById(orgId, req.params.id);
     if (!group) return next(createError("Event group not found", 404));
     // Soft delete is recorded in audit_log; extend with a deleted_at column via migration as needed

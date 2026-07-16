@@ -33,7 +33,7 @@ router.put('/config/:key', requireAuth, adminOnly, async (req: Request, res: Res
       `INSERT INTO system_config (key, value, updated_at, updated_by)
        VALUES ($1, $2, now(), $3)
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now(), updated_by = $3`,
-      [req.params.key, JSON.stringify(req.body), (req as any).user?.email]
+      [req.params.key, JSON.stringify(req.body), req.user?.email]
     );
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -52,7 +52,7 @@ router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Re
     const { password } = req.body as { password?: string };
     if (!password) return res.status(400).json({ error: 'password is required' });
 
-    const user = (req as any).user;
+    const user = req.user!;
     // Authenticating by username (before org is re-confirmed) and the
     // subsequent org_id -> NULL self-promotion to superadmin both need
     // bypass — the org_id NULL write is exactly what WITH CHECK otherwise

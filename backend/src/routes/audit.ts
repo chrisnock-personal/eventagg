@@ -1,5 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { requireAuth, SessionUser } from "../middleware/session";
+import { requireAuth } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { queryAuditLogPaged } from "../services/auditService";
 import { orgContextMiddleware } from "../middleware/orgContext";
@@ -10,7 +10,7 @@ router.use(requireAuth);
 // Superadmin has no org to scope the audit log to — Phase 2 (Organizations
 // admin panel) is where instance-wide audit visibility would be built.
 router.use((req: Request, res: Response, next: NextFunction) => {
-  const user = (req as any).user as SessionUser;
+  const user = req.user!;
   if (!user.orgId) {
     return next(createError("Superadmin has no organisation context", 403));
   }
@@ -23,7 +23,7 @@ router.use(orgContextMiddleware);
 // GET /api/v1/audit — returns { rows, total, limit, offset }
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = req.user!.orgId as string;
     const limit  = Math.min(parseInt(req.query.limit  as string || "200"), 500);
     const offset = parseInt(req.query.offset as string || "0");
     const result = await queryAuditLogPaged({

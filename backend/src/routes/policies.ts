@@ -40,7 +40,7 @@ const policyUpdateSchema = policyBodySchema.partial();
 // GET /api/v1/policies
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string | null;
+    const orgId = req.user!.orgId;
     const policies = await listPolicies(orgId, true);
     res.json(policies);
   } catch (err) {
@@ -51,7 +51,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 // GET /api/v1/policies/:id
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string | null;
+    const orgId = req.user!.orgId;
     const policy = await getPolicyById(orgId, req.params.id);
     if (!policy) return next(createError("Policy not found", 404));
     res.json(policy);
@@ -63,10 +63,10 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // POST /api/v1/policies
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string | null;
+    const orgId = req.user!.orgId;
     const input = policyBodySchema.parse(req.body);
     const policy = await createPolicy(orgId, { ...input, createdBy: "api" });
-    audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.created", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
+    audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.created", actor: req.user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
     res.status(201).json(policy);
   } catch (err) { next(err); }
 });
@@ -74,7 +74,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 // PUT /api/v1/policies/:id
 router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string | null;
+    const orgId = req.user!.orgId;
     const input = policyUpdateSchema.parse(req.body);
     const policy = await updatePolicy(orgId, req.params.id, { ...input, updatedBy: "api" });
     if (!policy) return next(createError("Policy not found", 404));
@@ -84,7 +84,7 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
       if (count > 0) console.log(`⏱  Retroactive timeout: ${count} group(s) closed for policy ${policy.name}`);
     }
 
-    audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.updated", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name, timeoutMs: policy.timeoutMs } });
+    audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.updated", actor: req.user?.username, sourceIp: req.ip, afterState: { name: policy.name, timeoutMs: policy.timeoutMs } });
     res.json(policy);
   } catch (err) { next(err); }
 });
@@ -92,7 +92,7 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // PATCH /api/v1/policies/:id/toggle — activate or deactivate
 router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string | null;
+    const orgId = req.user!.orgId;
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
     const { query } = await import("../db/pool");
     const orgMatch = orgId === null ? "org_id IS NULL" : "org_id = $3";
@@ -103,7 +103,7 @@ router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFuncti
     );
     if (!rows.length) return next(createError("Policy not found", 404));
     const policy = await getPolicyById(orgId, req.params.id);
-    audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.toggled", actor: (req as any).user?.username, sourceIp: req.ip, metadata: { active } });
+    audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.toggled", actor: req.user?.username, sourceIp: req.ip, metadata: { active } });
     res.json(policy);
   } catch (err) { next(err); }
 });
@@ -111,10 +111,10 @@ router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFuncti
 // DELETE /api/v1/policies/:id
 router.delete("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string | null;
+    const orgId = req.user!.orgId;
     const deleted = await deactivatePolicy(orgId, req.params.id, "api");
     if (!deleted) return next(createError("Policy not found", 404));
-    audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: (req as any).user?.username, sourceIp: req.ip });
+    audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: req.user?.username, sourceIp: req.ip });
     res.status(204).send();
   } catch (err) { next(err); }
 });

@@ -1,7 +1,5 @@
 import { Request, Response, NextFunction } from "express";
 import { runWithOrgContext, OrgContext } from "../db/pool";
-import { SessionUser } from "./session";
-import { RequestOrg } from "./auth";
 
 // Establishes the RLS org context for the duration of this request. Must be
 // mounted after requireAuth/requireApiKey, since it reads req.user/req.org.
@@ -11,8 +9,8 @@ import { RequestOrg } from "./auth";
 // downstream (however deeply nested via async/await) sees this context, no
 // need to bracket against res.on('finish').
 export function orgContextMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const user = (req as any).user as SessionUser | undefined;
-  const org = (req as any).org as RequestOrg | undefined;
+  const user = req.user;
+  const org = req.org;
 
   const ctx: OrgContext = org
     ? { orgId: org.id, bypass: false }
