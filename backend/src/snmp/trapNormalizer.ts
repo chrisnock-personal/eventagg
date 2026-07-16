@@ -26,6 +26,12 @@ export interface NormalizedTrap {
   routeType:   "aggregator_mib" | "source_rule" | "community_rule" | "unrouted";
   ingestInput: IngestInput | null;
   routedTo:    string | null;
+  // Which org this trap belongs to. Set alongside ingestInput when routed;
+  // null when unrouted (SNMP multi-tenant routing itself is a later phase —
+  // today every routing rule/policy resolves to the single Default
+  // Organisation, but this flows through org-correctly already since it's
+  // read from whichever org owns the matched policy/rule).
+  orgId:       string | null;
 }
 
 // ─── Routing rules cache ──────────────────────────────────────────────────────
@@ -34,6 +40,7 @@ let routingCacheAge = 0;
 
 interface RoutingRule {
   id: string;
+  org_id: string;
   priority: number;
   match_community: string | null;
   match_agent:     string | null;
@@ -46,7 +53,7 @@ async function getRoutingRules(): Promise<RoutingRule[]> {
   if (Date.now() - routingCacheAge < 30_000) return routingRulesCache;
   try {
     routingRulesCache = await query<RoutingRule>(
-      `SELECT id, priority, match_community, match_agent, match_trap_oid, policy_id, key_field
+      `SELECT id, org_id, priority, match_community, match_agent, match_trap_oid, policy_id, key_field
        FROM snmp_routing_rules WHERE is_active = TRUE ORDER BY priority ASC`
     );
     routingCacheAge = Date.now();
@@ -55,21 +62,34 @@ async function getRoutingRules(): Promise<RoutingRule[]> {
 }
 
 // ─── Policy keyField cache ────────────────────────────────────────────────────
-const policyKeyFieldCache: Record<string, string> = {};
+const policyKeyFieldCache: Record<string, { keyField: string; orgId: string }> = {};
 
-async function getPolicyKeyField(policyId: string): Promise<string | null> {
+async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; orgId: string } | null> {
   if (policyKeyFieldCache[policyId]) return policyKeyFieldCache[policyId];
   try {
-    const rows = await query<{ key_field: string }>(
-      `SELECT key_field FROM policies WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+    const rows = await query<{ key_field: string; org_id: string }>(
+      `SELECT key_field, org_id FROM policies WHERE id = $1 AND is_active = TRUE LIMIT 1`,
       [policyId]
     );
     if (rows.length > 0) {
-      policyKeyFieldCache[policyId] = rows[0].key_field;
-      return rows[0].key_field;
+      const result = { keyField: rows[0].key_field, orgId: rows[0].org_id };
+      policyKeyFieldCache[policyId] = result;
+      return result;
     }
   } catch { /* ignore */ }
   return null;
+}
+
+// ─── Default org fallback (for logging unrouted traps — see logTrap) ─────────
+let defaultOrgIdCache: string | null = null;
+
+export async function getDefaultOrgId(): Promise<string | null> {
+  if (defaultOrgIdCache) return defaultOrgIdCache;
+  try {
+    const rows = await query<{ id: string }>(`SELECT id FROM organisations WHERE slug = 'default' LIMIT 1`);
+    if (rows.length > 0) defaultOrgIdCache = rows[0].id;
+  } catch { /* ignore */ }
+  return defaultOrgIdCache;
 }
 
 export function invalidateRoutingCache(): void {
@@ -88,7 +108,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
 
   const trapName = resolveOid(raw.trapOid);
 
-  const base: Omit<NormalizedTrap, "routeType" | "ingestInput" | "routedTo"> = {
+  const base: Omit<NormalizedTrap, "routeType" | "ingestInput" | "routedTo" | "orgId"> = {
     agentAddr: raw.sourceAddress,
     community: raw.community,
     trapOid:   raw.trapOid,
@@ -111,15 +131,17 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     }
 
     if (!policyId) {
-      return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null };
+      return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: null };
     }
 
-    // Look up the policy's keyField so we populate the right body property
-    const keyField = await getPolicyKeyField(policyId);
-    if (!keyField) {
+    // Look up the policy's keyField (and owning org) so we populate the
+    // right body property and know which org this event belongs to
+    const policyInfo = await getPolicyKeyField(policyId);
+    if (!policyInfo) {
       console.log(`📡  SNMP: policy ${policyId} not found or inactive`);
-      return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null };
+      return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: null };
     }
+    const { keyField, orgId } = policyInfo;
 
     const body: Record<string, unknown> = {
       ...extraBody,
@@ -138,6 +160,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
       ...base,
       routeType:   "aggregator_mib",
       routedTo:    policyId,
+      orgId,
       ingestInput: { policyId, body, sourceIp: raw.sourceAddress },
     };
   }
@@ -152,7 +175,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
   });
 
   if (!matched) {
-    return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null };
+    return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: null };
   }
 
   const keyValue = (varbinds[matched.key_field] ?? raw.sourceAddress) as string;
@@ -172,6 +195,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     ...base,
     routeType,
     routedTo:    matched.policy_id,
+    orgId:       matched.org_id,
     ingestInput: {
       policyId: matched.policy_id,
       body,

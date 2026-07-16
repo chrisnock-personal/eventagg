@@ -8,7 +8,11 @@ const TTL_S  = 8 * 60 * 60; // 8 hours
 export interface SessionUser {
   id: string;
   username: string;
-  role: "viewer" | "editor" | "admin";
+  email: string;
+  role: "superadmin" | "viewer" | "editor" | "admin";
+  passwordChanged: boolean;
+  orgId: string | null;
+  orgName: string | null;
 }
 
 export function signSession(user: SessionUser): string {

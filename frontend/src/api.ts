@@ -68,14 +68,18 @@ export interface EventPerformance {
 
 export interface SessionUser {
   id: string; username: string; email?: string;
-  role: "viewer" | "editor" | "admin";
+  role: "superadmin" | "viewer" | "editor" | "admin";
   passwordChanged: boolean;
+  orgId: string | null;
+  orgName: string | null;
 }
 
 export interface AppUser {
   id: string; username: string; email: string;
-  role: "viewer" | "editor" | "admin";
+  role: "superadmin" | "viewer" | "editor" | "admin";
   isActive: boolean; lastLogin: string | null; createdAt: string;
+  orgId: string | null;
+  orgName: string | null;
 }
 
 export interface StatsParams {

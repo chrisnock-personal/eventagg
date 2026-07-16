@@ -73,14 +73,14 @@ function rawEventToDetail(row: Record<string, unknown>): RawEventDetail {
 
 // ─── Performance data for Event Group Performance tab ─────────────────────────
 
-export async function getEventPerformance(filters: EventQueryFilters): Promise<{
+export async function getEventPerformance(orgId: string, filters: EventQueryFilters): Promise<{
   slowestCompleted: EventGroupSummary[];
   inProgressAging:  EventGroupSummary[];
   durationHistogram: { bucket: string; minMs: number; maxMs: number; count: number }[];
 }> {
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  let i = 1;
+  const conditions: string[] = [`e.org_id = $1`];
+  const params: unknown[] = [orgId];
+  let i = 2;
   if (filters.policyId)       { conditions.push(`e.policy_id = $${i++}`);          params.push(filters.policyId); }
   if (filters.aggregationKey) { conditions.push(`e.aggregation_key ILIKE $${i++}`); params.push(`%${filters.aggregationKey}%`); }
   if (filters.from)           { conditions.push(`e.started_at >= $${i++}`);         params.push(filters.from); }
@@ -155,7 +155,7 @@ export async function getEventPerformance(filters: EventQueryFilters): Promise<{
 
 // ─── Stats for Reports (aggregate queries — no pagination) ────────────────────
 
-export async function getEventStats(filters: EventQueryFilters): Promise<{
+export async function getEventStats(orgId: string, filters: EventQueryFilters): Promise<{
   totalGroups: number; completed: number; inProgress: number; timedOut: number;
   totalRawEvents: number; avgDurationMs: number;
   byPolicy: { policyId: string; policyName: string; total: number; completed: number; timedOut: number; inProgress: number; totalRawEvents: number; avgDurationMs: number }[];
@@ -163,9 +163,9 @@ export async function getEventStats(filters: EventQueryFilters): Promise<{
 }> {
   const status = filters.status ?? "all";
 
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  let i = 1;
+  const conditions: string[] = [`e.org_id = $1`];
+  const params: unknown[] = [orgId];
+  let i = 2;
   if (filters.policyId)       { conditions.push(`e.policy_id = $${i++}`);              params.push(filters.policyId); }
   if (filters.aggregationKey) { conditions.push(`e.aggregation_key ILIKE $${i++}`);     params.push(`%${filters.aggregationKey}%`); }
   if (filters.from)           { conditions.push(`e.started_at >= $${i++}`);             params.push(filters.from); }
@@ -259,6 +259,7 @@ export async function getEventStats(filters: EventQueryFilters): Promise<{
 // ─── List events (both stores, unified) ───────────────────────────────────────
 
 export async function listEvents(
+  orgId: string,
   filters: EventQueryFilters
 ): Promise<PaginatedResponse<EventGroupSummary>> {
   const page  = Math.max(1, filters.page  ?? 1);
@@ -280,9 +281,9 @@ export async function listEvents(
     store: "in_progress" | "completed",
     paramOffset: number
   ): { where: string; params: unknown[] } => {
-    const conditions: string[] = [];
-    const params: unknown[] = [];
-    let i = paramOffset;
+    const conditions: string[] = [`e.org_id = $${paramOffset}`];
+    const params: unknown[] = [orgId];
+    let i = paramOffset + 1;
 
     if (filters.policyId) {
       conditions.push(`e.policy_id = $${i++}`);
@@ -411,6 +412,7 @@ export async function listEvents(
 // ─── Get single event group with raw events ───────────────────────────────────
 
 export async function getEventById(
+  orgId: string,
   id: string
 ): Promise<EventGroupDetail | null> {
   // Try in_progress first
@@ -418,12 +420,12 @@ export async function getEventById(
     `SELECT e.*, p.name AS policy_name
      FROM   in_progress_events e
      JOIN   policies p ON p.id = e.policy_id
-     WHERE  e.id = $1`,
-    [id]
+     WHERE  e.id = $1 AND e.org_id = $2`,
+    [id, orgId]
   );
 
   if (ip) {
-    const rawEvents = await getRawEvents({ inProgressId: id });
+    const rawEvents = await getRawEvents(orgId, { inProgressId: id });
     return {
       ...inProgressToSummary(ip, ip.policy_name as string),
       rawEvents,
@@ -435,12 +437,12 @@ export async function getEventById(
     `SELECT e.*, p.name AS policy_name
      FROM   completed_events e
      JOIN   policies p ON p.id = e.policy_id
-     WHERE  e.id = $1`,
-    [id]
+     WHERE  e.id = $1 AND e.org_id = $2`,
+    [id, orgId]
   );
 
   if (ce) {
-    const rawEvents = await getRawEvents({ completedId: id });
+    const rawEvents = await getRawEvents(orgId, { completedId: id });
     return {
       ...completedToSummary(ce, ce.policy_name as string),
       rawEvents,
@@ -453,19 +455,20 @@ export async function getEventById(
 // ─── Get raw events for a group ───────────────────────────────────────────────
 
 async function getRawEvents(
+  orgId: string,
   filter: { inProgressId?: string; completedId?: string }
 ): Promise<RawEventDetail[]> {
   let rows: Record<string, unknown>[];
 
   if (filter.inProgressId) {
     rows = await query<Record<string, unknown>>(
-      `SELECT * FROM raw_events WHERE in_progress_id = $1 ORDER BY sequence ASC`,
-      [filter.inProgressId]
+      `SELECT * FROM raw_events WHERE in_progress_id = $1 AND org_id = $2 ORDER BY sequence ASC`,
+      [filter.inProgressId, orgId]
     );
   } else {
     rows = await query<Record<string, unknown>>(
-      `SELECT * FROM raw_events WHERE completed_id = $1 ORDER BY sequence ASC`,
-      [filter.completedId]
+      `SELECT * FROM raw_events WHERE completed_id = $1 AND org_id = $2 ORDER BY sequence ASC`,
+      [filter.completedId, orgId]
     );
   }
 
@@ -473,9 +476,10 @@ async function getRawEvents(
 }
 
 export async function getRawEventsForEvent(
+  orgId: string,
   groupId: string
 ): Promise<RawEventDetail[] | null> {
-  const detail = await getEventById(groupId);
+  const detail = await getEventById(orgId, groupId);
   if (!detail) return null;
   return detail.rawEvents;
 }

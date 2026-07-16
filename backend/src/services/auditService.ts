@@ -17,6 +17,9 @@ export type AuditAction =
   | "event.group_completed";
 
 export interface AuditEntry {
+  // Nullable to allow superadmin actions (e.g. login) to still be logged even
+  // though superadmin has no org context.
+  orgId?:         string | null;
   entityType:     string;
   entityId:       string;
   action:         AuditAction;
@@ -33,10 +36,11 @@ export interface AuditEntry {
 export function audit(entry: AuditEntry): void {
   query(
     `INSERT INTO audit_log
-       (entity_type, entity_id, action, policy_id, aggregation_key,
+       (org_id, entity_type, entity_id, action, policy_id, aggregation_key,
         actor, source_ip, before_state, after_state, metadata)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [
+      entry.orgId         ?? null,
       entry.entityType,
       entry.entityId,
       entry.action,
@@ -53,6 +57,9 @@ export function audit(entry: AuditEntry): void {
 
 // Query helpers for the audit log route
 export interface AuditLogFilters {
+  // Required in practice for org-scoped admins; superadmin (Phase 2) would
+  // omit it to see instance-wide audit history.
+  orgId?:      string;
   entityType?: string;
   entityId?:   string;
   action?:     string;
@@ -68,6 +75,7 @@ function buildAuditConditions(filters: AuditLogFilters): { where: string; params
   const params: unknown[] = [];
   let i = 1;
 
+  if (filters.orgId)      { conditions.push(`org_id = $${i++}`);     params.push(filters.orgId); }
   if (filters.entityType) { conditions.push(`entity_type = $${i++}`); params.push(filters.entityType); }
   if (filters.entityId)   { conditions.push(`entity_id = $${i++}`);   params.push(filters.entityId); }
   if (filters.action)     { conditions.push(`action ILIKE $${i++}`);  params.push(`%${filters.action}%`); }

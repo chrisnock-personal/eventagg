@@ -15,11 +15,14 @@ const execAsync = promisify(exec);
 
 router.get('/export/policies', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const orgId = (req as any).user.orgId as string;
     const policies = await query(
       `SELECT name, domain, key_field, cradle_field, cradle_value,
               grave_field, grave_value, timeout_ms, description
        FROM policies
-       ORDER BY name`
+       WHERE org_id = $1
+       ORDER BY name`,
+      [orgId]
     );
     const bundle = {
       version:     '1.0',
@@ -37,6 +40,7 @@ router.get('/export/policies', requireAuth, adminOnly, async (req: Request, res:
 
 router.post('/import/policies', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const orgId = (req as any).user.orgId as string;
     const bundle = req.body as { version?: string; policies?: unknown[] };
     if (!bundle.version) return res.status(400).json({ error: 'Invalid bundle — missing version field' });
 
@@ -46,7 +50,7 @@ router.post('/import/policies', requireAuth, adminOnly, async (req: Request, res
       const pol = p as Record<string, unknown>;
       try {
         const existing = await queryOne<{ id: string }>(
-          `SELECT id FROM policies WHERE name = $1`, [pol.name]
+          `SELECT id FROM policies WHERE name = $1 AND org_id = $2`, [pol.name, orgId]
         );
         if (existing) {
           await query(
@@ -59,10 +63,10 @@ router.post('/import/policies', requireAuth, adminOnly, async (req: Request, res
           results.updated++;
         } else {
           await query(
-            `INSERT INTO policies (name, domain, key_field, cradle_field, cradle_value,
+            `INSERT INTO policies (org_id, name, domain, key_field, cradle_field, cradle_value,
              grave_field, grave_value, timeout_ms, description)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-            [pol.name, pol.domain, pol.key_field, pol.cradle_field, pol.cradle_value,
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [orgId, pol.name, pol.domain, pol.key_field, pol.cradle_field, pol.cradle_value,
              pol.grave_field, pol.grave_value, pol.timeout_ms, pol.description]
           );
           results.imported++;
@@ -75,6 +79,12 @@ router.post('/import/policies', requireAuth, adminOnly, async (req: Request, res
     res.json(results);
   } catch (e) { next(e); }
 });
+
+// NOTE (multi-tenancy Phase 1 limitation): backup/restore below use pg_dump/psql
+// against the whole database — they are fundamentally not tenant-scopable (a
+// dump contains every organisation's data) and remain accessible to any org's
+// 'admin' role, same as before this change. Restricting them to a platform-level
+// role is tracked as Phase 2 work alongside the Organizations admin panel.
 
 // ── Database backup ───────────────────────────────────────────────────────────
 
@@ -180,20 +190,21 @@ router.post('/db/vacuum', requireAuth, adminOnly, async (_req: Request, res: Res
 
 router.post('/db/purge', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const orgId = (req as any).user.orgId as string;
     const days = parseInt((req.body as { days?: string }).days ?? '90');
     if (isNaN(days) || days < 30) return res.status(400).json({ error: 'Minimum retention is 30 days' });
 
     const [cntCompleted] = await query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM completed_events WHERE ended_at < now() - ($1 || ' days')::interval`,
-      [days]
+      `SELECT COUNT(*)::text AS count FROM completed_events WHERE org_id = $1 AND ended_at < now() - ($2 || ' days')::interval`,
+      [orgId, days]
     );
     const [cntAudit] = await query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM audit_log WHERE event_time < now() - ($1 || ' days')::interval`,
-      [days]
+      `SELECT COUNT(*)::text AS count FROM audit_log WHERE org_id = $1 AND event_time < now() - ($2 || ' days')::interval`,
+      [orgId, days]
     );
 
-    await query(`DELETE FROM completed_events WHERE ended_at   < now() - ($1 || ' days')::interval`, [days]);
-    await query(`DELETE FROM audit_log         WHERE event_time < now() - ($1 || ' days')::interval`, [days]);
+    await query(`DELETE FROM completed_events WHERE org_id = $1 AND ended_at   < now() - ($2 || ' days')::interval`, [orgId, days]);
+    await query(`DELETE FROM audit_log         WHERE org_id = $1 AND event_time < now() - ($2 || ' days')::interval`, [orgId, days]);
 
     res.json({
       ok: true,

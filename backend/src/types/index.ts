@@ -2,6 +2,7 @@
 
 export interface Policy {
   id: string;
+  org_id: string;
   name: string;
   domain: string;
   key_field: string;
@@ -20,6 +21,7 @@ export interface Policy {
 
 export interface InProgressEvent {
   id: string;
+  org_id: string;
   policy_id: string;
   aggregation_key: string;
   key_field: string;
@@ -34,6 +36,7 @@ export interface InProgressEvent {
 
 export interface CompletedEvent {
   id: string;
+  org_id: string;
   policy_id: string;
   aggregation_key: string;
   key_field: string;
@@ -50,6 +53,7 @@ export interface CompletedEvent {
 
 export interface RawEvent {
   id: string;
+  org_id: string;
   in_progress_id: string | null;
   completed_id: string | null;
   policy_id: string;
@@ -66,6 +70,7 @@ export interface RawEvent {
 
 export interface AuditLog {
   id: number;
+  org_id: string | null;
   event_time: string;
   entity_type: string;
   entity_id: string;

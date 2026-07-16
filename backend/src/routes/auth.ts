@@ -21,15 +21,18 @@ router.post("/login", async (req: Request, res: Response, next: NextFunction) =>
       return next(err);
     }
 
-    setSessionCookie(res, { id: user.id, username: user.username, role: user.role });
-    audit({ entityType: "user", entityId: user.id, action: "user.login", actor: user.username, sourceIp: req.ip });
-    res.json({
+    const sessionUser = {
       id: user.id,
       username: user.username,
-      role: user.role,
       email: user.email,
+      role: user.role,
       passwordChanged: user.passwordChanged,
-    });
+      orgId: user.orgId,
+      orgName: user.orgName,
+    };
+    setSessionCookie(res, sessionUser);
+    audit({ entityType: "user", entityId: user.id, action: "user.login", actor: user.username, sourceIp: req.ip, orgId: user.orgId });
+    res.json(sessionUser);
   } catch (err) {
     next(err);
   }
@@ -53,7 +56,7 @@ router.post("/change-password", requireAuth, async (req: Request, res: Response,
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
 router.post("/logout", requireAuth, (req: Request, res: Response) => {
   const user = (req as any).user;
-  audit({ entityType: "user", entityId: user.id, action: "user.logout", actor: user.username, sourceIp: req.ip });
+  audit({ entityType: "user", entityId: user.id, action: "user.logout", actor: user.username, sourceIp: req.ip, orgId: user.orgId });
   clearSessionCookie(res);
   res.status(204).send();
 });
@@ -74,9 +77,10 @@ const userBodySchema = z.object({
 });
 
 // GET /api/v1/auth/users
-router.get("/users", requireAuth, requireRole("admin"), async (_req, res, next) => {
+router.get("/users", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    res.json(await listUsers());
+    const orgId = (req as any).user.orgId as string;
+    res.json(await listUsers(orgId));
   } catch (err) { next(err); }
 });
 
@@ -90,7 +94,8 @@ router.post("/users", requireAuth, requireRole("admin"), async (req, res, next) 
       role:     z.enum(["viewer", "editor", "admin"]).default("viewer"),
     }).parse(req.body);
 
-    const user = await createUser(body);
+    const orgId = (req as any).user.orgId as string;
+    const user = await createUser({ ...body, orgId });
     res.status(201).json(user);
   } catch (err) { next(err); }
 });
@@ -99,7 +104,8 @@ router.post("/users", requireAuth, requireRole("admin"), async (req, res, next) 
 router.put("/users/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
     const input = userBodySchema.parse(req.body);
-    const user = await updateUser(req.params.id, input);
+    const orgId = (req as any).user.orgId as string;
+    const user = await updateUser(orgId, req.params.id, input);
     if (!user) return next(createError("User not found", 404));
     res.json(user);
   } catch (err) { next(err); }
@@ -108,7 +114,8 @@ router.put("/users/:id", requireAuth, requireRole("admin"), async (req, res, nex
 // DELETE /api/v1/auth/users/:id
 router.delete("/users/:id", requireAuth, requireRole("admin"), async (req, res, next) => {
   try {
-    const deleted = await deleteUser(req.params.id);
+    const orgId = (req as any).user.orgId as string;
+    const deleted = await deleteUser(orgId, req.params.id);
     if (!deleted) return next(createError("User not found", 404));
     res.status(204).send();
   } catch (err) { next(err); }

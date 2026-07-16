@@ -181,7 +181,9 @@ Full interactive docs at `GET /api/v1/docs` (Swagger UI) · Spec at `GET /api/v1
 
 `X-Cache: HIT | MISS` header is present on `/stats` and `/performance` responses.
 
-Set `INGEST_API_KEY` env var to require `X-API-Key: <key>` on all ingest requests.
+Every ingest request requires `X-API-Key: <key>` — the key identifies which
+organisation the event belongs to (`organisations.ingest_api_key`, generated
+per-org; there is no global/env-var key anymore).
 
 ### Ingest example
 
@@ -316,8 +318,8 @@ node scripts/demo.js --host <host> --api-key <key>
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection acquire timeout |
 | `CORS_ORIGIN` | `*` | CORS origin |
 | `JWT_SECRET` | dev default | JWT signing secret — **change in production** |
-| `ADMIN_PASSWORD` | `admin123` | Password set for the default admin on first boot |
-| `INGEST_API_KEY` | — | API key for the ingest endpoint (disabled if unset) |
+| `ADMIN_PASSWORD` | `admin123` | Password set for the default org's admin on first boot |
+| `SUPERADMIN_PASSWORD` | — | Creates a platform-level superadmin user on first boot (disabled if unset) |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
 | `SNMP_PORT` | `1162` | SNMP UDP listen port |
 | `SNMP_COMMUNITY` | `public` | Accepted SNMP community string |

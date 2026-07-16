@@ -157,6 +157,7 @@ async function runTimeoutJob(): Promise<void> {
     // Find all in-progress groups where the policy has a timeout and it has elapsed
     const timedOut = await query<{
       id: string;
+      org_id: string;
       policy_id: string;
       policy_name: string;
       aggregation_key: string;
@@ -166,10 +167,10 @@ async function runTimeoutJob(): Promise<void> {
       started_at: string;
       last_raw_event_at: string;
     }>(
-      `SELECT e.id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
+      `SELECT e.id, e.org_id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
               e.raw_event_count, e.cradle_raw_event_id, e.started_at, e.last_raw_event_at
        FROM   in_progress_events e
-       JOIN   policies p ON p.id = e.policy_id
+       JOIN   policies p ON p.id = e.policy_id AND p.org_id = e.org_id
        WHERE  p.timeout_ms IS NOT NULL
          AND  e.last_raw_event_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`
     );
@@ -186,12 +187,13 @@ async function runTimeoutJob(): Promise<void> {
           // Promote to completed_events with timed_out status
           const [completed] = await client.query<{ id: string }>(
             `INSERT INTO completed_events
-               (policy_id, aggregation_key, key_field, raw_event_count,
+               (org_id, policy_id, aggregation_key, key_field, raw_event_count,
                 cradle_raw_event_id, grave_raw_event_id, started_at, ended_at,
                 status, close_reason)
-             VALUES ($1, $2, $3, $4, $5, $5, $6, NOW(), 'timed_out', 'policy_timeout')
+             VALUES ($1, $2, $3, $4, $5, $6, $6, $7, NOW(), 'timed_out', 'policy_timeout')
              RETURNING id`,
             [
+              group.org_id,
               group.policy_id,
               group.aggregation_key,
               group.key_field,
@@ -220,7 +222,7 @@ async function runTimeoutJob(): Promise<void> {
           // Fire webhooks + SMTP alert after transaction commits
           const endedAt = new Date();
           setImmediate(() => {
-            triggerWebhooks("group_timed_out", {
+            triggerWebhooks(group.org_id, "group_timed_out", {
               id: completed.id,
               policyId: group.policy_id,
               policyName: group.policy_name,
@@ -251,22 +253,49 @@ async function runTimeoutJob(): Promise<void> {
 // ─── Seed default admin ───────────────────────────────────────────────────────
 async function seedDefaultAdmin(): Promise<void> {
   try {
+    const defaultOrg = await query<{ id: string }>(
+      "SELECT id FROM organisations WHERE slug = 'default' LIMIT 1"
+    );
+    if (defaultOrg.length === 0) {
+      console.error("⚠️  Default Organisation not found — cannot seed admin user");
+      return;
+    }
+    const orgId = defaultOrg[0].id;
+
     const existing = await query<{ id: string }>(
       "SELECT id FROM users WHERE username = 'admin' LIMIT 1"
     );
     const password = process.env.ADMIN_PASSWORD || "admin123";
     if (existing.length === 0) {
-      await createUser({ username: "admin", email: "admin@localhost", password, role: "admin" });
-      console.log(`👤  Default admin created — username: admin  password: ${password}`);
+      await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
+      console.log(`👤  Default admin created — username: admin  password: ${password}  org: Default Organisation`);
     } else {
       // Always reset the hash on startup so it matches the current bcryptjs implementation
-      await updateUser(existing[0].id, { password });
+      await updateUser(orgId, existing[0].id, { password });
       // Reset password_changed so the first-login change prompt re-appears
       await query(`UPDATE users SET password_changed = FALSE WHERE id = $1 AND username = 'admin'`, [existing[0].id]);
       console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
     }
   } catch (err) {
     console.error("⚠️  Failed to seed admin user:", err);
+  }
+}
+
+// ─── Seed superadmin (optional, platform-level, org_id = NULL) ────────────────
+async function seedSuperadmin(): Promise<void> {
+  const password = process.env.SUPERADMIN_PASSWORD;
+  if (!password) return; // disabled if unset — no superadmin created
+
+  try {
+    const existing = await query<{ id: string }>(
+      "SELECT id FROM users WHERE role = 'superadmin' LIMIT 1"
+    );
+    if (existing.length > 0) return; // already bootstrapped, don't reset on every boot
+
+    await createUser({ username: "superadmin", email: "superadmin@localhost", password, role: "superadmin", orgId: null });
+    console.log(`👤  Superadmin created — username: superadmin  password: ${password}`);
+  } catch (err) {
+    console.error("⚠️  Failed to seed superadmin user:", err);
   }
 }
 
@@ -278,6 +307,7 @@ async function start(): Promise<void> {
 
     // Seed default admin if no users exist yet
     await seedDefaultAdmin();
+    await seedSuperadmin();
 
     const server = app.listen(config.port, () => {
       console.log(`🚀  Aggre/Gator API running on port ${config.port} [${config.nodeEnv}]`);

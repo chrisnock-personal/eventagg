@@ -24,19 +24,20 @@ function toResponse(p: Policy): PolicyResponse {
   };
 }
 
-export async function listPolicies(includeInactive = false): Promise<PolicyResponse[]> {
+export async function listPolicies(orgId: string, includeInactive = false): Promise<PolicyResponse[]> {
   const rows = await query<Policy>(
     includeInactive
-      ? `SELECT * FROM policies ORDER BY created_at ASC`
-      : `SELECT * FROM policies WHERE is_active = TRUE ORDER BY created_at ASC`
+      ? `SELECT * FROM policies WHERE org_id = $1 ORDER BY created_at ASC`
+      : `SELECT * FROM policies WHERE org_id = $1 AND is_active = TRUE ORDER BY created_at ASC`,
+    [orgId]
   );
   return rows.map(toResponse);
 }
 
-export async function getPolicyById(id: string): Promise<PolicyResponse | null> {
+export async function getPolicyById(orgId: string, id: string): Promise<PolicyResponse | null> {
   const row = await queryOne<Policy>(
-    `SELECT * FROM policies WHERE id = $1`,
-    [id]
+    `SELECT * FROM policies WHERE id = $1 AND org_id = $2`,
+    [id, orgId]
   );
   return row ? toResponse(row) : null;
 }
@@ -55,15 +56,17 @@ export interface CreatePolicyInput {
 }
 
 export async function createPolicy(
+  orgId: string,
   input: CreatePolicyInput
 ): Promise<PolicyResponse> {
   return withTransaction(async (client) => {
     const [row] = await client.query<Policy>(
       `INSERT INTO policies
-         (name, domain, key_field, cradle_field, cradle_value, grave_field, grave_value, description, timeout_ms, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (org_id, name, domain, key_field, cradle_field, cradle_value, grave_field, grave_value, description, timeout_ms, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
       [
+        orgId,
         input.name,
         input.domain,
         input.keyField,
@@ -78,6 +81,7 @@ export async function createPolicy(
     ).then(r => r.rows);
 
     await writeAudit(client, {
+      orgId,
       entityType: "policy",
       entityId: row.id,
       action: AuditAction.POLICY_CREATED,
@@ -95,13 +99,14 @@ export interface UpdatePolicyInput extends Partial<CreatePolicyInput> {
 }
 
 export async function updatePolicy(
+  orgId: string,
   id: string,
   input: UpdatePolicyInput
 ): Promise<PolicyResponse | null> {
   return withTransaction(async (client) => {
     const existing = await client.query<Policy>(
-      `SELECT * FROM policies WHERE id = $1 AND is_active = TRUE`,
-      [id]
+      `SELECT * FROM policies WHERE id = $1 AND org_id = $2 AND is_active = TRUE`,
+      [id, orgId]
     ).then(r => r.rows[0]);
 
     if (!existing) return null;
@@ -118,7 +123,7 @@ export async function updatePolicy(
          description  = COALESCE($8, description),
          timeout_ms   = $9,
          updated_by   = $10
-       WHERE id = $11
+       WHERE id = $11 AND org_id = $12
        RETURNING *`,
       [
         input.name ?? null,
@@ -132,10 +137,12 @@ export async function updatePolicy(
         "timeoutMs" in input ? (input.timeoutMs ?? null) : existing.timeout_ms,
         input.updatedBy ?? null,
         id,
+        orgId,
       ]
     ).then(r => r.rows);
 
     await writeAudit(client, {
+      orgId,
       entityType: "policy",
       entityId: id,
       action: AuditAction.POLICY_UPDATED,
@@ -150,18 +157,20 @@ export async function updatePolicy(
 }
 
 export async function deactivatePolicy(
+  orgId: string,
   id: string,
   actor?: string
 ): Promise<boolean> {
   return withTransaction(async (client) => {
     const result = await client.query(
-      `UPDATE policies SET is_active = FALSE, updated_by = $1 WHERE id = $2 AND is_active = TRUE`,
-      [actor ?? null, id]
+      `UPDATE policies SET is_active = FALSE, updated_by = $1 WHERE id = $2 AND org_id = $3 AND is_active = TRUE`,
+      [actor ?? null, id, orgId]
     );
 
     if (result.rowCount === 0) return false;
 
     await writeAudit(client, {
+      orgId,
       entityType: "policy",
       entityId: id,
       action: AuditAction.POLICY_DEACTIVATED,
@@ -177,6 +186,7 @@ export async function deactivatePolicy(
 async function writeAudit(
   client: PoolClient,
   opts: {
+    orgId: string;
     entityType: string;
     entityId: string;
     action: string;
@@ -190,9 +200,10 @@ async function writeAudit(
 ): Promise<void> {
   await client.query(
     `INSERT INTO audit_log
-       (entity_type, entity_id, action, policy_id, aggregation_key, actor, before_state, after_state, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       (org_id, entity_type, entity_id, action, policy_id, aggregation_key, actor, before_state, after_state, metadata)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
     [
+      opts.orgId,
       opts.entityType,
       opts.entityId,
       opts.action,
@@ -207,7 +218,7 @@ async function writeAudit(
 }
 
 // ─── Retroactive timeout sweep for a specific policy ─────────────────────────
-export async function applyPolicyTimeout(policyId: string): Promise<number> {
+export async function applyPolicyTimeout(orgId: string, policyId: string): Promise<number> {
   return withTransaction(async (client) => {
     // 1. Backfill last_raw_event_at from actual max received_at per group
     await client.query(
@@ -218,8 +229,8 @@ export async function applyPolicyTimeout(policyId: string): Promise<number> {
                  WHERE  re.in_progress_id = ip.id),
                 ip.started_at
               )
-       WHERE  ip.policy_id = $1`,
-      [policyId]
+       WHERE  ip.policy_id = $1 AND ip.org_id = $2`,
+      [policyId, orgId]
     );
 
     // 2. Find groups that have now elapsed
@@ -232,9 +243,10 @@ export async function applyPolicyTimeout(policyId: string): Promise<number> {
        FROM   in_progress_events e
        JOIN   policies p ON p.id = e.policy_id
        WHERE  e.policy_id = $1
+         AND  e.org_id = $2
          AND  p.timeout_ms IS NOT NULL
          AND  e.last_raw_event_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`,
-      [policyId]
+      [policyId, orgId]
     );
 
     if (timedOut.rows.length === 0) return 0;
@@ -243,12 +255,12 @@ export async function applyPolicyTimeout(policyId: string): Promise<number> {
     for (const group of timedOut.rows) {
       const [completed] = await client.query<{ id: string }>(
         `INSERT INTO completed_events
-           (policy_id, aggregation_key, key_field, raw_event_count,
+           (org_id, policy_id, aggregation_key, key_field, raw_event_count,
             cradle_raw_event_id, grave_raw_event_id, started_at, ended_at,
             status, close_reason)
-         VALUES ($1, $2, $3, $4, $5, $5, $6, NOW(), 'timed_out', 'policy_timeout')
+         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, NOW(), 'timed_out', 'policy_timeout')
          RETURNING id`,
-        [policyId, group.aggregation_key, group.key_field, group.raw_event_count,
+        [orgId, policyId, group.aggregation_key, group.key_field, group.raw_event_count,
          group.cradle_raw_event_id ?? '00000000-0000-0000-0000-000000000000',
          group.started_at]
       ).then(r => r.rows);

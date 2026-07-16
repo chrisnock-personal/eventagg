@@ -1,6 +1,6 @@
 import { query } from "../db/pool";
 import { ingestRawEvent } from "../services/ingestService";
-import { normalizeTrap, RawTrap, invalidateRoutingCache } from "./trapNormalizer";
+import { normalizeTrap, RawTrap, invalidateRoutingCache, getDefaultOrgId } from "./trapNormalizer";
 import { statsCache, performanceCache } from "../cache";
 import * as dgram from "dgram";
 
@@ -30,22 +30,29 @@ export function getSnmpStats(): SnmpReceiverStats {
 
 async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?: any): Promise<void> {
   try {
+    // SNMP multi-tenant routing is a later phase — every trap resolves to an
+    // org today (via the policy/rule it routes to, or the Default
+    // Organisation if unrouted) so the NOT NULL org_id columns below are
+    // always satisfiable.
+    const orgId = trap.orgId ?? await getDefaultOrgId();
+    if (!orgId) return; // organisations table not seeded yet (e.g. mid-migration)
+
     await query(
       `INSERT INTO snmp_trap_log
-         (agent_addr, community, trap_oid, trap_name, varbinds, routed_to, route_type, ingest_result)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [trap.agentAddr, trap.community, trap.trapOid, trap.trapName,
+         (org_id, agent_addr, community, trap_oid, trap_name, varbinds, routed_to, route_type, ingest_result)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [orgId, trap.agentAddr, trap.community, trap.trapOid, trap.trapName,
        JSON.stringify(trap.varbinds), trap.routedTo ?? null, trap.routeType,
        result ? JSON.stringify(result) : null]
     );
     await query(`DELETE FROM snmp_trap_log WHERE id NOT IN (SELECT id FROM snmp_trap_log ORDER BY received_at DESC LIMIT 1000)`, []);
     await query(
-      `INSERT INTO snmp_trap_sources (name, agent_addr, community, last_seen, trap_count)
-       VALUES ($1,$2,$3,NOW(),1)
-       ON CONFLICT (agent_addr) DO UPDATE
+      `INSERT INTO snmp_trap_sources (org_id, name, agent_addr, community, last_seen, trap_count)
+       VALUES ($1,$2,$3,$4,NOW(),1)
+       ON CONFLICT (org_id, agent_addr) DO UPDATE
          SET last_seen=NOW(), trap_count=snmp_trap_sources.trap_count+1,
              community=EXCLUDED.community, updated_at=NOW()`,
-      [trap.agentAddr, trap.agentAddr, trap.community]
+      [orgId, trap.agentAddr, trap.agentAddr, trap.community]
     );
   } catch (err) {
     console.error("📡  SNMP log error:", (err as any).message);
@@ -56,13 +63,13 @@ async function processTrap(raw: RawTrap): Promise<void> {
   stats.received++;
   try {
     const normalized = await normalizeTrap(raw);
-    if (!normalized.ingestInput) {
+    if (!normalized.ingestInput || !normalized.orgId) {
       stats.unrouted++;
       console.log(`📡  SNMP unrouted | ${normalized.trapName} | from ${raw.sourceAddress}`);
       await logTrap(normalized);
       return;
     }
-    const result = await ingestRawEvent(normalized.ingestInput);
+    const result = await ingestRawEvent(normalized.orgId, normalized.ingestInput);
     stats.routed++;
     statsCache.invalidateAll();
     performanceCache.invalidateAll();

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ingestRawEvent, fireGroupCompletedWebhook } from "../services/ingestService";
 import { statsCache, performanceCache } from "../cache";
 import { audit } from "../services/auditService";
+import { RequestOrg } from "../middleware/auth";
 
 const router = Router();
 
@@ -15,8 +16,9 @@ const ingestSchema = z.object({
 // POST /api/v1/events/ingest
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const org = (req as any).org as RequestOrg;
     const input = ingestSchema.parse(req.body);
-    const result = await ingestRawEvent({
+    const result = await ingestRawEvent(org.id, {
       policyId:       input.policyId,
       body:           input.body as Record<string, unknown>,
       sourceIp:       req.ip,
@@ -29,6 +31,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       statsCache.invalidateAll();
       performanceCache.invalidateAll();
       audit({
+        orgId:          org.id,
         entityType:     "event",
         entityId:       result.groupId,
         action:         result.action === "group_opened"   ? "event.group_opened"

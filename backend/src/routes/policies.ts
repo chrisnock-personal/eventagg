@@ -10,8 +10,21 @@ import {
   applyPolicyTimeout,
 } from "../services/policyService";
 import { createError } from "../middleware/errorHandler";
+import { requireAuth, SessionUser } from "../middleware/session";
 
 const router = Router();
+
+router.use(requireAuth);
+
+// Superadmin has no org to scope policies to — reject rather than silently
+// returning empty/all-org data.
+router.use((req: Request, res: Response, next: NextFunction) => {
+  const user = (req as any).user as SessionUser;
+  if (!user.orgId) {
+    return next(createError("Superadmin has no organisation context", 403));
+  }
+  next();
+});
 
 const policyBodySchema = z.object({
   name:         z.string().min(1).max(255),
@@ -28,9 +41,10 @@ const policyBodySchema = z.object({
 const policyUpdateSchema = policyBodySchema.partial();
 
 // GET /api/v1/policies
-router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
+router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const policies = await listPolicies(true);
+    const orgId = (req as any).user.orgId as string;
+    const policies = await listPolicies(orgId, true);
     res.json(policies);
   } catch (err) {
     next(err);
@@ -40,7 +54,8 @@ router.get("/", async (_req: Request, res: Response, next: NextFunction) => {
 // GET /api/v1/policies/:id
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const policy = await getPolicyById(req.params.id);
+    const orgId = (req as any).user.orgId as string;
+    const policy = await getPolicyById(orgId, req.params.id);
     if (!policy) return next(createError("Policy not found", 404));
     res.json(policy);
   } catch (err) {
@@ -51,9 +66,10 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // POST /api/v1/policies
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const orgId = (req as any).user.orgId as string;
     const input = policyBodySchema.parse(req.body);
-    const policy = await createPolicy({ ...input, createdBy: "api" });
-    audit({ entityType: "policy", entityId: policy.id, action: "policy.created", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
+    const policy = await createPolicy(orgId, { ...input, createdBy: "api" });
+    audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.created", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
     res.status(201).json(policy);
   } catch (err) { next(err); }
 });
@@ -61,16 +77,17 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 // PUT /api/v1/policies/:id
 router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const orgId = (req as any).user.orgId as string;
     const input = policyUpdateSchema.parse(req.body);
-    const policy = await updatePolicy(req.params.id, { ...input, updatedBy: "api" });
+    const policy = await updatePolicy(orgId, req.params.id, { ...input, updatedBy: "api" });
     if (!policy) return next(createError("Policy not found", 404));
 
     if (policy.timeoutMs !== null && policy.timeoutMs !== undefined) {
-      const count = await applyPolicyTimeout(req.params.id);
+      const count = await applyPolicyTimeout(orgId, req.params.id);
       if (count > 0) console.log(`⏱  Retroactive timeout: ${count} group(s) closed for policy ${policy.name}`);
     }
 
-    audit({ entityType: "policy", entityId: policy.id, action: "policy.updated", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name, timeoutMs: policy.timeoutMs } });
+    audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.updated", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name, timeoutMs: policy.timeoutMs } });
     res.json(policy);
   } catch (err) { next(err); }
 });
@@ -78,15 +95,16 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // PATCH /api/v1/policies/:id/toggle — activate or deactivate
 router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const orgId = (req as any).user.orgId as string;
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
     const { query } = await import("../db/pool");
     const rows = await query<{ id: string }>(
-      `UPDATE policies SET is_active = $1, updated_at = NOW() WHERE id = $2 RETURNING id`,
-      [active, req.params.id]
+      `UPDATE policies SET is_active = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3 RETURNING id`,
+      [active, req.params.id, orgId]
     );
     if (!rows.length) return next(createError("Policy not found", 404));
-    const policy = await getPolicyById(req.params.id);
-    audit({ entityType: "policy", entityId: req.params.id, action: "policy.toggled", actor: (req as any).user?.username, sourceIp: req.ip, metadata: { active } });
+    const policy = await getPolicyById(orgId, req.params.id);
+    audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.toggled", actor: (req as any).user?.username, sourceIp: req.ip, metadata: { active } });
     res.json(policy);
   } catch (err) { next(err); }
 });
@@ -94,9 +112,10 @@ router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFuncti
 // DELETE /api/v1/policies/:id
 router.delete("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const deleted = await deactivatePolicy(req.params.id, "api");
+    const orgId = (req as any).user.orgId as string;
+    const deleted = await deactivatePolicy(orgId, req.params.id, "api");
     if (!deleted) return next(createError("Policy not found", 404));
-    audit({ entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: (req as any).user?.username, sourceIp: req.ip });
+    audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: (req as any).user?.username, sourceIp: req.ip });
     res.status(204).send();
   } catch (err) { next(err); }
 });

@@ -65,24 +65,24 @@ function toDelivery(r: DeliveryRow): WebhookDelivery {
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 
-export async function listWebhooks(): Promise<Webhook[]> {
-  const rows = await query<WebhookRow>(`SELECT * FROM webhooks ORDER BY created_at ASC`);
+export async function listWebhooks(orgId: string): Promise<Webhook[]> {
+  const rows = await query<WebhookRow>(`SELECT * FROM webhooks WHERE org_id = $1 ORDER BY created_at ASC`, [orgId]);
   return rows.map(toWebhook);
 }
 
-export async function createWebhook(input: {
+export async function createWebhook(orgId: string, input: {
   name: string; url: string; secret?: string; events?: string[];
 }): Promise<Webhook> {
   const row = await queryOne<WebhookRow>(
-    `INSERT INTO webhooks (name, url, secret, events)
-     VALUES ($1, $2, $3, $4) RETURNING *`,
-    [input.name, input.url, input.secret ?? "", input.events ?? ["group_completed", "group_timed_out"]]
+    `INSERT INTO webhooks (org_id, name, url, secret, events)
+     VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+    [orgId, input.name, input.url, input.secret ?? "", input.events ?? ["group_completed", "group_timed_out"]]
   );
   if (!row) throw new Error("Failed to create webhook");
   return toWebhook(row);
 }
 
-export async function updateWebhook(id: string, input: {
+export async function updateWebhook(orgId: string, id: string, input: {
   name?: string; url?: string; secret?: string; events?: string[]; isActive?: boolean;
 }): Promise<Webhook | null> {
   const row = await queryOne<WebhookRow>(
@@ -93,19 +93,19 @@ export async function updateWebhook(id: string, input: {
        events     = COALESCE($4, events),
        is_active  = COALESCE($5, is_active),
        updated_at = NOW()
-     WHERE id = $6 RETURNING *`,
+     WHERE id = $6 AND org_id = $7 RETURNING *`,
     [input.name ?? null, input.url ?? null, input.secret ?? null,
-     input.events ?? null, input.isActive ?? null, id]
+     input.events ?? null, input.isActive ?? null, id, orgId]
   );
   return row ? toWebhook(row) : null;
 }
 
-export async function deleteWebhook(id: string): Promise<boolean> {
-  const result = await query(`DELETE FROM webhooks WHERE id = $1`, [id]);
+export async function deleteWebhook(orgId: string, id: string): Promise<boolean> {
+  const result = await query(`DELETE FROM webhooks WHERE id = $1 AND org_id = $2`, [id, orgId]);
   return (result as any).rowCount > 0;
 }
 
-export async function listDeliveries(params: {
+export async function listDeliveries(orgId: string, params: {
   webhookId?: string; limit?: number;
 }): Promise<WebhookDelivery[]> {
   const lim = params.limit ?? 100;
@@ -113,14 +113,15 @@ export async function listDeliveries(params: {
     ? await query<DeliveryRow>(
         `SELECT d.*, w.name AS webhook_name FROM webhook_deliveries d
          JOIN webhooks w ON w.id = d.webhook_id
-         WHERE d.webhook_id = $1 ORDER BY d.created_at DESC LIMIT $2`,
-        [params.webhookId, lim]
+         WHERE d.org_id = $1 AND d.webhook_id = $2 ORDER BY d.created_at DESC LIMIT $3`,
+        [orgId, params.webhookId, lim]
       )
     : await query<DeliveryRow>(
         `SELECT d.*, w.name AS webhook_name FROM webhook_deliveries d
          JOIN webhooks w ON w.id = d.webhook_id
-         ORDER BY d.created_at DESC LIMIT $1`,
-        [lim]
+         WHERE d.org_id = $1
+         ORDER BY d.created_at DESC LIMIT $2`,
+        [orgId, lim]
       );
   return rows.map(toDelivery);
 }
@@ -183,13 +184,14 @@ async function attemptDelivery(
 }
 
 export async function triggerWebhooks(
+  orgId: string,
   eventType: "group_completed" | "group_timed_out",
   group: WebhookGroupPayload,
 ): Promise<void> {
   try {
     const rows = await query<WebhookRow>(
-      `SELECT * FROM webhooks WHERE is_active = TRUE AND $1 = ANY(events)`,
-      [eventType]
+      `SELECT * FROM webhooks WHERE org_id = $1 AND is_active = TRUE AND $2 = ANY(events)`,
+      [orgId, eventType]
     );
     if (rows.length === 0) return;
 
@@ -197,9 +199,9 @@ export async function triggerWebhooks(
 
     for (const row of rows) {
       const delivery = await queryOne<{ id: string }>(
-        `INSERT INTO webhook_deliveries (webhook_id, event_type, group_id, payload)
-         VALUES ($1, $2, $3, $4) RETURNING id`,
-        [row.id, eventType, group.id, JSON.stringify(payload)]
+        `INSERT INTO webhook_deliveries (org_id, webhook_id, event_type, group_id, payload)
+         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+        [orgId, row.id, eventType, group.id, JSON.stringify(payload)]
       );
       if (!delivery) continue;
 
