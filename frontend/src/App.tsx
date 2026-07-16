@@ -2477,6 +2477,8 @@ function OrganizationsPanel() {
   const [orgUsers, setOrgUsers] = useState<import("./api").AppUser[]>([]);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
   const [newUser,  setNewUser]  = useState({ username: "", email: "", password: "", role: "viewer" });
+  const [communityDraft, setCommunityDraft] = useState<Record<string, string>>({});
+  const [communitySaving, setCommunitySaving] = useState<Record<string, boolean>>({});
 
   const orc: Record<string, string> = { admin: C.danger, editor: C.warn, viewer: C.info, superadmin: C.purple };
   const orb: Record<string, string> = { admin: C.dangerLight, editor: C.warnLight, viewer: C.infoLight, superadmin: C.purpleLight };
@@ -2502,6 +2504,16 @@ function OrganizationsPanel() {
 
   function rotateKey(org: import("./api").Org) {
     api.orgs.update(org.id, { regenerateKey: true }).then(loadOrgs).catch(() => {});
+  }
+
+  function saveCommunity(org: import("./api").Org) {
+    const value = (communityDraft[org.id] ?? org.snmpCommunity).trim();
+    if (!value || value === org.snmpCommunity) return;
+    setCommunitySaving(s => ({ ...s, [org.id]: true }));
+    api.orgs.update(org.id, { snmpCommunity: value })
+      .then(loadOrgs)
+      .catch(e => setErr(e.message ?? "Failed to update SNMP community string"))
+      .finally(() => setCommunitySaving(s => ({ ...s, [org.id]: false })));
   }
 
   function expand(org: import("./api").Org) {
@@ -2562,6 +2574,17 @@ function OrganizationsPanel() {
                     <button onClick={() => navigator.clipboard?.writeText(org.ingestApiKey)}
                       style={{ border: "none", background: "none", color: C.accent, cursor: "pointer", fontSize: 10, padding: 0 }}>
                       copy
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 10, color: C.textMuted, marginTop: 5, display: "flex", alignItems: "center", gap: 6 }}>
+                    SNMP community:
+                    <input
+                      value={communityDraft[org.id] ?? org.snmpCommunity}
+                      onChange={e => setCommunityDraft(d => ({ ...d, [org.id]: e.target.value }))}
+                      style={{ padding: "3px 6px", border: `1px solid ${C.border}`, borderRadius: 4, fontSize: 10, fontFamily: "monospace", outline: "none", width: 140 }} />
+                    <button onClick={() => saveCommunity(org)} disabled={communitySaving[org.id]}
+                      style={{ border: "none", background: "none", color: C.accent, cursor: communitySaving[org.id] ? "default" : "pointer", fontSize: 10, padding: 0 }}>
+                      {communitySaving[org.id] ? "saving…" : "save"}
                     </button>
                   </div>
                 </div>

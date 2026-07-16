@@ -40,6 +40,7 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
       name: z.string().min(1).max(255).optional(),
       isActive: z.boolean().optional(),
       regenerateKey: z.boolean().optional(),
+      snmpCommunity: z.string().min(1).max(255).optional(),
     }).parse(req.body);
     const org = await updateOrg(req.params.id, body);
     if (!org) return next(createError("Organisation not found", 404));

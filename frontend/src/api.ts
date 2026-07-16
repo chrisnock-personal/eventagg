@@ -26,7 +26,7 @@ export interface Policy {
 }
 
 export interface Org {
-  id: string; name: string; slug: string; ingestApiKey: string;
+  id: string; name: string; slug: string; ingestApiKey: string; snmpCommunity: string;
   isActive: boolean; createdAt: string; updatedAt: string;
 }
 
@@ -347,7 +347,7 @@ function createOrg(body: { name: string; slug?: string }): Promise<Org> {
   return request<Org>("/orgs", { method: "POST", body: JSON.stringify(body) });
 }
 
-function updateOrg(id: string, body: { name?: string; isActive?: boolean; regenerateKey?: boolean }): Promise<Org> {
+function updateOrg(id: string, body: { name?: string; isActive?: boolean; regenerateKey?: boolean; snmpCommunity?: string }): Promise<Org> {
   return request<Org>(`/orgs/${id}`, { method: "PUT", body: JSON.stringify(body) });
 }
 

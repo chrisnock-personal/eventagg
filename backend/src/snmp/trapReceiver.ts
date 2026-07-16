@@ -1,4 +1,4 @@
-import { query } from "../db/pool";
+import { query, runWithOrgContext } from "../db/pool";
 import { ingestRawEvent } from "../services/ingestService";
 import { normalizeTrap, RawTrap, invalidateRoutingCache, getDefaultOrgId } from "./trapNormalizer";
 import { statsCache, performanceCache } from "../cache";
@@ -61,24 +61,30 @@ async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?:
 
 async function processTrap(raw: RawTrap): Promise<void> {
   stats.received++;
-  try {
-    const normalized = await normalizeTrap(raw);
-    if (!normalized.ingestInput || !normalized.orgId) {
-      stats.unrouted++;
-      console.log(`📡  SNMP unrouted | ${normalized.trapName} | from ${raw.sourceAddress}`);
-      await logTrap(normalized);
-      return;
+  // The dgram receiver has no request/session — which org a trap belongs
+  // to is resolved dynamically per-trap (by community string, then
+  // policy/rule) inside normalizeTrap()/ingestRawEvent(), not known ahead
+  // of time. Bypass, same as the other background jobs in index.ts.
+  await runWithOrgContext({ orgId: null, bypass: true }, async () => {
+    try {
+      const normalized = await normalizeTrap(raw);
+      if (!normalized.ingestInput || !normalized.orgId) {
+        stats.unrouted++;
+        console.log(`📡  SNMP unrouted | ${normalized.trapName} | from ${raw.sourceAddress}`);
+        await logTrap(normalized);
+        return;
+      }
+      const result = await ingestRawEvent(normalized.orgId, normalized.ingestInput);
+      stats.routed++;
+      statsCache.invalidateAll();
+      performanceCache.invalidateAll();
+      console.log(`📡  SNMP ${normalized.routeType} | ${normalized.trapName} | key=${result.aggregationKey} | ${result.action}`);
+      await logTrap(normalized, result);
+    } catch (err: any) {
+      stats.errors++;
+      console.error(`📡  SNMP process error | from ${raw.sourceAddress}:`, err.message);
     }
-    const result = await ingestRawEvent(normalized.orgId, normalized.ingestInput);
-    stats.routed++;
-    statsCache.invalidateAll();
-    performanceCache.invalidateAll();
-    console.log(`📡  SNMP ${normalized.routeType} | ${normalized.trapName} | key=${result.aggregationKey} | ${result.action}`);
-    await logTrap(normalized, result);
-  } catch (err: any) {
-    stats.errors++;
-    console.error(`📡  SNMP process error | from ${raw.sourceAddress}:`, err.message);
-  }
+  });
 }
 
 // ─── Minimal SNMPv2c BER/ASN.1 parser ────────────────────────────────────────

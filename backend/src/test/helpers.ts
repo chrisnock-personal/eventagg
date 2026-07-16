@@ -7,14 +7,15 @@ import { queryOne, runWithOrgContext } from "../db/pool";
 // Every helper generates random slugs/usernames per call so tests remain
 // safe to run against a shared Postgres instance without colliding.
 
-export async function createTestOrg(): Promise<{ id: string; ingestApiKey: string; slug: string }> {
+export async function createTestOrg(): Promise<{ id: string; ingestApiKey: string; slug: string; snmpCommunity: string }> {
   const slug = `test-org-${randomUUID().slice(0, 8)}`;
+  const snmpCommunity = `test-community-${randomUUID().slice(0, 8)}`;
   const row = await queryOne<{ id: string; ingest_api_key: string }>(
-    `INSERT INTO organisations (name, slug) VALUES ($1, $2) RETURNING id, ingest_api_key`,
-    [`Test Org ${slug}`, slug]
+    `INSERT INTO organisations (name, slug, snmp_community) VALUES ($1, $2, $3) RETURNING id, ingest_api_key`,
+    [`Test Org ${slug}`, slug, snmpCommunity]
   );
   if (!row) throw new Error("Failed to create test org");
-  return { id: row.id, ingestApiKey: row.ingest_api_key, slug };
+  return { id: row.id, ingestApiKey: row.ingest_api_key, slug, snmpCommunity };
 }
 
 export const TEST_PASSWORD = "test-password-123";
