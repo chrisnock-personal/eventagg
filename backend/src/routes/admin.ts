@@ -144,7 +144,7 @@ router.post('/restore', requireAuth, adminOnly, async (req: Request, res: Respon
     const user = process.env.PGUSER     || 'eventagg_user';
     await execAsync(
       `psql -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
-      { timeout: 300_000 }
+      { timeout: 1_800_000, maxBuffer: 1024 * 1024 * 100 }
     );
     res.json({ ok: true, message: 'Restore completed' });
   } catch (e) {
