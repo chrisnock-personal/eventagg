@@ -4,8 +4,13 @@ import { ingestRawEvent, fireGroupCompletedWebhook } from "../services/ingestSer
 import { statsCache, performanceCache } from "../cache";
 import { audit } from "../services/auditService";
 import { RequestOrg } from "../middleware/auth";
+import { orgContextMiddleware } from "../middleware/orgContext";
 
 const router = Router();
+
+// requireApiKey (mounted in app.ts, ahead of this router) already resolved
+// req.org by the time this runs.
+router.use(orgContextMiddleware);
 
 const ingestSchema = z.object({
   policyId:       z.string().uuid("policyId must be a valid UUID"),

@@ -12,14 +12,19 @@ jobs:
     services:
       postgres:
         image: postgres:16
+        # Deliberately no POSTGRES_USER override here — the service's
+        # bootstrap user is always a Postgres superuser, and superusers
+        # always bypass Row-Level Security regardless of FORCE ROW LEVEL
+        # SECURITY. A setup step below creates a genuinely non-superuser
+        # eventagg_user, matching production's entrypoint.sh, so RLS tests
+        # actually exercise RLS instead of silently no-op'ing.
         env:
-          POSTGRES_USER: eventagg_user
-          POSTGRES_PASSWORD: eventagg_pass
+          POSTGRES_PASSWORD: postgres_admin_pass
           POSTGRES_DB: eventagg
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U eventagg_user"
+          --health-cmd "pg_isready -U postgres"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -40,6 +45,15 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: backend/package-lock.json
+      - name: Create non-superuser eventagg_user role
+        env:
+          PGPASSWORD: postgres_admin_pass
+        run: |
+          psql -h localhost -U postgres -d eventagg -v ON_ERROR_STOP=1 -c "
+            CREATE USER eventagg_user WITH PASSWORD 'eventagg_pass' CREATEDB;
+            ALTER DATABASE eventagg OWNER TO eventagg_user;
+            GRANT ALL PRIVILEGES ON DATABASE eventagg TO eventagg_user;
+          "
       - run: npm ci
       - run: npm run typecheck
       - run: npm test

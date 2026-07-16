@@ -2,19 +2,33 @@ import { describe, it, expect } from "vitest";
 import { randomUUID } from "crypto";
 import { ingestRawEvent } from "./ingestService";
 import { createPolicy } from "./policyService";
-import { queryOne } from "../db/pool";
+import { queryOne, runWithOrgContext } from "../db/pool";
 import { createTestOrg } from "../test/helpers";
 
+// This file calls the service layer directly, bypassing Express and its
+// orgContextMiddleware entirely — so every touch of the RLS-protected
+// `policies` table (creates, the ad-hoc UPDATE below, and ingestRawEvent's
+// own internal policy lookup) needs its own explicit runWithOrgContext,
+// exactly like a background job would. HTTP-level tests (multiTenancy.test.ts
+// etc.) don't need this — supertest(app) already goes through the real
+// middleware chain.
+
 async function makeOrderPolicy(orgId: string) {
-  return createPolicy(orgId, {
-    name: `Order Policy ${randomUUID().slice(0, 8)}`,
-    domain: "test.*",
-    keyField: "orderId",
-    cradleField: "eventType",
-    cradleValue: "order.created",
-    graveField: "eventType",
-    graveValue: "order.delivered",
-  });
+  return runWithOrgContext({ orgId, bypass: false }, () =>
+    createPolicy(orgId, {
+      name: `Order Policy ${randomUUID().slice(0, 8)}`,
+      domain: "test.*",
+      keyField: "orderId",
+      cradleField: "eventType",
+      cradleValue: "order.created",
+      graveField: "eventType",
+      graveValue: "order.delivered",
+    })
+  );
+}
+
+function ingest(orgId: string, input: Parameters<typeof ingestRawEvent>[1]) {
+  return runWithOrgContext({ orgId, bypass: false }, () => ingestRawEvent(orgId, input));
 }
 
 describe("ingestService.ingestRawEvent", () => {
@@ -23,7 +37,7 @@ describe("ingestService.ingestRawEvent", () => {
     const policy = await makeOrderPolicy(org.id);
     const key = randomUUID();
 
-    const result = await ingestRawEvent(org.id, {
+    const result = await ingest(org.id, {
       policyId: policy.id,
       body: { eventType: "order.created", orderId: key },
     });
@@ -40,8 +54,8 @@ describe("ingestService.ingestRawEvent", () => {
     const policy = await makeOrderPolicy(org.id);
     const key = randomUUID();
 
-    await ingestRawEvent(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: key } });
-    const appended = await ingestRawEvent(org.id, { policyId: policy.id, body: { eventType: "order.allocated", orderId: key } });
+    await ingest(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: key } });
+    const appended = await ingest(org.id, { policyId: policy.id, body: { eventType: "order.allocated", orderId: key } });
 
     expect(appended.action).toBe("raw_event_appended");
     expect(appended.status).toBe("in_progress");
@@ -52,8 +66,8 @@ describe("ingestService.ingestRawEvent", () => {
     const policy = await makeOrderPolicy(org.id);
     const key = randomUUID();
 
-    await ingestRawEvent(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: key } });
-    const promoted = await ingestRawEvent(org.id, { policyId: policy.id, body: { eventType: "order.delivered", orderId: key } });
+    await ingest(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: key } });
+    const promoted = await ingest(org.id, { policyId: policy.id, body: { eventType: "order.delivered", orderId: key } });
 
     expect(promoted.action).toBe("group_promoted");
     expect(promoted.status).toBe("completed");
@@ -73,9 +87,9 @@ describe("ingestService.ingestRawEvent", () => {
     const key = randomUUID();
     const body = { eventType: "order.allocated", orderId: key };
 
-    await ingestRawEvent(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: key } });
-    const first = await ingestRawEvent(org.id, { policyId: policy.id, body });
-    const resent = await ingestRawEvent(org.id, { policyId: policy.id, body });
+    await ingest(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: key } });
+    const first = await ingest(org.id, { policyId: policy.id, body });
+    const resent = await ingest(org.id, { policyId: policy.id, body });
 
     expect(resent.rawEventId).toBe(first.rawEventId);
 
@@ -91,10 +105,12 @@ describe("ingestService.ingestRawEvent", () => {
   it("rejects ingest against an inactive policy", async () => {
     const org = await createTestOrg();
     const policy = await makeOrderPolicy(org.id);
-    await queryOne(`UPDATE policies SET is_active = FALSE WHERE id = $1`, [policy.id]);
+    await runWithOrgContext({ orgId: org.id, bypass: false }, () =>
+      queryOne(`UPDATE policies SET is_active = FALSE WHERE id = $1`, [policy.id])
+    );
 
     await expect(
-      ingestRawEvent(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: randomUUID() } })
+      ingest(org.id, { policyId: policy.id, body: { eventType: "order.created", orderId: randomUUID() } })
     ).rejects.toMatchObject({ statusCode: 400, code: "POLICY_INACTIVE" });
   });
 
@@ -104,7 +120,7 @@ describe("ingestService.ingestRawEvent", () => {
     const policyInOrgA = await makeOrderPolicy(orgA.id);
 
     await expect(
-      ingestRawEvent(orgB.id, { policyId: policyInOrgA.id, body: { eventType: "order.created", orderId: randomUUID() } })
+      ingest(orgB.id, { policyId: policyInOrgA.id, body: { eventType: "order.created", orderId: randomUUID() } })
     ).rejects.toMatchObject({ statusCode: 404 });
   });
 });

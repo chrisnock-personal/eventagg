@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { requireAuth, requireRole } from '../middleware/session';
+import { orgContextMiddleware } from '../middleware/orgContext';
 import { query, queryOne } from '../db/pool';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -12,8 +13,11 @@ const adminOnly = requireRole('admin');
 const execAsync = promisify(exec);
 
 // ── Policy export ─────────────────────────────────────────────────────────────
+// orgContextMiddleware here (not router.use — this router's other routes are
+// whole-instance operations, not per-tenant, see the note further down) since
+// these two routes touch the RLS-protected `policies` table.
 
-router.get('/export/policies', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.get('/export/policies', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = (req as any).user.orgId as string;
     const policies = await query(
@@ -38,7 +42,7 @@ router.get('/export/policies', requireAuth, adminOnly, async (req: Request, res:
 
 // ── Policy import ─────────────────────────────────────────────────────────────
 
-router.post('/import/policies', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = (req as any).user.orgId as string;
     const bundle = req.body as { version?: string; policies?: unknown[] };

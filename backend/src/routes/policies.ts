@@ -11,10 +11,12 @@ import {
 } from "../services/policyService";
 import { createError } from "../middleware/errorHandler";
 import { requireAuth } from "../middleware/session";
+import { orgContextMiddleware } from "../middleware/orgContext";
 
 const router = Router();
 
 router.use(requireAuth);
+router.use(orgContextMiddleware);
 
 // orgId is string | null throughout this file — null means superadmin, who
 // reads/writes only global (org_id IS NULL) policies. Regular org-scoped

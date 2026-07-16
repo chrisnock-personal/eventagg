@@ -1,5 +1,5 @@
 import { config } from "./config";
-import { testConnection, closePool, query, withTransaction } from "./db/pool";
+import { testConnection, closePool, query, withTransaction, runWithOrgContext } from "./db/pool";
 import { runMigrations } from "./db/migrate";
 import { statsCache, performanceCache } from "./cache";
 import { createUser, updateUser } from "./services/userService";
@@ -12,6 +12,11 @@ import app from "./app";
 // Ensures completed_events partitions exist for the current + next 3 quarters.
 // Runs on startup and every 24h. Safe to run repeatedly (IF NOT EXISTS).
 export async function runPartitionJob(): Promise<void> {
+  // Runs outside any HTTP request — no middleware to establish org context,
+  // and this job legitimately operates across every org (it's org-agnostic
+  // partition maintenance today, but wiring the bypass now means it's
+  // already correct if RLS ever extends to org-scoped tables this job touches).
+  await runWithOrgContext({ orgId: null, bypass: true }, async () => {
   try {
     const now = new Date();
     const year = now.getFullYear();
@@ -47,12 +52,16 @@ export async function runPartitionJob(): Promise<void> {
   } catch (err) {
     console.error("📅  Partition job error:", err);
   }
+  });
 }
 
 // ─── Timeout background job ───────────────────────────────────────────────────
 // Runs every 60s. Finds in-progress groups where last_raw_event_at + policy.timeout_ms
 // is in the past, and promotes them to completed_events with status='timed_out'.
 export async function runTimeoutJob(): Promise<void> {
+  // Runs outside any HTTP request, and legitimately scans across every org's
+  // in_progress_events by design — bypass context, matching runPartitionJob.
+  await runWithOrgContext({ orgId: null, bypass: true }, async () => {
   try {
     // Find all in-progress groups where the policy has a timeout and it has elapsed
     const timedOut = await query<{
@@ -148,6 +157,7 @@ export async function runTimeoutJob(): Promise<void> {
   } catch (err) {
     console.error("⏱  Timeout job error:", err);
   }
+  });
 }
 
 // ─── Seed default admin ───────────────────────────────────────────────────────
