@@ -163,29 +163,33 @@ export async function runTimeoutJob(): Promise<void> {
 // ─── Seed default admin ───────────────────────────────────────────────────────
 async function seedDefaultAdmin(): Promise<void> {
   try {
-    const defaultOrg = await query<{ id: string }>(
-      "SELECT id FROM organisations WHERE slug = 'default' LIMIT 1"
-    );
-    if (defaultOrg.length === 0) {
-      console.error("⚠️  Default Organisation not found — cannot seed admin user");
-      return;
-    }
-    const orgId = defaultOrg[0].id;
+    // Runs at boot with no request/session — bypass so the users RLS policy
+    // (024) doesn't fail this closed before any admin user exists to log in as.
+    await runWithOrgContext({ orgId: null, bypass: true }, async () => {
+      const defaultOrg = await query<{ id: string }>(
+        "SELECT id FROM organisations WHERE slug = 'default' LIMIT 1"
+      );
+      if (defaultOrg.length === 0) {
+        console.error("⚠️  Default Organisation not found — cannot seed admin user");
+        return;
+      }
+      const orgId = defaultOrg[0].id;
 
-    const existing = await query<{ id: string }>(
-      "SELECT id FROM users WHERE username = 'admin' LIMIT 1"
-    );
-    const password = process.env.ADMIN_PASSWORD || "admin123";
-    if (existing.length === 0) {
-      await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
-      console.log(`👤  Default admin created — username: admin  password: ${password}  org: Default Organisation`);
-    } else {
-      // Always reset the hash on startup so it matches the current bcryptjs implementation
-      await updateUser(orgId, existing[0].id, { password });
-      // Reset password_changed so the first-login change prompt re-appears
-      await query(`UPDATE users SET password_changed = FALSE WHERE id = $1 AND username = 'admin'`, [existing[0].id]);
-      console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
-    }
+      const existing = await query<{ id: string }>(
+        "SELECT id FROM users WHERE username = 'admin' LIMIT 1"
+      );
+      const password = process.env.ADMIN_PASSWORD || "admin123";
+      if (existing.length === 0) {
+        await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
+        console.log(`👤  Default admin created — username: admin  password: ${password}  org: Default Organisation`);
+      } else {
+        // Always reset the hash on startup so it matches the current bcryptjs implementation
+        await updateUser(orgId, existing[0].id, { password });
+        // Reset password_changed so the first-login change prompt re-appears
+        await query(`UPDATE users SET password_changed = FALSE WHERE id = $1 AND username = 'admin'`, [existing[0].id]);
+        console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
+      }
+    });
   } catch (err) {
     console.error("⚠️  Failed to seed admin user:", err);
   }

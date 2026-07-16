@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { randomUUID } from "crypto";
+import request from "supertest";
+import app from "../app";
 import { query, runWithOrgContext } from "../db/pool";
-import { createTestOrg } from "./helpers";
+import { createTestOrg, createTestUser, TEST_PASSWORD } from "./helpers";
 
 // These tests deliberately bypass the service layer entirely — the point of
 // RLS is that even a raw, unscoped query against a protected table can't
@@ -102,5 +104,134 @@ describe("Postgres RLS backstop on policies", () => {
     await expect(
       runWithOrgContext({ orgId: orgA.id, bypass: false }, () => makePolicy(orgB.id, name))
     ).rejects.toThrow();
+  });
+});
+
+// Unlike policies, org_id IS NULL on `users`/`audit_log` means "superadmin" /
+// "a superadmin's own action" — NOT "visible to everyone". So there's no
+// global-row branch to prove here; a regular org context must see neither
+// another org's rows nor the superadmin's.
+describe("Postgres RLS backstop on users", () => {
+  it("an unscoped query only returns the current org's rows, never another org's or superadmin's", async () => {
+    const orgA = await createTestOrg();
+    const orgB = await createTestOrg();
+    const userA = await createTestUser(orgA.id, "admin");
+    const userB = await createTestUser(orgB.id, "admin");
+    const superadmin = await createTestUser(null, "superadmin");
+
+    const seenAsOrgA = await runWithOrgContext({ orgId: orgA.id, bypass: false }, () =>
+      query<{ id: string }>(`SELECT id FROM users WHERE id IN ($1, $2, $3)`, [userA.id, userB.id, superadmin.id])
+    );
+    expect(seenAsOrgA.map((r) => r.id)).toEqual([userA.id]);
+  });
+
+  it("fails closed: no org context at all means zero rows", async () => {
+    const org = await createTestOrg();
+    const user = await createTestUser(org.id, "admin");
+
+    const rows = await query<{ id: string }>(`SELECT id FROM users WHERE id = $1`, [user.id]);
+    expect(rows).toEqual([]);
+  });
+
+  it("bypass context sees every org's users + superadmin", async () => {
+    const orgA = await createTestOrg();
+    const orgB = await createTestOrg();
+    const userA = await createTestUser(orgA.id, "admin");
+    const userB = await createTestUser(orgB.id, "admin");
+    const superadmin = await createTestUser(null, "superadmin");
+
+    const seenAsBypass = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      query<{ id: string }>(`SELECT id FROM users WHERE id IN ($1, $2, $3)`, [userA.id, userB.id, superadmin.id])
+    );
+    expect(seenAsBypass.map((r) => r.id).sort()).toEqual([userA.id, userB.id, superadmin.id].sort());
+  });
+
+  it("login has no session yet but still succeeds — regression test for the bypass wrap on POST /login", async () => {
+    // Authenticating by username is a cross-org lookup before any org is
+    // known; if the bypass wrap on the login handler were missing, RLS
+    // would fail this closed and every login would 401.
+    const org = await createTestOrg();
+    const user = await createTestUser(org.id, "admin");
+
+    const res = await request(app)
+      .post("/api/v1/auth/login")
+      .send({ username: user.username, password: TEST_PASSWORD });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ username: user.username, orgId: org.id });
+  });
+});
+
+describe("Postgres RLS backstop on audit_log", () => {
+  async function insertAuditEntry(orgId: string | null, entityId: string) {
+    await query(
+      `INSERT INTO audit_log (org_id, entity_type, entity_id, action) VALUES ($1, 'user', $2, 'user.login')`,
+      [orgId, entityId]
+    );
+  }
+
+  it("an unscoped query only returns the current org's rows, never another org's or superadmin's", async () => {
+    const orgA = await createTestOrg();
+    const orgB = await createTestOrg();
+    const idA = randomUUID();
+    const idB = randomUUID();
+    const idSuper = randomUUID();
+
+    await runWithOrgContext({ orgId: orgA.id, bypass: false }, () => insertAuditEntry(orgA.id, idA));
+    await runWithOrgContext({ orgId: orgB.id, bypass: false }, () => insertAuditEntry(orgB.id, idB));
+    await runWithOrgContext({ orgId: null, bypass: true }, () => insertAuditEntry(null, idSuper));
+
+    const seenAsOrgA = await runWithOrgContext({ orgId: orgA.id, bypass: false }, () =>
+      query<{ entity_id: string }>(`SELECT entity_id FROM audit_log WHERE entity_id IN ($1, $2, $3)`, [idA, idB, idSuper])
+    );
+    expect(seenAsOrgA.map((r) => r.entity_id)).toEqual([idA]);
+  });
+
+  it("fails closed: no org context at all means zero rows", async () => {
+    const org = await createTestOrg();
+    const id = randomUUID();
+    await runWithOrgContext({ orgId: org.id, bypass: false }, () => insertAuditEntry(org.id, id));
+
+    const rows = await query<{ entity_id: string }>(`SELECT entity_id FROM audit_log WHERE entity_id = $1`, [id]);
+    expect(rows).toEqual([]);
+  });
+
+  it("bypass context sees every org's entries + superadmin's", async () => {
+    const orgA = await createTestOrg();
+    const orgB = await createTestOrg();
+    const idA = randomUUID();
+    const idB = randomUUID();
+
+    await runWithOrgContext({ orgId: orgA.id, bypass: false }, () => insertAuditEntry(orgA.id, idA));
+    await runWithOrgContext({ orgId: orgB.id, bypass: false }, () => insertAuditEntry(orgB.id, idB));
+
+    const seenAsBypass = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      query<{ entity_id: string }>(`SELECT entity_id FROM audit_log WHERE entity_id IN ($1, $2)`, [idA, idB])
+    );
+    expect(seenAsBypass.map((r) => r.entity_id).sort()).toEqual([idA, idB].sort());
+  });
+
+  it("WITH CHECK rejects a regular org context trying to write a superadmin (org_id NULL) entry", async () => {
+    const org = await createTestOrg();
+    const id = randomUUID();
+
+    await expect(
+      runWithOrgContext({ orgId: org.id, bypass: false }, () => insertAuditEntry(null, id))
+    ).rejects.toThrow();
+  });
+
+  it("logging in writes an audit_log entry despite login having no ambient org context", async () => {
+    const org = await createTestOrg();
+    const user = await createTestUser(org.id, "admin");
+
+    await request(app).post("/api/v1/auth/login").send({ username: user.username, password: TEST_PASSWORD });
+
+    // audit() is fire-and-forget — give its query a tick to land.
+    await new Promise((r) => setTimeout(r, 50));
+
+    const rows = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      query<{ action: string }>(`SELECT action FROM audit_log WHERE entity_id = $1 AND action = 'user.login'`, [user.id])
+    );
+    expect(rows.length).toBeGreaterThan(0);
   });
 });

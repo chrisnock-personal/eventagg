@@ -4,11 +4,15 @@ import { requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { listOrgs, createOrg, updateOrg, deleteOrg } from "../services/orgService";
 import { listUsers, createUser, adminSetUserOrgAndRole } from "../services/userService";
+import { orgContextMiddleware } from "../middleware/orgContext";
 
 const router = Router();
 
 // Platform-operator territory — superadmin only, not org-scoped admins.
-router.use(requireAuth, requireRole("superadmin"));
+// role is guaranteed "superadmin" past this point, so orgContextMiddleware's
+// existing bypass: user.role === "superadmin" logic naturally grants every
+// route below cross-org visibility on the users/audit_log RLS policies.
+router.use(requireAuth, requireRole("superadmin"), orgContextMiddleware);
 
 // GET /api/v1/orgs
 router.get("/", async (_req: Request, res: Response, next: NextFunction) => {

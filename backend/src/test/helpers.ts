@@ -2,7 +2,7 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import request from "supertest";
 import type { Express } from "express";
-import { queryOne } from "../db/pool";
+import { queryOne, runWithOrgContext } from "../db/pool";
 
 // Every helper generates random slugs/usernames per call so tests remain
 // safe to run against a shared Postgres instance without colliding.
@@ -27,11 +27,16 @@ export async function createTestUser(
   // Low bcrypt cost factor — these are throwaway test credentials, not real
   // secrets, and a low cost keeps the suite fast across many test users.
   const hash = await bcrypt.hash(TEST_PASSWORD, 4);
-  const row = await queryOne<{ id: string }>(
-    `INSERT INTO users (username, email, password_hash, role, org_id, password_changed)
-     VALUES ($1, $2, $3, $4, $5, TRUE)
-     RETURNING id`,
-    [username, `${username}@test.local`, hash, role, orgId]
+  // Fixture setup, not a real tenant action — bypass, same as seedDefaultAdmin,
+  // so this can insert regardless of which org (or no org, for superadmin
+  // fixtures) the caller asked for.
+  const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+    queryOne<{ id: string }>(
+      `INSERT INTO users (username, email, password_hash, role, org_id, password_changed)
+       VALUES ($1, $2, $3, $4, $5, TRUE)
+       RETURNING id`,
+      [username, `${username}@test.local`, hash, role, orgId]
+    )
   );
   if (!row) throw new Error("Failed to create test user");
   return { id: row.id, username, password: TEST_PASSWORD };

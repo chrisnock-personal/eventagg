@@ -3,7 +3,7 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import { requireAuth, requireRole, setSessionCookie } from '../middleware/session';
-import { query } from '../db/pool';
+import { query, runWithOrgContext } from '../db/pool';
 import { getMultiTenancyConfig, enableMultiTenancy } from '../services/tenancyService';
 
 const router = Router();
@@ -53,7 +53,13 @@ router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Re
     if (!password) return res.status(400).json({ error: 'password is required' });
 
     const user = (req as any).user;
-    const result = await enableMultiTenancy(user.username, password);
+    // Authenticating by username (before org is re-confirmed) and the
+    // subsequent org_id -> NULL self-promotion to superadmin both need
+    // bypass — the org_id NULL write is exactly what WITH CHECK otherwise
+    // reserves for bypass contexts only (see migration 024).
+    const result = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      enableMultiTenancy(user.username, password)
+    );
     if (!result.ok || !result.user) {
       return res.status(result.statusCode ?? 400).json({ error: result.error });
     }

@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth, SessionUser } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { queryAuditLogPaged } from "../services/auditService";
+import { orgContextMiddleware } from "../middleware/orgContext";
 
 const router = Router();
 router.use(requireAuth);
@@ -15,6 +16,9 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+// Mounted after the guard above — user.orgId is guaranteed set by this point.
+router.use(orgContextMiddleware);
 
 // GET /api/v1/audit — returns { rows, total, limit, offset }
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {

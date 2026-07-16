@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import app from "../app";
 import { createTestOrg, createTestUser, loginAs, TEST_PASSWORD } from "./helpers";
-import { queryOne } from "../db/pool";
+import { queryOne, runWithOrgContext } from "../db/pool";
 
 describe("multi-tenancy enable flow", () => {
   it("promotes an org admin to superadmin and flips the flag, in one shot", async () => {
@@ -18,9 +18,13 @@ describe("multi-tenancy enable flow", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ role: "superadmin", orgId: null });
 
-    const row = await queryOne<{ role: string; org_id: string | null }>(
-      `SELECT role, org_id FROM users WHERE id = $1`,
-      [admin.id]
+    // Asserting raw DB state, not going through a request — needs bypass
+    // now that `users` is RLS-protected (024), same as createTestUser.
+    const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      queryOne<{ role: string; org_id: string | null }>(
+        `SELECT role, org_id FROM users WHERE id = $1`,
+        [admin.id]
+      )
     );
     expect(row).toMatchObject({ role: "superadmin", org_id: null });
 
