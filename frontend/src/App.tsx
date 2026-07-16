@@ -2206,17 +2206,13 @@ function BackupPanel() {
   );
 }
 
-// ─── Admin panel: DB Maintenance ─────────────────────────────────────────────
+// ─── Admin panel: DB Maintenance (superadmin only — whole instance) ──────────
 
 function DbMaintenancePanel() {
   const [stats,   setStats]   = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [vacuumMsg, setVacuumMsg] = useState("");
   const [vacuuming, setVacuuming] = useState(false);
-  const [days,    setDays]    = useState("90");
-  const [purging, setPurging] = useState(false);
-  const [purgeResult, setPurgeResult] = useState<any>(null);
-  const [purgeErr, setPurgeErr] = useState("");
 
   function loadStats() {
     setLoading(true);
@@ -2229,17 +2225,6 @@ function DbMaintenancePanel() {
     api.admin.vacuum().then(r => setVacuumMsg(r.message ?? "Done")).catch(e => setVacuumMsg(e.message ?? "Error")).finally(() => setVacuuming(false));
   }
 
-  function doPurge() {
-    const d = parseInt(days);
-    if (isNaN(d) || d < 30) { setPurgeErr("Minimum retention is 30 days"); return; }
-    if (!window.confirm(`Delete completed events and audit log entries older than ${d} days? This cannot be undone.`)) return;
-    setPurging(true); setPurgeResult(null); setPurgeErr("");
-    api.admin.purge(d)
-      .then(r => { setPurgeResult(r); loadStats(); })
-      .catch(e => setPurgeErr(e.message ?? "Purge failed"))
-      .finally(() => setPurging(false));
-  }
-
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -2250,33 +2235,16 @@ function DbMaintenancePanel() {
       {stats && (
         <div style={{ display: "flex", gap: 10 }}>
           <AdminCard label="DB Size" value={stats.db_size} color={C.info} />
-          <AdminCard label="Purgeable (90d) — Completed" value={stats.purgeable_90d?.completed ?? "—"} color={C.warn} />
-          <AdminCard label="Purgeable (90d) — Audit" value={stats.purgeable_90d?.audit ?? "—"} color={C.warn} />
         </div>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>VACUUM ANALYZE</div>
-          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Reclaims storage from dead tuples and updates planner statistics. Safe to run at any time.</div>
-          <button onClick={doVacuum} disabled={vacuuming} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: vacuuming ? C.borderStrong : C.accent, color: "#fff", cursor: vacuuming ? "default" : "pointer", fontFamily: "inherit" }}>
-            {vacuuming ? "Running…" : "Run VACUUM ANALYZE"}
-          </button>
-          {vacuumMsg && <div style={{ marginTop: 10, fontSize: 11, color: C.accent, background: C.accentLight, padding: "6px 10px", borderRadius: 5 }}>{vacuumMsg}</div>}
-        </div>
-        <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Purge Old Data</div>
-          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Delete completed events and audit log entries older than the specified number of days.</div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-            <input type="number" value={days} onChange={e => setDays(e.target.value)} min={30} style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: "monospace", width: 80, color: C.text, background: C.surfaceAlt, outline: "none" }} />
-            <span style={{ fontSize: 12, color: C.textMuted }}>days</span>
-            <button onClick={doPurge} disabled={purging} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.danger}`, borderRadius: 6, background: purging ? C.borderStrong : C.dangerLight, color: C.danger, cursor: purging ? "default" : "pointer", fontFamily: "inherit" }}>
-              {purging ? "Purging…" : "Purge"}
-            </button>
-          </div>
-          {purgeErr    && <div style={{ fontSize: 11, color: C.danger, background: C.dangerLight, padding: "6px 10px", borderRadius: 5 }}>{purgeErr}</div>}
-          {purgeResult && <div style={{ fontSize: 11, color: C.accent, background: C.accentLight, padding: "8px 10px", borderRadius: 5 }}>Deleted {purgeResult.deleted_completed?.toLocaleString()} completed events and {purgeResult.deleted_audit?.toLocaleString()} audit entries.</div>}
-        </div>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>VACUUM ANALYZE</div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Reclaims storage from dead tuples and updates planner statistics. Safe to run at any time.</div>
+        <button onClick={doVacuum} disabled={vacuuming} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: vacuuming ? C.borderStrong : C.accent, color: "#fff", cursor: vacuuming ? "default" : "pointer", fontFamily: "inherit" }}>
+          {vacuuming ? "Running…" : "Run VACUUM ANALYZE"}
+        </button>
+        {vacuumMsg && <div style={{ marginTop: 10, fontSize: 11, color: C.accent, background: C.accentLight, padding: "6px 10px", borderRadius: 5 }}>{vacuumMsg}</div>}
       </div>
 
       {loading ? <div style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading table stats…</div> : stats && (
@@ -2304,6 +2272,59 @@ function DbMaintenancePanel() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Admin panel: Data Retention (regular admin — scoped to their own org) ───
+
+function DataRetentionPanel() {
+  const [purgeable, setPurgeable] = useState<any>(null);
+  const [days,    setDays]    = useState("90");
+  const [purging, setPurging] = useState(false);
+  const [purgeResult, setPurgeResult] = useState<any>(null);
+  const [purgeErr, setPurgeErr] = useState("");
+
+  function loadPurgeable() {
+    api.admin.dbPurgeable().then(setPurgeable).catch(() => {});
+  }
+  useEffect(() => { loadPurgeable(); }, []);
+
+  function doPurge() {
+    const d = parseInt(days);
+    if (isNaN(d) || d < 30) { setPurgeErr("Minimum retention is 30 days"); return; }
+    if (!window.confirm(`Delete your organisation's completed events and audit log entries older than ${d} days? This cannot be undone.`)) return;
+    setPurging(true); setPurgeResult(null); setPurgeErr("");
+    api.admin.purge(d)
+      .then(r => { setPurgeResult(r); loadPurgeable(); })
+      .catch(e => setPurgeErr(e.message ?? "Purge failed"))
+      .finally(() => setPurging(false));
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Data Retention</div>
+
+      {purgeable && (
+        <div style={{ display: "flex", gap: 10 }}>
+          <AdminCard label="Purgeable (90d) — Completed" value={purgeable.purgeable_90d?.completed ?? "—"} color={C.warn} />
+          <AdminCard label="Purgeable (90d) — Audit" value={purgeable.purgeable_90d?.audit ?? "—"} color={C.warn} />
+        </div>
+      )}
+
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Purge Old Data</div>
+        <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 12 }}>Delete your organisation's completed events and audit log entries older than the specified number of days.</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+          <input type="number" value={days} onChange={e => setDays(e.target.value)} min={30} style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: "monospace", width: 80, color: C.text, background: C.surfaceAlt, outline: "none" }} />
+          <span style={{ fontSize: 12, color: C.textMuted }}>days</span>
+          <button onClick={doPurge} disabled={purging} style={{ padding: "6px 14px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.danger}`, borderRadius: 6, background: purging ? C.borderStrong : C.dangerLight, color: C.danger, cursor: purging ? "default" : "pointer", fontFamily: "inherit" }}>
+            {purging ? "Purging…" : "Purge"}
+          </button>
+        </div>
+        {purgeErr    && <div style={{ fontSize: 11, color: C.danger, background: C.dangerLight, padding: "6px 10px", borderRadius: 5 }}>{purgeErr}</div>}
+        {purgeResult && <div style={{ fontSize: 11, color: C.accent, background: C.accentLight, padding: "8px 10px", borderRadius: 5 }}>Deleted {purgeResult.deleted_completed?.toLocaleString()} completed events and {purgeResult.deleted_audit?.toLocaleString()} audit entries.</div>}
+      </div>
     </div>
   );
 }
@@ -2607,7 +2628,7 @@ function OrganizationsPanel() {
 }
 
 // ─── Admin view type ──────────────────────────────────────────────────────────
-type AdminView = "health" | "audit-admin" | "import-export" | "backup" | "db" | "settings" | "organizations";
+type AdminView = "health" | "audit-admin" | "import-export" | "backup" | "db" | "data-retention" | "settings" | "organizations";
 
 function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies, onIngest, onAdminNav }: {
   user: import("./api").SessionUser;
@@ -2707,6 +2728,22 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                     </div>
                     <span style={{ color: C.textMuted }}>›</span>
                   </button>
+                  {([
+                    { icon: "💾", label: "Backup",         desc: "pg_dump & restore — whole instance", v: "backup" as AdminView },
+                    { icon: "🗄", label: "DB Maintenance", desc: "VACUUM, table stats — whole instance", v: "db" as AdminView },
+                  ] as { icon: string; label: string; desc: string; v: AdminView }[]).map(item => (
+                    <button key={item.v} onClick={() => { setOpen(false); setSection(null); onAdminNav(item.v); }}
+                      style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
+                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.surfaceAlt; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                      <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>{item.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>{item.label}</div>
+                        <div style={{ fontSize: 10, color: C.textMuted }}>{item.desc}</div>
+                      </div>
+                      <span style={{ color: C.textMuted }}>›</span>
+                    </button>
+                  ))}
                 </>
               ) : (
                 <>
@@ -2749,8 +2786,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                     { icon: "🖥", label: "System Health", desc: "CPU, memory, disk & logs",     v: "health" as AdminView },
                     { icon: "📋", label: "Audit Log",     desc: "Full paginated audit history",  v: "audit-admin" as AdminView },
                     { icon: "📦", label: "Import/Export", desc: "Policy bundles",                v: "import-export" as AdminView },
-                    { icon: "💾", label: "Backup",        desc: "pg_dump & restore",             v: "backup" as AdminView },
-                    { icon: "🗄", label: "DB Maintenance",desc: "VACUUM, purge old data",        v: "db" as AdminView },
+                    { icon: "🗄", label: "Data Retention",desc: "Purge old data for your org",   v: "data-retention" as AdminView },
                     { icon: "✉",  label: "Settings",      desc: "SMTP email notifications",      v: "settings" as AdminView },
                   ] as { icon: string; label: string; desc: string; v: AdminView }[]).map(item => (
                     <button key={item.v} onClick={() => { setOpen(false); setSection(null); onAdminNav(item.v); }}
@@ -4256,10 +4292,11 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
             {adminView === "health"        && <HealthPanel />}
             {adminView === "audit-admin"   && <AuditPanel />}
             {adminView === "import-export" && <ImportExportPanel />}
-            {adminView === "backup"        && <BackupPanel />}
-            {adminView === "db"            && <DbMaintenancePanel />}
-            {adminView === "settings"      && <SettingsPanel onSessionUpdate={onSessionUpdate} />}
-            {adminView === "organizations" && <OrganizationsPanel />}
+            {adminView === "backup"         && <BackupPanel />}
+            {adminView === "db"             && <DbMaintenancePanel />}
+            {adminView === "data-retention" && <DataRetentionPanel />}
+            {adminView === "settings"       && <SettingsPanel onSessionUpdate={onSessionUpdate} />}
+            {adminView === "organizations"  && <OrganizationsPanel />}
           </div>
         )}
 

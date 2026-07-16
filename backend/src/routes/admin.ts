@@ -8,8 +8,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const router    = Router();
-const adminOnly = requireRole('admin');
+const router         = Router();
+const adminOnly      = requireRole('admin');
+// Whole-instance operations — a pg_dump/restore/VACUUM/table-stats touches
+// every org's data, so these are superadmin-only, not reachable by an
+// individual org's admin. See CLAUDE.md's RC roadmap: this was a known gap
+// while multi-tenancy had no platform-level role to restrict it to.
+const superadminOnly = requireRole('superadmin');
 const execAsync = promisify(exec);
 
 // ── Policy export ─────────────────────────────────────────────────────────────
@@ -84,15 +89,15 @@ router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, as
   } catch (e) { next(e); }
 });
 
-// NOTE (multi-tenancy Phase 1 limitation): backup/restore below use pg_dump/psql
-// against the whole database — they are fundamentally not tenant-scopable (a
-// dump contains every organisation's data) and remain accessible to any org's
-// 'admin' role, same as before this change. Restricting them to a platform-level
-// role is tracked as Phase 2 work alongside the Organizations admin panel.
+// NOTE: backup/restore below use pg_dump/psql against the whole database —
+// fundamentally not tenant-scopable (a dump contains every organisation's
+// data) — so these, plus the whole-instance table stats and VACUUM further
+// down, are superadmin-only. /db/purge stays admin-accessible since it's
+// already scoped to the caller's own org.
 
 // ── Database backup ───────────────────────────────────────────────────────────
 
-router.get('/backup/info', requireAuth, adminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/backup/info', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const [sizeRow] = await query<{ size: string }>(
       `SELECT pg_size_pretty(pg_database_size(current_database())) AS size`
@@ -108,7 +113,7 @@ router.get('/backup/info', requireAuth, adminOnly, async (_req: Request, res: Re
   } catch (e) { next(e); }
 });
 
-router.post('/backup', requireAuth, adminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
   const tmpFile = path.join(os.tmpdir(), `eventagg-backup-${Date.now()}.sql`);
   try {
     const host = process.env.PGHOST     || 'localhost';
@@ -141,7 +146,7 @@ router.post('/backup', requireAuth, adminOnly, async (_req: Request, res: Respon
 
 // ── Database restore ──────────────────────────────────────────────────────────
 
-router.post('/restore', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: Response, next: NextFunction) => {
   const tmpFile = path.join(os.tmpdir(), `eventagg-restore-${Date.now()}.sql`);
   try {
     if (typeof req.body !== 'string' || !req.body.startsWith('--')) {
@@ -171,7 +176,7 @@ router.post('/restore', requireAuth, adminOnly, async (req: Request, res: Respon
 
 // ── DB maintenance ────────────────────────────────────────────────────────────
 
-router.get('/db/stats', requireAuth, adminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/db/stats', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const tables = await query<{ table: string; size: string; size_bytes: string; rows: string; dead_rows: string; last_autovacuum: string | null }>(
       `SELECT relname AS table,
@@ -187,16 +192,28 @@ router.get('/db/stats', requireAuth, adminOnly, async (_req: Request, res: Respo
       `SELECT pg_size_pretty(pg_database_size(current_database())) AS size,
               pg_database_size(current_database())::text AS size_bytes`
     );
-    const [purgeable] = await query<{ completed: string; audit: string }>(
-      `SELECT
-        (SELECT COUNT(*) FROM completed_events WHERE ended_at < now() - interval '90 days')::text AS completed,
-        (SELECT COUNT(*) FROM audit_log       WHERE event_time < now() - interval '90 days')::text AS audit`
-    );
-    res.json({ tables, db_size: dbSize.size, db_size_bytes: dbSize.size_bytes, purgeable_90d: purgeable });
+    res.json({ tables, db_size: dbSize.size, db_size_bytes: dbSize.size_bytes });
   } catch (e) { next(e); }
 });
 
-router.post('/db/vacuum', requireAuth, adminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+// Org-scoped preview of what THIS org's /db/purge would actually delete —
+// separate from /db/stats (whole-instance, superadmin-only) since the old
+// combined endpoint's purgeable_90d counted every org's rows, not just the
+// caller's, which didn't match what their own purge call would do.
+router.get('/db/purgeable', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const orgId = (req as any).user.orgId as string;
+    const [purgeable] = await query<{ completed: string; audit: string }>(
+      `SELECT
+        (SELECT COUNT(*) FROM completed_events WHERE org_id = $1 AND ended_at < now() - interval '90 days')::text AS completed,
+        (SELECT COUNT(*) FROM audit_log        WHERE org_id = $1 AND event_time < now() - interval '90 days')::text AS audit`,
+      [orgId]
+    );
+    res.json({ purgeable_90d: purgeable });
+  } catch (e) { next(e); }
+});
+
+router.post('/db/vacuum', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     await query('VACUUM ANALYZE');
     res.json({ ok: true, message: 'VACUUM ANALYZE completed' });

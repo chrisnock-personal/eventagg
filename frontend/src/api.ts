@@ -319,6 +319,7 @@ function restoreBackup(sql: string): Promise<any> {
 }
 
 function getDbStats(): Promise<any>     { return request<any>("/admin/db/stats"); }
+function getDbPurgeable(): Promise<any> { return request<any>("/admin/db/purgeable"); }
 function runVacuum(): Promise<any>      { return request<any>("/admin/db/vacuum", { method: "POST" }); }
 function purgeDb(days: number): Promise<any> {
   return request<any>("/admin/db/purge", { method: "POST", body: JSON.stringify({ days }) });
@@ -441,6 +442,7 @@ export const api = {
     backup:       downloadBackup,
     restore:      restoreBackup,
     dbStats:      getDbStats,
+    dbPurgeable:  getDbPurgeable,
     vacuum:       runVacuum,
     purge:        purgeDb,
     auditPaged:   fetchAuditLogPaged,
