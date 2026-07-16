@@ -111,8 +111,14 @@ router.post('/backup', requireAuth, adminOnly, async (_req: Request, res: Respon
     const port = process.env.PGPORT     || '5432';
     const db   = process.env.PGDATABASE || 'eventagg';
     const user = process.env.PGUSER     || 'eventagg_user';
+    // --clean --if-exists: without these, the dump is bare CREATE TABLE/
+    // CREATE FUNCTION/etc. statements with nothing dropping the old ones
+    // first. Restoring that into a database that already has the schema
+    // (always true here — migrations run at container boot, before the
+    // restore feature is even reachable) collides on every single object
+    // with "already exists" errors.
     await execAsync(
-      `pg_dump -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
+      `pg_dump --clean --if-exists -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
       { timeout: 120_000 }
     );
     const stat = fs.statSync(tmpFile);
