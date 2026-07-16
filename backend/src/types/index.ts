@@ -2,7 +2,7 @@
 
 export interface Policy {
   id: string;
-  org_id: string;
+  org_id: string | null;
   name: string;
   domain: string;
   key_field: string;
@@ -129,6 +129,7 @@ export interface PolicyResponse {
   timeoutMs: number | null;
   createdAt: string;
   updatedAt: string;
+  isGlobal: boolean;
 }
 
 // ─── Pagination ───────────────────────────────────────────────────────────────

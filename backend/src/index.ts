@@ -181,24 +181,6 @@ async function seedDefaultAdmin(): Promise<void> {
   }
 }
 
-// ─── Seed superadmin (optional, platform-level, org_id = NULL) ────────────────
-async function seedSuperadmin(): Promise<void> {
-  const password = process.env.SUPERADMIN_PASSWORD;
-  if (!password) return; // disabled if unset — no superadmin created
-
-  try {
-    const existing = await query<{ id: string }>(
-      "SELECT id FROM users WHERE role = 'superadmin' LIMIT 1"
-    );
-    if (existing.length > 0) return; // already bootstrapped, don't reset on every boot
-
-    await createUser({ username: "superadmin", email: "superadmin@localhost", password, role: "superadmin", orgId: null });
-    console.log(`👤  Superadmin created — username: superadmin  password: ${password}`);
-  } catch (err) {
-    console.error("⚠️  Failed to seed superadmin user:", err);
-  }
-}
-
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start(): Promise<void> {
   try {
@@ -207,7 +189,6 @@ async function start(): Promise<void> {
 
     // Seed default admin if no users exist yet
     await seedDefaultAdmin();
-    await seedSuperadmin();
 
     const server = app.listen(config.port, () => {
       console.log(`🚀  Aggre/Gator API running on port ${config.port} [${config.nodeEnv}]`);

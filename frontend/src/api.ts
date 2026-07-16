@@ -22,6 +22,16 @@ export interface Policy {
   graveField: string; graveValue: string;
   description: string | null; isActive: boolean; timeoutMs: number | null;
   createdAt: string; updatedAt: string;
+  isGlobal: boolean;
+}
+
+export interface Org {
+  id: string; name: string; slug: string; ingestApiKey: string;
+  isActive: boolean; createdAt: string; updatedAt: string;
+}
+
+export interface TenancyConfig {
+  enabled: boolean;
 }
 
 export interface EventGroupSummary {
@@ -191,11 +201,11 @@ function fetchPolicy(id: string): Promise<Policy> {
   return request<Policy>(`/policies/${id}`);
 }
 
-function createPolicy(body: Omit<Policy, "id" | "isActive" | "createdAt" | "updatedAt">): Promise<Policy> {
+function createPolicy(body: Omit<Policy, "id" | "isActive" | "createdAt" | "updatedAt" | "isGlobal">): Promise<Policy> {
   return request<Policy>("/policies", { method: "POST", body: JSON.stringify(body) });
 }
 
-function updatePolicy(id: string, body: Partial<Omit<Policy, "id" | "isActive" | "createdAt" | "updatedAt">>): Promise<Policy> {
+function updatePolicy(id: string, body: Partial<Omit<Policy, "id" | "isActive" | "createdAt" | "updatedAt" | "isGlobal">>): Promise<Policy> {
   return request<Policy>(`/policies/${id}`, { method: "PUT", body: JSON.stringify(body) });
 }
 
@@ -326,6 +336,46 @@ function fetchAuditLogPaged(params: { entityType?: string; action?: string; acto
   return request<{ rows: any[]; total: number }>(`/audit?${qs}`);
 }
 
+// ─── Organizations (superadmin only) ──────────────────────────────────────────
+
+function fetchOrgs(): Promise<Org[]> {
+  return request<Org[]>("/orgs");
+}
+
+function createOrg(body: { name: string; slug?: string }): Promise<Org> {
+  return request<Org>("/orgs", { method: "POST", body: JSON.stringify(body) });
+}
+
+function updateOrg(id: string, body: { name?: string; isActive?: boolean; regenerateKey?: boolean }): Promise<Org> {
+  return request<Org>(`/orgs/${id}`, { method: "PUT", body: JSON.stringify(body) });
+}
+
+function deleteOrg(id: string): Promise<void> {
+  return request<void>(`/orgs/${id}`, { method: "DELETE" });
+}
+
+function fetchOrgUsers(orgId: string): Promise<AppUser[]> {
+  return request<AppUser[]>(`/orgs/${orgId}/users`);
+}
+
+function createOrgUser(orgId: string, body: { username: string; email: string; password: string; role: string }): Promise<AppUser> {
+  return request<AppUser>(`/orgs/${orgId}/users`, { method: "POST", body: JSON.stringify(body) });
+}
+
+function updateUserOrgAndRole(userId: string, body: { role?: string; orgId?: string | null; isActive?: boolean }): Promise<AppUser> {
+  return request<AppUser>(`/orgs/users/${userId}`, { method: "PUT", body: JSON.stringify(body) });
+}
+
+// ─── Multi-tenancy toggle ──────────────────────────────────────────────────────
+
+function getTenancy(): Promise<TenancyConfig> {
+  return request<TenancyConfig>("/system/tenancy");
+}
+
+function enableTenancy(password: string): Promise<SessionUser> {
+  return request<SessionUser>("/system/tenancy/enable", { method: "POST", body: JSON.stringify({ password }) });
+}
+
 // ─── API object — zero TypeScript syntax, plain property references only ──────
 
 export const api = {
@@ -394,5 +444,18 @@ export const api = {
     vacuum:       runVacuum,
     purge:        purgeDb,
     auditPaged:   fetchAuditLogPaged,
+  },
+  orgs: {
+    list:            fetchOrgs,
+    create:          createOrg,
+    update:          updateOrg,
+    delete:          deleteOrg,
+    users:           fetchOrgUsers,
+    createUser:      createOrgUser,
+    setUserOrgRole:  updateUserOrgAndRole,
+  },
+  tenancy: {
+    get:    getTenancy,
+    enable: enableTenancy,
   },
 };

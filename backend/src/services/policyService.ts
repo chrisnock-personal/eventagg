@@ -21,24 +21,33 @@ function toResponse(p: Policy): PolicyResponse {
     timeoutMs: p.timeout_ms ?? null,
     createdAt: p.created_at,
     updatedAt: p.updated_at,
+    isGlobal: p.org_id === null,
   };
 }
 
-export async function listPolicies(orgId: string, includeInactive = false): Promise<PolicyResponse[]> {
-  const rows = await query<Policy>(
-    includeInactive
-      ? `SELECT * FROM policies WHERE org_id = $1 ORDER BY created_at ASC`
-      : `SELECT * FROM policies WHERE org_id = $1 AND is_active = TRUE ORDER BY created_at ASC`,
-    [orgId]
-  );
+// orgId semantics throughout this file:
+//   string -> a regular org-scoped caller: sees/owns their own org's
+//             policies plus every global (org_id IS NULL) policy, read-only
+//             for the global ones (enforced by the WHERE clauses below).
+//   null   -> superadmin: sees/owns only global policies. There is no
+//             "all orgs' policies" view — superadmin manages global
+//             templates, not other orgs' private policies.
+
+export async function listPolicies(orgId: string | null, includeInactive = false): Promise<PolicyResponse[]> {
+  const activeClause = includeInactive ? "" : "AND is_active = TRUE";
+  const rows = orgId === null
+    ? await query<Policy>(`SELECT * FROM policies WHERE org_id IS NULL ${activeClause} ORDER BY created_at ASC`)
+    : await query<Policy>(
+        `SELECT * FROM policies WHERE (org_id = $1 OR org_id IS NULL) ${activeClause} ORDER BY created_at ASC`,
+        [orgId]
+      );
   return rows.map(toResponse);
 }
 
-export async function getPolicyById(orgId: string, id: string): Promise<PolicyResponse | null> {
-  const row = await queryOne<Policy>(
-    `SELECT * FROM policies WHERE id = $1 AND org_id = $2`,
-    [id, orgId]
-  );
+export async function getPolicyById(orgId: string | null, id: string): Promise<PolicyResponse | null> {
+  const row = orgId === null
+    ? await queryOne<Policy>(`SELECT * FROM policies WHERE id = $1 AND org_id IS NULL`, [id])
+    : await queryOne<Policy>(`SELECT * FROM policies WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`, [id, orgId]);
   return row ? toResponse(row) : null;
 }
 
@@ -56,7 +65,7 @@ export interface CreatePolicyInput {
 }
 
 export async function createPolicy(
-  orgId: string,
+  orgId: string | null,
   input: CreatePolicyInput
 ): Promise<PolicyResponse> {
   return withTransaction(async (client) => {
@@ -99,17 +108,35 @@ export interface UpdatePolicyInput extends Partial<CreatePolicyInput> {
 }
 
 export async function updatePolicy(
-  orgId: string,
+  orgId: string | null,
   id: string,
   input: UpdatePolicyInput
 ): Promise<PolicyResponse | null> {
   return withTransaction(async (client) => {
+    const orgMatch = orgId === null ? "org_id IS NULL" : "org_id = $2";
+    const existingParams = orgId === null ? [id] : [id, orgId];
     const existing = await client.query<Policy>(
-      `SELECT * FROM policies WHERE id = $1 AND org_id = $2 AND is_active = TRUE`,
-      [id, orgId]
+      `SELECT * FROM policies WHERE id = $1 AND ${orgMatch} AND is_active = TRUE`,
+      existingParams
     ).then(r => r.rows[0]);
 
     if (!existing) return null;
+
+    const updateOrgMatch = orgId === null ? "org_id IS NULL" : "org_id = $12";
+    const updateParams: unknown[] = [
+      input.name ?? null,
+      input.domain ?? null,
+      input.keyField ?? null,
+      input.cradleField ?? null,
+      input.cradleValue ?? null,
+      input.graveField ?? null,
+      input.graveValue ?? null,
+      input.description ?? null,
+      "timeoutMs" in input ? (input.timeoutMs ?? null) : existing.timeout_ms,
+      input.updatedBy ?? null,
+      id,
+    ];
+    if (orgId !== null) updateParams.push(orgId);
 
     const [updated] = await client.query<Policy>(
       `UPDATE policies SET
@@ -123,22 +150,9 @@ export async function updatePolicy(
          description  = COALESCE($8, description),
          timeout_ms   = $9,
          updated_by   = $10
-       WHERE id = $11 AND org_id = $12
+       WHERE id = $11 AND ${updateOrgMatch}
        RETURNING *`,
-      [
-        input.name ?? null,
-        input.domain ?? null,
-        input.keyField ?? null,
-        input.cradleField ?? null,
-        input.cradleValue ?? null,
-        input.graveField ?? null,
-        input.graveValue ?? null,
-        input.description ?? null,
-        "timeoutMs" in input ? (input.timeoutMs ?? null) : existing.timeout_ms,
-        input.updatedBy ?? null,
-        id,
-        orgId,
-      ]
+      updateParams
     ).then(r => r.rows);
 
     await writeAudit(client, {
@@ -157,14 +171,16 @@ export async function updatePolicy(
 }
 
 export async function deactivatePolicy(
-  orgId: string,
+  orgId: string | null,
   id: string,
   actor?: string
 ): Promise<boolean> {
   return withTransaction(async (client) => {
+    const orgMatch = orgId === null ? "org_id IS NULL" : "org_id = $3";
+    const params = orgId === null ? [actor ?? null, id] : [actor ?? null, id, orgId];
     const result = await client.query(
-      `UPDATE policies SET is_active = FALSE, updated_by = $1 WHERE id = $2 AND org_id = $3 AND is_active = TRUE`,
-      [actor ?? null, id, orgId]
+      `UPDATE policies SET is_active = FALSE, updated_by = $1 WHERE id = $2 AND ${orgMatch} AND is_active = TRUE`,
+      params
     );
 
     if (result.rowCount === 0) return false;
@@ -186,7 +202,7 @@ export async function deactivatePolicy(
 async function writeAudit(
   client: PoolClient,
   opts: {
-    orgId: string;
+    orgId: string | null;
     entityType: string;
     entityId: string;
     action: string;
@@ -218,8 +234,16 @@ async function writeAudit(
 }
 
 // ─── Retroactive timeout sweep for a specific policy ─────────────────────────
-export async function applyPolicyTimeout(orgId: string, policyId: string): Promise<number> {
+// orgId=null (superadmin editing a global policy) sweeps every org currently
+// using this policy_id, not just one — there's no single "owning" org for a
+// global policy's in-flight groups. Each group's own org_id (already stamped
+// at ingest time, independent of the policy's org_id) is used when
+// promoting it, never the outer orgId param.
+export async function applyPolicyTimeout(orgId: string | null, policyId: string): Promise<number> {
   return withTransaction(async (client) => {
+    const orgMatch1 = orgId === null ? "" : "AND ip.org_id = $2";
+    const params1 = orgId === null ? [policyId] : [policyId, orgId];
+
     // 1. Backfill last_raw_event_at from actual max received_at per group
     await client.query(
       `UPDATE in_progress_events ip
@@ -229,24 +253,25 @@ export async function applyPolicyTimeout(orgId: string, policyId: string): Promi
                  WHERE  re.in_progress_id = ip.id),
                 ip.started_at
               )
-       WHERE  ip.policy_id = $1 AND ip.org_id = $2`,
-      [policyId, orgId]
+       WHERE  ip.policy_id = $1 ${orgMatch1}`,
+      params1
     );
 
     // 2. Find groups that have now elapsed
+    const orgMatch2 = orgId === null ? "" : "AND e.org_id = $2";
     const timedOut = await client.query<{
-      id: string; aggregation_key: string; key_field: string;
+      id: string; org_id: string; aggregation_key: string; key_field: string;
       raw_event_count: number; cradle_raw_event_id: string | null; started_at: string;
     }>(
-      `SELECT e.id, e.aggregation_key, e.key_field,
+      `SELECT e.id, e.org_id, e.aggregation_key, e.key_field,
               e.raw_event_count, e.cradle_raw_event_id, e.started_at
        FROM   in_progress_events e
        JOIN   policies p ON p.id = e.policy_id
        WHERE  e.policy_id = $1
-         AND  e.org_id = $2
+         ${orgMatch2}
          AND  p.timeout_ms IS NOT NULL
          AND  e.last_raw_event_at + (p.timeout_ms || ' milliseconds')::INTERVAL < NOW()`,
-      [policyId, orgId]
+      params1
     );
 
     if (timedOut.rows.length === 0) return 0;
@@ -260,7 +285,7 @@ export async function applyPolicyTimeout(orgId: string, policyId: string): Promi
             status, close_reason)
          VALUES ($1, $2, $3, $4, $5, $6, $6, $7, NOW(), 'timed_out', 'policy_timeout')
          RETURNING id`,
-        [orgId, policyId, group.aggregation_key, group.key_field, group.raw_event_count,
+        [group.org_id, policyId, group.aggregation_key, group.key_field, group.raw_event_count,
          group.cradle_raw_event_id ?? '00000000-0000-0000-0000-000000000000',
          group.started_at]
       ).then(r => r.rows);

@@ -18,6 +18,7 @@ import auditRouter    from "./routes/audit";
 import webhooksRouter from "./routes/webhooks";
 import systemRouter   from "./routes/system";
 import adminRouter    from "./routes/admin";
+import orgsRouter     from "./routes/orgs";
 import { getSnmpStats } from "./snmp/trapReceiver";
 
 const app = express();
@@ -84,8 +85,9 @@ app.use("/api/v1/audit",            auditRouter);
 app.use("/api/v1/webhooks",         webhooksRouter);
 app.use("/api/v1/system",           systemRouter);
 // Restore route needs raw SQL body — must be registered before adminRouter
-app.use("/api/v1/admin/restore",    express.text({ type: "application/sql", limit: "100mb" }));
+app.use("/api/v1/admin/restore",    express.text({ type: "application/sql", limit: "1gb" }));
 app.use("/api/v1/admin",            adminRouter);
+app.use("/api/v1/orgs",             orgsRouter);
 
 // ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
 app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));

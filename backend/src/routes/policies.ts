@@ -10,21 +10,16 @@ import {
   applyPolicyTimeout,
 } from "../services/policyService";
 import { createError } from "../middleware/errorHandler";
-import { requireAuth, SessionUser } from "../middleware/session";
+import { requireAuth } from "../middleware/session";
 
 const router = Router();
 
 router.use(requireAuth);
 
-// Superadmin has no org to scope policies to — reject rather than silently
-// returning empty/all-org data.
-router.use((req: Request, res: Response, next: NextFunction) => {
-  const user = (req as any).user as SessionUser;
-  if (!user.orgId) {
-    return next(createError("Superadmin has no organisation context", 403));
-  }
-  next();
-});
+// orgId is string | null throughout this file — null means superadmin, who
+// reads/writes only global (org_id IS NULL) policies. Regular org-scoped
+// callers read their own org's policies plus every global one (handled
+// inside policyService), but writes stay confined to their own org.
 
 const policyBodySchema = z.object({
   name:         z.string().min(1).max(255),
@@ -43,7 +38,7 @@ const policyUpdateSchema = policyBodySchema.partial();
 // GET /api/v1/policies
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = (req as any).user.orgId as string | null;
     const policies = await listPolicies(orgId, true);
     res.json(policies);
   } catch (err) {
@@ -54,7 +49,7 @@ router.get("/", async (req: Request, res: Response, next: NextFunction) => {
 // GET /api/v1/policies/:id
 router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = (req as any).user.orgId as string | null;
     const policy = await getPolicyById(orgId, req.params.id);
     if (!policy) return next(createError("Policy not found", 404));
     res.json(policy);
@@ -66,7 +61,7 @@ router.get("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // POST /api/v1/policies
 router.post("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = (req as any).user.orgId as string | null;
     const input = policyBodySchema.parse(req.body);
     const policy = await createPolicy(orgId, { ...input, createdBy: "api" });
     audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.created", actor: (req as any).user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
@@ -77,7 +72,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
 // PUT /api/v1/policies/:id
 router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = (req as any).user.orgId as string | null;
     const input = policyUpdateSchema.parse(req.body);
     const policy = await updatePolicy(orgId, req.params.id, { ...input, updatedBy: "api" });
     if (!policy) return next(createError("Policy not found", 404));
@@ -95,12 +90,14 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
 // PATCH /api/v1/policies/:id/toggle — activate or deactivate
 router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = (req as any).user.orgId as string | null;
     const { active } = z.object({ active: z.boolean() }).parse(req.body);
     const { query } = await import("../db/pool");
+    const orgMatch = orgId === null ? "org_id IS NULL" : "org_id = $3";
+    const params = orgId === null ? [active, req.params.id] : [active, req.params.id, orgId];
     const rows = await query<{ id: string }>(
-      `UPDATE policies SET is_active = $1, updated_at = NOW() WHERE id = $2 AND org_id = $3 RETURNING id`,
-      [active, req.params.id, orgId]
+      `UPDATE policies SET is_active = $1, updated_at = NOW() WHERE id = $2 AND ${orgMatch} RETURNING id`,
+      params
     );
     if (!rows.length) return next(createError("Policy not found", 404));
     const policy = await getPolicyById(orgId, req.params.id);
@@ -112,7 +109,7 @@ router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFuncti
 // DELETE /api/v1/policies/:id
 router.delete("/:id", async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const orgId = (req as any).user.orgId as string;
+    const orgId = (req as any).user.orgId as string | null;
     const deleted = await deactivatePolicy(orgId, req.params.id, "api");
     if (!deleted) return next(createError("Policy not found", 404));
     audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: (req as any).user?.username, sourceIp: req.ip });

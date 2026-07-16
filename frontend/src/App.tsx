@@ -411,8 +411,9 @@ function ValidatePolicyPanel({ pol }: { pol: Policy }) {
   );
 }
 
-function PoliciesPanel({ policies, onSave, onDelete, onToggle, onClose }: {
+function PoliciesPanel({ policies, onSave, onDelete, onToggle, onClose, currentUserRole }: {
   policies: Policy[]; onSave: (p: PolicyForm) => Promise<void>; onDelete: (id: string) => Promise<void>; onToggle: (id: string, active: boolean) => Promise<void>; onClose: () => void;
+  currentUserRole: string;
 }) {
   const [editing,      setEditing]      = useState<PolicyForm | null>(null);
   const [search,       setSearch]       = useState("");
@@ -487,6 +488,11 @@ function PoliciesPanel({ policies, onSave, onDelete, onToggle, onClose }: {
                   <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4, flexWrap: "wrap" as const }}>
                     <span style={{ fontSize: 13, fontWeight: 800, color: pol.isActive ? C.text : C.textMuted }}>{pol.name}</span>
                     <code style={{ fontSize: 10, color: C.textMuted, background: C.surface, padding: "1px 6px", borderRadius: 3, border: `1px solid ${C.border}` }}>{pol.domain}</code>
+                    {pol.isGlobal && (
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: C.purpleLight, color: C.purple, border: `1px solid ${C.purple}40` }}>
+                        🌐 Global
+                      </span>
+                    )}
                     <span style={{ fontSize: 9, fontWeight: 700, padding: "2px 7px", borderRadius: 10, background: pol.isActive ? C.accentLight : "#ECEAE6", color: pol.isActive ? C.accent : C.textMuted, border: `1px solid ${pol.isActive ? C.accentSoft : C.border}` }}>
                       {pol.isActive ? "● Active" : "○ Inactive"}
                     </span>
@@ -500,11 +506,17 @@ function PoliciesPanel({ policies, onSave, onDelete, onToggle, onClose }: {
                   <CopyableId id={pol.id} />
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0, marginLeft: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 10, color: C.textMuted }}>{pol.isActive ? "Active" : "Inactive"}</span>
-                    <Toggle active={pol.isActive} onChange={() => setConfirm({ pol, activating: !pol.isActive })} />
-                  </div>
-                  <Btn label="Edit" onClick={() => setEditing(toForm(pol))} small />
+                  {(!pol.isGlobal || currentUserRole === "superadmin") ? (
+                    <>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 10, color: C.textMuted }}>{pol.isActive ? "Active" : "Inactive"}</span>
+                        <Toggle active={pol.isActive} onChange={() => setConfirm({ pol, activating: !pol.isActive })} />
+                      </div>
+                      <Btn label="Edit" onClick={() => setEditing(toForm(pol))} small />
+                    </>
+                  ) : (
+                    <span style={{ fontSize: 10, color: C.textMuted, fontStyle: "italic" }}>Managed by superadmin</span>
+                  )}
                 </div>
               </div>
 
@@ -2298,13 +2310,32 @@ function DbMaintenancePanel() {
 
 // ─── Admin panel: Settings (SMTP) ─────────────────────────────────────────────
 
-function SettingsPanel() {
+function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api").SessionUser) => void }) {
   const [cfg,     setCfg]     = useState({ host: "", port: 587, secure: false, user: "", password: "", from: "" });
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
   const [testing, setTesting] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [testMsg, setTestMsg] = useState("");
+
+  const [tenancy,     setTenancy]     = useState<import("./api").TenancyConfig | null>(null);
+  const [mtPassword,   setMtPassword] = useState("");
+  const [mtConfirming, setMtConfirming] = useState(false);
+  const [mtBusy,       setMtBusy]     = useState(false);
+  const [mtErr,        setMtErr]      = useState("");
+
+  useEffect(() => {
+    api.tenancy.get().then(setTenancy).catch(() => {});
+  }, []);
+
+  function enableTenancy() {
+    if (!mtPassword) { setMtErr("Enter your password to confirm"); return; }
+    setMtBusy(true); setMtErr("");
+    api.tenancy.enable(mtPassword)
+      .then(u => { onSessionUpdate(u); setTenancy({ enabled: true }); setMtConfirming(false); setMtPassword(""); })
+      .catch(e => setMtErr(e.message ?? "Failed to enable multi-tenancy"))
+      .finally(() => setMtBusy(false));
+  }
 
   useEffect(() => {
     api.system.getConfig("smtp").then((v: any) => {
@@ -2342,7 +2373,44 @@ function SettingsPanel() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Settings — Email Notifications</div>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Settings</div>
+
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 8 }}>Multi-tenancy</div>
+        {tenancy?.enabled ? (
+          <div style={{ fontSize: 12, color: C.textMid }}>Multi-tenancy is enabled for this instance.</div>
+        ) : (
+          <div>
+            <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>
+              Enabling multi-tenancy promotes your account to a platform-level <strong>superadmin</strong> (no
+              longer tied to this organisation) and unlocks creating additional organisations. This cannot be
+              undone from the UI.
+            </div>
+            {mtConfirming ? (
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" as const }}>
+                <input type="password" value={mtPassword} onChange={e => setMtPassword(e.target.value)} placeholder="Confirm your password"
+                  style={{ padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+                <button onClick={enableTenancy} disabled={mtBusy}
+                  style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: C.danger, color: "#fff", cursor: mtBusy ? "default" : "pointer", fontFamily: "inherit" }}>
+                  {mtBusy ? "Enabling…" : "Confirm & enable"}
+                </button>
+                <button onClick={() => { setMtConfirming(false); setMtPassword(""); setMtErr(""); }}
+                  style={{ padding: "8px 16px", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", color: C.textMid, cursor: "pointer", fontFamily: "inherit" }}>
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setMtConfirming(true)}
+                style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: C.accent, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>
+                Enable multi-tenancy
+              </button>
+            )}
+            {mtErr && <div style={{ marginTop: 8, fontSize: 11, color: C.danger }}>{mtErr}</div>}
+          </div>
+        )}
+      </div>
+
+      <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>Email Notifications</div>
       <div style={{ fontSize: 12, color: C.textMuted, background: C.accentLight, border: `1px solid ${C.accentSoft}`, borderRadius: 7, padding: "10px 14px" }}>
         Email notifications are sent to all admin users when an event group <strong>times out</strong> (no grave event received within the policy timeout window).
       </div>
@@ -2376,8 +2444,170 @@ function SettingsPanel() {
   );
 }
 
+// ─── Admin panel: Organizations (superadmin only) ─────────────────────────────
+
+function OrganizationsPanel() {
+  const [orgs,     setOrgs]     = useState<import("./api").Org[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [newName,  setNewName]  = useState("");
+  const [creating, setCreating] = useState(false);
+  const [err,      setErr]      = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [orgUsers, setOrgUsers] = useState<import("./api").AppUser[]>([]);
+  const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [newUser,  setNewUser]  = useState({ username: "", email: "", password: "", role: "viewer" });
+
+  const orc: Record<string, string> = { admin: C.danger, editor: C.warn, viewer: C.info, superadmin: C.purple };
+  const orb: Record<string, string> = { admin: C.dangerLight, editor: C.warnLight, viewer: C.infoLight, superadmin: C.purpleLight };
+
+  function loadOrgs() {
+    setLoading(true);
+    api.orgs.list().then(setOrgs).catch(() => {}).finally(() => setLoading(false));
+  }
+  useEffect(loadOrgs, []);
+
+  function createOrg() {
+    if (!newName.trim()) { setErr("Name is required"); return; }
+    setCreating(true); setErr("");
+    api.orgs.create({ name: newName.trim() })
+      .then(() => { setNewName(""); loadOrgs(); })
+      .catch(e => setErr(e.message ?? "Failed to create organisation"))
+      .finally(() => setCreating(false));
+  }
+
+  function toggleActive(org: import("./api").Org) {
+    api.orgs.update(org.id, { isActive: !org.isActive }).then(loadOrgs).catch(() => {});
+  }
+
+  function rotateKey(org: import("./api").Org) {
+    api.orgs.update(org.id, { regenerateKey: true }).then(loadOrgs).catch(() => {});
+  }
+
+  function expand(org: import("./api").Org) {
+    if (expanded === org.id) { setExpanded(null); return; }
+    setExpanded(org.id);
+    api.orgs.users(org.id).then(setOrgUsers).catch(() => setOrgUsers([]));
+  }
+
+  function createOrgUser(orgId: string) {
+    if (!newUser.username.trim() || !newUser.email.trim() || !newUser.password) { setErr("All fields required"); return; }
+    api.orgs.createUser(orgId, newUser)
+      .then(() => { setNewUser({ username: "", email: "", password: "", role: "viewer" }); api.orgs.users(orgId).then(setOrgUsers); })
+      .catch(e => setErr(e.message ?? "Failed to create user"));
+  }
+
+  function setUserRole(orgId: string, userId: string, role: string) {
+    // Promoting to superadmin moves the user out of every org (org_id → null);
+    // any other role change stays within this org.
+    const body = role === "superadmin" ? { role } : { role, orgId };
+    api.orgs.setUserOrgRole(userId, body)
+      .then(() => api.orgs.users(orgId).then(setOrgUsers))
+      .catch(e => setErr(e.message ?? "Failed to update user"));
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ fontSize: 17, fontWeight: 800, color: C.text }}>Organizations</div>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}>New organisation</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Organisation name"
+            style={{ flex: 1, padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none" }} />
+          <button onClick={createOrg} disabled={creating}
+            style={{ padding: "8px 16px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: C.accent, color: "#fff", cursor: creating ? "default" : "pointer", fontFamily: "inherit" }}>
+            {creating ? "Creating…" : "+ Create"}
+          </button>
+        </div>
+        {err && <div style={{ marginTop: 8, fontSize: 11, color: C.danger }}>{err}</div>}
+      </div>
+
+      {loading ? <div style={{ padding: 24, textAlign: "center", color: C.textMuted, fontSize: 13 }}>Loading…</div> : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {orgs.map(org => (
+            <div key={org.id} style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, opacity: org.isActive ? 1 : 0.6 }}>
+              <div style={{ padding: 14, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{org.name}</span>
+                    <span style={{ fontSize: 9, color: C.textMuted, fontFamily: "monospace" }}>{org.slug}</span>
+                    {!org.isActive && <span style={{ fontSize: 9, color: C.textMuted, fontStyle: "italic" }}>inactive</span>}
+                  </div>
+                  <div style={{ fontSize: 10, color: C.textMuted, fontFamily: "monospace", marginTop: 3, display: "flex", alignItems: "center", gap: 6 }}>
+                    Ingest key: {revealed[org.id] ? org.ingestApiKey : "•".repeat(24)}
+                    <button onClick={() => setRevealed(r => ({ ...r, [org.id]: !r[org.id] }))}
+                      style={{ border: "none", background: "none", color: C.accent, cursor: "pointer", fontSize: 10, padding: 0 }}>
+                      {revealed[org.id] ? "hide" : "show"}
+                    </button>
+                    <button onClick={() => navigator.clipboard?.writeText(org.ingestApiKey)}
+                      style={{ border: "none", background: "none", color: C.accent, cursor: "pointer", fontSize: 10, padding: 0 }}>
+                      copy
+                    </button>
+                  </div>
+                </div>
+                <button onClick={() => rotateKey(org)}
+                  style={{ padding: "4px 9px", border: `1px solid ${C.border}`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: C.textMid, fontFamily: "inherit" }}>
+                  Rotate key
+                </button>
+                <button onClick={() => toggleActive(org)}
+                  style={{ padding: "4px 9px", border: `1px solid ${C.border}`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 10, color: org.isActive ? C.warn : C.accent, fontFamily: "inherit" }}>
+                  {org.isActive ? "Deactivate" : "Activate"}
+                </button>
+                <button onClick={() => expand(org)}
+                  style={{ padding: "4px 9px", border: `1px solid ${C.border}`, borderRadius: 4, background: expanded === org.id ? C.accentLight : "none", cursor: "pointer", fontSize: 10, color: C.accent, fontFamily: "inherit" }}>
+                  {expanded === org.id ? "Hide users" : "Users"}
+                </button>
+              </div>
+
+              {expanded === org.id && (
+                <div style={{ borderTop: `1px solid ${C.border}`, padding: 14, background: C.surfaceAlt }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>New user in {org.name}</div>
+                  <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap" as const }}>
+                    <input value={newUser.username} onChange={e => setNewUser(n => ({ ...n, username: e.target.value }))} placeholder="username"
+                      style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: "inherit", outline: "none", width: 110 }} />
+                    <input value={newUser.email} onChange={e => setNewUser(n => ({ ...n, email: e.target.value }))} placeholder="email"
+                      style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: "inherit", outline: "none", width: 150 }} />
+                    <input value={newUser.password} onChange={e => setNewUser(n => ({ ...n, password: e.target.value }))} placeholder="password" type="password"
+                      style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: "inherit", outline: "none", width: 110 }} />
+                    {(["viewer","editor","admin"] as const).map(r => (
+                      <button key={r} onClick={() => setNewUser(n => ({ ...n, role: r }))}
+                        style={{ padding: "5px 8px", fontSize: 10, fontWeight: newUser.role === r ? 700 : 400, border: `1px solid ${newUser.role === r ? orc[r] : C.border}`, borderRadius: 4, background: newUser.role === r ? orb[r] : "none", color: newUser.role === r ? orc[r] : C.textMid, cursor: "pointer", fontFamily: "inherit" }}>
+                        {r}
+                      </button>
+                    ))}
+                    <button onClick={() => createOrgUser(org.id)}
+                      style={{ padding: "6px 12px", background: C.accent, color: "#fff", border: "none", borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                      + Add
+                    </button>
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {orgUsers.length === 0 && <div style={{ fontSize: 11, color: C.textMuted }}>No users in this org yet.</div>}
+                    {orgUsers.map(u => (
+                      <div key={u.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderTop: `1px solid ${C.border}` }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: C.text, minWidth: 100 }}>{u.username}</span>
+                        <span style={{ fontSize: 10, color: C.textMuted, flex: 1 }}>{u.email}</span>
+                        <span style={{ background: orb[u.role], color: orc[u.role], fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3 }}>{u.role}</span>
+                        {(["viewer","editor","admin","superadmin"] as const).filter(r => r !== u.role).map(r => (
+                          <button key={r} onClick={() => setUserRole(org.id, u.id, r)}
+                            style={{ padding: "2px 6px", border: `1px solid ${C.border}`, borderRadius: 4, background: "none", cursor: "pointer", fontSize: 9, color: C.textMid, fontFamily: "inherit" }}>
+                            → {r}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Admin view type ──────────────────────────────────────────────────────────
-type AdminView = "health" | "audit-admin" | "import-export" | "backup" | "db" | "settings";
+type AdminView = "health" | "audit-admin" | "import-export" | "backup" | "db" | "settings" | "organizations";
 
 function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpenPolicies, onIngest, onAdminNav }: {
   user: import("./api").SessionUser;
@@ -2407,8 +2637,8 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const rc: Record<string, string> = { admin: C.danger, editor: C.warn, viewer: C.info };
-  const rb: Record<string, string> = { admin: C.dangerLight, editor: C.warnLight, viewer: C.infoLight };
+  const rc: Record<string, string> = { admin: C.danger, editor: C.warn, viewer: C.info, superadmin: C.purple };
+  const rb: Record<string, string> = { admin: C.dangerLight, editor: C.warnLight, viewer: C.infoLight, superadmin: C.purpleLight };
 
   async function createUser() {
     if (!newU.username.trim() || !newU.email.trim() || !newU.password) { setErr("All fields required"); return; }
@@ -2453,6 +2683,33 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                 <div style={{ fontSize: 12, fontWeight: 800, color: C.text }}>{user.username}</div>
                 <span style={{ background: rb[user.role] ?? C.infoLight, color: rc[user.role] ?? C.info, fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3 }}>{user.role}</span>
               </div>
+              {user.role === "superadmin" ? (
+                <>
+                  <button onClick={() => { setOpen(false); setSection(null); onAdminNav("organizations"); }}
+                    style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.surfaceAlt; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                    <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>🏢</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Organizations</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>Manage tenants & users</div>
+                    </div>
+                    <span style={{ color: C.textMuted }}>›</span>
+                  </button>
+                  <button onClick={() => { setOpen(false); onOpenPolicies(); }}
+                    style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = C.surfaceAlt; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = "none"; }}>
+                    <span style={{ fontSize: 16, width: 22, textAlign: "center" as const }}>🌐</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>Global Policies</div>
+                      <div style={{ fontSize: 10, color: C.textMuted }}>Templates shared across every org</div>
+                    </div>
+                    <span style={{ color: C.textMuted }}>›</span>
+                  </button>
+                </>
+              ) : (
+                <>
               {user.role !== "viewer" && (
                 <>
                   <button onClick={() => { setOpen(false); onIngest(); }}
@@ -2508,6 +2765,8 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                       <span style={{ color: C.textMuted }}>›</span>
                     </button>
                   ))}
+                </>
+              )}
                 </>
               )}
               <button onClick={onSignOut}
@@ -3592,15 +3851,17 @@ export default function App() {
       appUsers={appUsers}
       onLogout={handleLogout}
       onUsersChanged={loadAppUsers}
+      onSessionUpdate={setSessionUser}
     />
   );
 }
 
-function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
+function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpdate }: {
   sessionUser: import("./api").SessionUser;
   appUsers: import("./api").AppUser[];
   onLogout: () => void;
   onUsersChanged: () => void;
+  onSessionUpdate: (u: import("./api").SessionUser) => void;
 }) {
   const [policies,       setPolicies]    = useState<Policy[]>([]);
   const [events,         setEvents]      = useState<EventGroupSummary[]>([]);
@@ -3997,7 +4258,8 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
             {adminView === "import-export" && <ImportExportPanel />}
             {adminView === "backup"        && <BackupPanel />}
             {adminView === "db"            && <DbMaintenancePanel />}
-            {adminView === "settings"      && <SettingsPanel />}
+            {adminView === "settings"      && <SettingsPanel onSessionUpdate={onSessionUpdate} />}
+            {adminView === "organizations" && <OrganizationsPanel />}
           </div>
         )}
 
@@ -4380,7 +4642,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged }: {
       </div>
 
       {selected && <EventDetail event={selected} policy={policies.find(p => p.id === selected.policyId)} onClose={() => { setSelected(null); setFocusRawEventId(undefined); }} initialRawEventId={focusRawEventId} />}
-      {showPolicies && <PoliciesPanel policies={policies} onSave={savePolicy} onDelete={deletePolicy} onToggle={togglePolicy} onClose={() => setShowPolicies(false)} />}
+      {showPolicies && <PoliciesPanel policies={policies} onSave={savePolicy} onDelete={deletePolicy} onToggle={togglePolicy} onClose={() => setShowPolicies(false)} currentUserRole={sessionUser.role} />}
       {showIngest && <IngestModal policies={policies} onIngest={handleIngest} onClose={() => setShowIngest(false)} />}
     </div>
   );

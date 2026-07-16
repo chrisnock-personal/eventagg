@@ -319,7 +319,6 @@ node scripts/demo.js --host <host> --api-key <key>
 | `CORS_ORIGIN` | `*` | CORS origin |
 | `JWT_SECRET` | dev default | JWT signing secret — **change in production** |
 | `ADMIN_PASSWORD` | `admin123` | Password set for the default org's admin on first boot |
-| `SUPERADMIN_PASSWORD` | — | Creates a platform-level superadmin user on first boot (disabled if unset) |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
 | `SNMP_PORT` | `1162` | SNMP UDP listen port |
 | `SNMP_COMMUNITY` | `public` | Accepted SNMP community string |

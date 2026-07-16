@@ -2,13 +2,18 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
-import { requireAuth, requireRole } from '../middleware/session';
+import { requireAuth, requireRole, setSessionCookie } from '../middleware/session';
 import { query } from '../db/pool';
+import { getMultiTenancyConfig, enableMultiTenancy } from '../services/tenancyService';
 
 const router = Router();
 const adminOnly = requireRole('admin');
 
 // ── System config ─────────────────────────────────────────────────────────────
+// 'multi_tenancy' is deliberately excluded from this generic key/value store —
+// it can only be flipped via POST /tenancy/enable below, which also performs
+// the superadmin promotion in the same transaction. Allowing it through here
+// too would let any admin flip the flag without actually promoting anyone.
 
 router.get('/config/:key', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -21,6 +26,9 @@ router.get('/config/:key', requireAuth, adminOnly, async (req: Request, res: Res
 
 router.put('/config/:key', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (req.params.key === 'multi_tenancy') {
+      return res.status(403).json({ error: 'Use POST /system/tenancy/enable to enable multi-tenancy' });
+    }
     await query(
       `INSERT INTO system_config (key, value, updated_at, updated_by)
        VALUES ($1, $2, now(), $3)
@@ -28,6 +36,39 @@ router.put('/config/:key', requireAuth, adminOnly, async (req: Request, res: Res
       [req.params.key, JSON.stringify(req.body), (req as any).user?.email]
     );
     res.json({ ok: true });
+  } catch (e) { next(e); }
+});
+
+// ── Multi-tenancy toggle ───────────────────────────────────────────────────────
+
+router.get('/tenancy', requireAuth, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await getMultiTenancyConfig());
+  } catch (e) { next(e); }
+});
+
+router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { password } = req.body as { password?: string };
+    if (!password) return res.status(400).json({ error: 'password is required' });
+
+    const user = (req as any).user;
+    const result = await enableMultiTenancy(user.username, password);
+    if (!result.ok || !result.user) {
+      return res.status(result.statusCode ?? 400).json({ error: result.error });
+    }
+
+    const sessionUser = {
+      id: result.user.id,
+      username: result.user.username,
+      email: result.user.email,
+      role: result.user.role,
+      passwordChanged: result.user.passwordChanged,
+      orgId: result.user.orgId,
+      orgName: result.user.orgName,
+    };
+    setSessionCookie(res, sessionUser);
+    res.json(sessionUser);
   } catch (e) { next(e); }
 });
 

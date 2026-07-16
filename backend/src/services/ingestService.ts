@@ -44,10 +44,11 @@ export async function ingestRawEvent(orgId: string, input: IngestInput): Promise
     // 1. Load and validate policy — check existence and active state separately.
     //    Scoping by org_id here is the key tenant boundary: a caller authenticated
     //    with org A's ingest key can never target a policy belonging to org B,
-    //    even if they guess its UUID.
+    //    even if they guess its UUID. Global policies (org_id IS NULL) are usable
+    //    by every org, since that's the whole point of a shared template.
     const policyRow = await client
       .query<Policy & { is_active: boolean }>(
-        `SELECT * FROM policies WHERE id = $1 AND org_id = $2`,
+        `SELECT * FROM policies WHERE id = $1 AND (org_id = $2 OR org_id IS NULL)`,
         [input.policyId, orgId]
       )
       .then((r) => r.rows[0]);

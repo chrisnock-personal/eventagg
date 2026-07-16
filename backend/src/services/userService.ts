@@ -78,9 +78,8 @@ export async function verifyCredentials(
 // always pass their own orgId (they can never be null — the DB CHECK
 // constraint guarantees any non-superadmin user has an org), scoping every
 // query to that org so one org's admin can never see/touch another org's
-// users. Superadmin management of users across orgs is not built yet
-// (Phase 2 — Organizations admin panel); these routes are only reachable by
-// role="admin" today.
+// users. Superadmin's cross-org user management goes through
+// adminSetUserOrgAndRole below instead, not these org-scoped functions.
 
 export async function listUsers(orgId: string): Promise<User[]> {
   const rows = await query<UserRow>(
@@ -183,4 +182,52 @@ export async function forcePasswordChange(id: string, newPassword: string): Prom
 export async function deleteUser(orgId: string, id: string): Promise<boolean> {
   const result = await query(`DELETE FROM users WHERE id = $1 AND org_id = $2`, [id, orgId]);
   return (result as any).rowCount > 0;
+}
+
+// ── Superadmin-only: move a user between orgs, and promote/demote to/from
+// superadmin. No org_id WHERE-scoping — superadmin can touch any user.
+// Enforces the same invariant as the DB's users_org_role_check CHECK
+// constraint proactively, so a bad request gets a clean 400 instead of a raw
+// constraint-violation error: role='superadmin' forces orgId to null; any
+// other role requires a non-null orgId (either passed in, or already set).
+export async function adminSetUserOrgAndRole(
+  id: string,
+  input: { role?: string; orgId?: string | null; isActive?: boolean }
+): Promise<User | null> {
+  return withTransaction(async (client) => {
+    const existing = await client
+      .query<UserRow>(`SELECT * FROM users WHERE id = $1`, [id])
+      .then((r) => r.rows[0]);
+    if (!existing) return null;
+
+    const nextRole = input.role ?? existing.role;
+    let nextOrgId = "orgId" in input ? (input.orgId ?? null) : existing.org_id;
+
+    if (nextRole === "superadmin") {
+      nextOrgId = null;
+    } else if (nextOrgId === null) {
+      const err = new Error("orgId is required when role is not superadmin");
+      (err as any).statusCode = 400;
+      throw err;
+    }
+
+    const row = await client
+      .query<UserRow>(
+        `UPDATE users SET
+           role       = $1,
+           org_id     = $2,
+           is_active  = COALESCE($3, is_active),
+           updated_at = NOW()
+         WHERE id = $4
+         RETURNING *`,
+        [nextRole, nextOrgId, input.isActive ?? null, id]
+      )
+      .then((r) => r.rows[0]);
+    if (!row) return null;
+
+    const withOrg = await client
+      .query<UserRow>(`${USER_SELECT} WHERE u.id = $1`, [row.id])
+      .then((r) => r.rows[0]);
+    return toUser(withOrg);
+  });
 }

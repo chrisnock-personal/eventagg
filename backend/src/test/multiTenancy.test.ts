@@ -96,11 +96,20 @@ describe("multi-tenancy isolation (HTTP)", () => {
     expect(res.status).toBe(401);
   });
 
-  it("rejects superadmin on org-scoped endpoints with 403, not empty/all data", async () => {
+  it("rejects superadmin on org-scoped endpoints that have no global concept (events)", async () => {
+    const superadmin = await createTestUser(null, "superadmin");
+    const cookie = await loginAs(app, superadmin.username, TEST_PASSWORD);
+
+    const res = await request(app).get("/api/v1/events").set("Cookie", cookie);
+    expect(res.status).toBe(403);
+  });
+
+  it("superadmin's /policies view is global-only, not a blanket 403 (Phase 2)", async () => {
     const superadmin = await createTestUser(null, "superadmin");
     const cookie = await loginAs(app, superadmin.username, TEST_PASSWORD);
 
     const res = await request(app).get("/api/v1/policies").set("Cookie", cookie);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(res.body.every((p: any) => p.isGlobal === true)).toBe(true);
   });
 });
