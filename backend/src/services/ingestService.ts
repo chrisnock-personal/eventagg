@@ -341,11 +341,17 @@ async function insertRawEvent(
     return { id: result.rows[0].id, isDuplicate: false };
   }
 
-  // ON CONFLICT hit — fetch the existing raw event id
+  // ON CONFLICT hit — fetch the existing raw event id.
+  // body_hash is GENERATED ALWAYS AS (md5(body::text)) STORED where body is
+  // jsonb — Postgres's jsonb-to-text serialization inserts spaces after `:`
+  // and `,` that a plain JS JSON.stringify string doesn't have, so casting
+  // straight to ::text here would compute a different hash and never match.
+  // Casting through ::jsonb first reproduces the same serialization the
+  // generated column used.
   const existing = await client.query<{ id: string }>(
     `SELECT id FROM raw_events
      WHERE  ${opts.inProgressId ? "in_progress_id = $1" : "completed_id = $1"}
-       AND  body_hash = md5($2::text)
+       AND  body_hash = md5($2::jsonb::text)
      LIMIT 1`,
     [opts.inProgressId ?? opts.completedId, JSON.stringify(opts.body)]
   );

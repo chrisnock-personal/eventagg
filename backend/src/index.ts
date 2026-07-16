@@ -1,121 +1,17 @@
-import express from "express";
-import cors from "cors";
-import cookieParser from "cookie-parser";
-import rateLimit from "express-rate-limit";
-import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
 import { testConnection, closePool, query, withTransaction } from "./db/pool";
 import { runMigrations } from "./db/migrate";
-import { errorHandler, notFound } from "./middleware/errorHandler";
-import { requireApiKey } from "./middleware/auth";
 import { statsCache, performanceCache } from "./cache";
-import { openApiSpec } from "./openapi";
-import authRouter     from "./routes/auth";
-import policiesRouter from "./routes/policies";
-import eventsRouter   from "./routes/events";
-import ingestRouter   from "./routes/ingest";
-import snmpRouter     from "./routes/snmp";
-import auditRouter    from "./routes/audit";
-import webhooksRouter from "./routes/webhooks";
-import systemRouter   from "./routes/system";
-import adminRouter    from "./routes/admin";
 import { createUser, updateUser } from "./services/userService";
-import { startSnmpReceiver, stopSnmpReceiver, getSnmpStats } from "./snmp/trapReceiver";
+import { startSnmpReceiver, stopSnmpReceiver } from "./snmp/trapReceiver";
 import { triggerWebhooks } from "./services/webhookService";
 import { sendGroupTimedOutAlert } from "./services/smtpService";
-
-const app = express();
-
-// ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
-app.use(express.json({ limit: "2mb" }));
-app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser());
-
-// Request logging in development
-if (config.nodeEnv === "development") {
-  app.use((req, _res, next) => {
-    console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
-    next();
-  });
-}
-
-// ─── Health check ─────────────────────────────────────────────────────────────
-app.get("/health", async (_req, res) => {
-  try {
-    // DB connectivity + partition check
-    const [dbCheck, partitionCheck] = await Promise.all([
-      query("SELECT 1 AS ok"),
-      query<{ relname: string }>(`
-        SELECT child.relname
-        FROM   pg_inherits
-        JOIN   pg_class child  ON pg_inherits.inhrelid  = child.oid
-        JOIN   pg_class parent ON pg_inherits.inhparent = parent.oid
-        WHERE  parent.relname = 'completed_events'
-        ORDER  BY child.relname DESC LIMIT 4
-      `),
-    ]);
-    const partitions = partitionCheck.map(r => r.relname);
-    res.json({
-      status: "ok",
-      timestamp: new Date().toISOString(),
-      db: { connected: true, recentPartitions: partitions },
-      cache: { statsEntries: statsCache.size, performanceEntries: performanceCache.size },
-      snmp: getSnmpStats(),
-      uptime: Math.round(process.uptime()),
-    });
-  } catch (err: any) {
-    res.status(503).json({ status: "error", error: err.message, timestamp: new Date().toISOString() });
-  }
-});
-
-// ─── Rate limiting ────────────────────────────────────────────────────────────
-const ingestRateLimit = rateLimit({
-  windowMs: 60_000,          // 1 minute
-  max: 10_000,               // 10k requests/min per IP
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: "Ingest rate limit exceeded — reduce request frequency or batch events" },
-});
-
-// ─── Routes ───────────────────────────────────────────────────────────────────
-app.use("/api/v1/auth",             authRouter);
-app.use("/api/v1/policies",         policiesRouter);
-app.use("/api/v1/events/ingest",    ingestRateLimit, requireApiKey, ingestRouter);
-app.use("/api/v1/events",           eventsRouter);
-app.use("/api/v1/snmp",             snmpRouter);
-app.use("/api/v1/audit",            auditRouter);
-app.use("/api/v1/webhooks",         webhooksRouter);
-app.use("/api/v1/system",           systemRouter);
-// Restore route needs raw SQL body — must be registered before adminRouter
-app.use("/api/v1/admin/restore",    express.text({ type: "application/sql", limit: "100mb" }));
-app.use("/api/v1/admin",            adminRouter);
-
-// ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
-app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
-app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec, {
-  customSiteTitle: "Aggre/Gator API Docs",
-  customCss: `
-    .swagger-ui .topbar { background-color: #1A1916; }
-    .swagger-ui .topbar .download-url-wrapper { display: none; }
-    .swagger-ui .info .title { color: #1D6B4E; }
-    body { font-family: 'Calibri', sans-serif; }
-  `,
-  swaggerOptions: {
-    docExpansion: "list",
-    filter: true,
-    tagsSorter: "alpha",
-  },
-}));
-
-// ─── 404 & error handlers ─────────────────────────────────────────────────────
-app.use(notFound);
-app.use(errorHandler);
+import app from "./app";
 
 // ─── Auto-partition management ────────────────────────────────────────────────
 // Ensures completed_events partitions exist for the current + next 3 quarters.
 // Runs on startup and every 24h. Safe to run repeatedly (IF NOT EXISTS).
-async function runPartitionJob(): Promise<void> {
+export async function runPartitionJob(): Promise<void> {
   try {
     const now = new Date();
     const year = now.getFullYear();
@@ -136,11 +32,15 @@ async function runPartitionJob(): Promise<void> {
       const startDate = `${y}-${String(startM).padStart(2, "0")}-01`;
       const endDate   = `${endY}-${String(endM).padStart(2, "0")}-01`;
 
+      // PostgreSQL rejects bind parameters inside FOR VALUES FROM/TO — partition
+      // bounds must be literal constants over the extended query protocol
+      // ("bind message supplies N parameters, but prepared statement requires 0").
+      // startDate/endDate are built from numeric year/month above, never from
+      // user input, so inlining them here is safe.
       await query(
         `CREATE TABLE IF NOT EXISTS ${tableName}
          PARTITION OF completed_events
-         FOR VALUES FROM ($1) TO ($2)`,
-        [startDate, endDate]
+         FOR VALUES FROM ('${startDate}') TO ('${endDate}')`
       );
     }
     console.log(`📅  Partition job: ensured partitions for ${toCreate.map(t => `${t.year} Q${t.q+1}`).join(", ")}`);
@@ -152,7 +52,7 @@ async function runPartitionJob(): Promise<void> {
 // ─── Timeout background job ───────────────────────────────────────────────────
 // Runs every 60s. Finds in-progress groups where last_raw_event_at + policy.timeout_ms
 // is in the past, and promotes them to completed_events with status='timed_out'.
-async function runTimeoutJob(): Promise<void> {
+export async function runTimeoutJob(): Promise<void> {
   try {
     // Find all in-progress groups where the policy has a timeout and it has elapsed
     const timedOut = await query<{
@@ -357,4 +257,9 @@ async function start(): Promise<void> {
   }
 }
 
-start();
+// Only boot the real server when this file is run directly (node dist/index.js,
+// ts-node-dev src/index.ts) — not when imported by tests wanting the plain
+// job functions or the Express app without side effects.
+if (require.main === module) {
+  start();
+}
