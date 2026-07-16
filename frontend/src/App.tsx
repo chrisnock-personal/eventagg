@@ -13,6 +13,7 @@ import {
 
 // ─── Palette ──────────────────────────────────────────────────────────────────
 const C = {
+  dark: "#1A1916",
   bg: "#F8F7F4", surface: "#FFFFFF", surfaceAlt: "#F2F1EE", surfaceDeep: "#ECEAE6",
   border: "#E0DDD8", borderStrong: "#C8C4BC",
   text: "#1A1916", textMid: "#4A4844", textMuted: "#8A8680",
