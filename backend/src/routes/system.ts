@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { execSync } from 'child_process';
+import { z } from 'zod';
 import * as fs from 'fs';
 import * as os from 'os';
 import { requireAuth, requireRole, setSessionCookie } from '../middleware/session';
@@ -15,6 +16,24 @@ const adminOnly = requireRole('admin');
 // the superadmin promotion in the same transaction. Allowing it through here
 // too would let any admin flip the flag without actually promoting anyone.
 
+// Shared with POST /config/smtp/test below — both need the same shape.
+const smtpConfigSchema = z.object({
+  host:     z.string().min(1),
+  port:     z.number().int().min(1).max(65535),
+  secure:   z.boolean(),
+  user:     z.string().min(1),
+  password: z.string().min(1),
+  from:     z.string().optional().default(''),
+});
+
+// Per-key validation for the known keys this generic store actually holds
+// today. An unrecognized key still falls through to a permissive "must be a
+// plain object" check below, so the store stays forward-compatible with
+// future config keys without needing a schema added here first.
+const CONFIG_SCHEMAS: Record<string, z.ZodType> = {
+  smtp: smtpConfigSchema,
+};
+
 router.get('/config/:key', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const rows = await query<{ value: unknown }>(
@@ -29,11 +48,13 @@ router.put('/config/:key', requireAuth, adminOnly, async (req: Request, res: Res
     if (req.params.key === 'multi_tenancy') {
       return res.status(403).json({ error: 'Use POST /system/tenancy/enable to enable multi-tenancy' });
     }
+    const schema = CONFIG_SCHEMAS[req.params.key] ?? z.record(z.string(), z.unknown());
+    const value = schema.parse(req.body);
     await query(
       `INSERT INTO system_config (key, value, updated_at, updated_by)
        VALUES ($1, $2, now(), $3)
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now(), updated_by = $3`,
-      [req.params.key, JSON.stringify(req.body), req.user?.email]
+      [req.params.key, JSON.stringify(value), req.user?.email]
     );
     res.json({ ok: true });
   } catch (e) { next(e); }
@@ -49,8 +70,7 @@ router.get('/tenancy', requireAuth, async (_req: Request, res: Response, next: N
 
 router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { password } = req.body as { password?: string };
-    if (!password) return res.status(400).json({ error: 'password is required' });
+    const { password } = z.object({ password: z.string().min(1) }).parse(req.body);
 
     const user = req.user!;
     // Authenticating by username (before org is re-confirmed) and the
@@ -81,9 +101,16 @@ router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Re
 // ── SMTP test ─────────────────────────────────────────────────────────────────
 
 router.post('/config/smtp/test', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+  // Shape errors (missing host, bad port, etc.) go through the standard
+  // validation-error path; only an actual connection/auth failure gets the
+  // friendlier inline 400 below, since that's the whole point of "test".
+  let cfg: z.infer<typeof smtpConfigSchema>;
+  try {
+    cfg = smtpConfigSchema.parse(req.body);
+  } catch (e) { return next(e); }
+
   try {
     const nodemailer = await import('nodemailer');
-    const cfg = req.body as { host: string; port: number; secure: boolean; user: string; password: string };
     const transporter = nodemailer.default.createTransport({
       host: cfg.host, port: cfg.port, secure: cfg.secure,
       auth: { user: cfg.user, pass: cfg.password },
@@ -291,7 +318,9 @@ router.get('/logs/:service', requireAuth, adminOnly, (req: Request, res: Respons
   if (!logFile) return res.status(404).json({ error: 'Unknown service' });
   try {
     if (!fs.existsSync(logFile)) return res.json({ lines: [], errors: [], service: req.params.service });
-    const lineCount = Math.min(parseInt(req.query.lines as string || '200'), 2000);
+    const { lines: lineCount } = z.object({
+      lines: z.coerce.number().int().min(1).max(2000).default(200),
+    }).parse(req.query);
     const output    = execSync(`tail -n ${lineCount} ${logFile}`, { encoding: 'utf8' });
     const allLines  = output.split('\n').filter(Boolean);
     const errors    = allLines.filter(l =>

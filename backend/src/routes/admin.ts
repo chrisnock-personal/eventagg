@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from 'express';
+import { z } from 'zod';
 import { requireAuth, requireRole } from '../middleware/session';
 import { orgContextMiddleware } from '../middleware/orgContext';
 import { query, queryOne } from '../db/pool';
@@ -47,16 +48,43 @@ router.get('/export/policies', requireAuth, adminOnly, orgContextMiddleware, asy
 
 // ── Policy import ─────────────────────────────────────────────────────────────
 
+// Only the bundle's outer shape (version + policies being an array) is
+// validated strictly — a single malformed policy entry inside a mostly-good
+// bundle is collected into results.errors below rather than rejecting the
+// whole import, matching this route's existing partial-success design (the
+// same reason DB-constraint failures per policy are caught individually).
+const policyImportBundleSchema = z.object({
+  version:  z.string().min(1, 'Invalid bundle — missing version field'),
+  policies: z.array(z.unknown()).default([]),
+});
+
+const policyImportItemSchema = z.object({
+  name:         z.string().min(1),
+  domain:       z.string().min(1),
+  key_field:    z.string().min(1),
+  cradle_field: z.string().min(1),
+  cradle_value: z.string().min(1),
+  grave_field:  z.string().min(1),
+  grave_value:  z.string().min(1),
+  timeout_ms:   z.number().int().positive().nullable().optional(),
+  description:  z.string().nullable().optional(),
+});
+
 router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;
-    const bundle = req.body as { version?: string; policies?: unknown[] };
-    if (!bundle.version) return res.status(400).json({ error: 'Invalid bundle — missing version field' });
+    const bundle = policyImportBundleSchema.parse(req.body);
 
     const results = { imported: 0, updated: 0, errors: [] as string[] };
 
-    for (const p of bundle.policies ?? []) {
-      const pol = p as Record<string, unknown>;
+    for (const raw of bundle.policies) {
+      const parsed = policyImportItemSchema.safeParse(raw);
+      if (!parsed.success) {
+        const label = (raw as Record<string, unknown>)?.name ?? '(unnamed)';
+        results.errors.push(`Policy "${label}": ${parsed.error.issues.map(i => `${i.path.join('.')} ${i.message}`).join(', ')}`);
+        continue;
+      }
+      const pol = parsed.data;
       try {
         const existing = await queryOne<{ id: string }>(
           `SELECT id FROM policies WHERE name = $1 AND org_id = $2`, [pol.name, orgId]
@@ -67,7 +95,7 @@ router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, as
              grave_field=$6, grave_value=$7, timeout_ms=$8, description=$9
              WHERE id=$1`,
             [existing.id, pol.domain, pol.key_field, pol.cradle_field, pol.cradle_value,
-             pol.grave_field, pol.grave_value, pol.timeout_ms, pol.description]
+             pol.grave_field, pol.grave_value, pol.timeout_ms ?? null, pol.description ?? null]
           );
           results.updated++;
         } else {
@@ -76,7 +104,7 @@ router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, as
              grave_field, grave_value, timeout_ms, description)
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
             [orgId, pol.name, pol.domain, pol.key_field, pol.cradle_field, pol.cradle_value,
-             pol.grave_field, pol.grave_value, pol.timeout_ms, pol.description]
+             pol.grave_field, pol.grave_value, pol.timeout_ms ?? null, pol.description ?? null]
           );
           results.imported++;
         }
@@ -220,11 +248,14 @@ router.post('/db/vacuum', requireAuth, superadminOnly, async (_req: Request, res
   } catch (e) { next(e); }
 });
 
+const purgeBodySchema = z.object({
+  days: z.coerce.number().int().min(30, 'Minimum retention is 30 days').default(90),
+});
+
 router.post('/db/purge', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;
-    const days = parseInt((req.body as { days?: string }).days ?? '90');
-    if (isNaN(days) || days < 30) return res.status(400).json({ error: 'Minimum retention is 30 days' });
+    const { days } = purgeBodySchema.parse(req.body);
 
     const [cntCompleted] = await query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM completed_events WHERE org_id = $1 AND ended_at < now() - ($2 || ' days')::interval`,
