@@ -22,7 +22,16 @@ const envSchema = z.object({
   PG_POOL_CONNECTION_TIMEOUT_MS: z.string().default("5000"),
 
   // CORS
-  CORS_ORIGIN: z.string().default("*"),
+  // Defaults to same-origin only (no Access-Control-Allow-Origin header at
+  // all) rather than "*" — this app's own nginx.conf proxies the frontend
+  // and API on the same origin, so no cross-origin browser requests are
+  // needed for the documented deployment. "*" combined with credentials:
+  // true (see app.ts) is silently rejected by browsers anyway, so the old
+  // "*" default never actually worked for a credentialed cross-origin
+  // caller — it was a footgun with no upside. Set this explicitly to a
+  // real origin (or "*", for a non-credentialed integration) only if a
+  // separately-hosted frontend needs to call this API directly.
+  CORS_ORIGIN: z.string().default(""),
 
   // Auth
   // JWT_SECRET is intentionally optional here (not required like PGPASSWORD)

@@ -24,7 +24,11 @@ import { getSnmpStats } from "./snmp/trapReceiver";
 const app = express();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use(cors({ origin: config.corsOrigin, credentials: true }));
+// Empty CORS_ORIGIN (the default) means same-origin only — origin: false
+// tells the cors package to skip Access-Control-Allow-Origin entirely,
+// which is exactly right for this app's own same-origin nginx-proxied
+// deployment and correctly blocks any actual cross-origin browser caller.
+app.use(cors({ origin: config.corsOrigin === "" ? false : config.corsOrigin, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
