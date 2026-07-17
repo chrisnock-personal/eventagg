@@ -11,7 +11,8 @@
     "migrate": "ts-node src/db/migrate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -29,6 +30,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/cookie-parser": "^1.4.7",
     "@types/cors": "^2.8.17",
@@ -40,10 +42,12 @@
     "@types/pg": "^8.11.6",
     "@types/supertest": "^7.2.1",
     "@types/swagger-ui-express": "^4.1.7",
+    "eslint": "^10.7.0",
     "pino-pretty": "^13.1.3",
     "supertest": "^7.2.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.4.5",
+    "typescript-eslint": "^8.64.0",
     "vitest": "^4.1.10"
   }
 }
