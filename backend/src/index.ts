@@ -1,8 +1,9 @@
+import bcrypt from "bcryptjs";
 import { config } from "./config";
 import { testConnection, closePool, query, withTransaction, runWithOrgContext } from "./db/pool";
 import { runMigrations } from "./db/migrate";
 import { statsCache, performanceCache } from "./cache";
-import { createUser, updateUser } from "./services/userService";
+import { createUser } from "./services/userService";
 import { startSnmpReceiver, stopSnmpReceiver } from "./snmp/trapReceiver";
 import { triggerWebhooks } from "./services/webhookService";
 import { sendGroupTimedOutAlert } from "./services/smtpService";
@@ -183,10 +184,20 @@ async function seedDefaultAdmin(): Promise<void> {
         await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
         console.log(`👤  Default admin created — username: admin  password: ${password}  org: Default Organisation`);
       } else {
-        // Always reset the hash on startup so it matches the current bcryptjs implementation
-        await updateUser(orgId, existing[0].id, { password });
-        // Reset password_changed so the first-login change prompt re-appears
-        await query(`UPDATE users SET password_changed = FALSE WHERE id = $1 AND username = 'admin'`, [existing[0].id]);
+        // Direct update by id — not the org-scoped updateUser() service
+        // function, which requires WHERE id=$1 AND org_id=$2. The seeded
+        // admin may since have been promoted to superadmin (org_id set to
+        // NULL by that flow), in which case updateUser()'s org_id match
+        // would silently find zero rows: no error, no thrown exception,
+        // just a false "success" logged below while the password quietly
+        // never actually changed. Always reset the hash on startup so it
+        // matches the current bcryptjs implementation, and reset
+        // password_changed so the first-login change prompt re-appears.
+        const hash = await bcrypt.hash(password, 10);
+        await query(
+          `UPDATE users SET password_hash = $1, password_changed = FALSE, updated_at = NOW() WHERE id = $2`,
+          [hash, existing[0].id]
+        );
         console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
       }
     });

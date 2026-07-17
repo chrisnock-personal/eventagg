@@ -31,13 +31,20 @@ services:
       # Same-origin only by default — set only if a separately-hosted
       # frontend needs to call this API directly (see README's CORS note).
       CORS_ORIGIN: "${CORS_ORIGIN:-}"
-      PG_POOL_MAX: "10"
+      PG_POOL_MAX: "${PG_POOL_MAX:-10}"
+      PG_POOL_IDLE_TIMEOUT_MS: "${PG_POOL_IDLE_TIMEOUT_MS:-30000}"
+      PG_POOL_CONNECTION_TIMEOUT_MS: "${PG_POOL_CONNECTION_TIMEOUT_MS:-5000}"
       # Set explicitly for persistent sessions across restarts — if unset,
       # a random secret is generated each boot (see middleware/session.ts).
       JWT_SECRET: "${JWT_SECRET:-}"
       # Only set to "true" once TLS is actually terminated in front of this
       # app (e.g. a reverse proxy) — nginx.conf itself serves plain HTTP.
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      # Password set for the default org's admin on first boot only — was
+      # never actually forwarded from the host env here before, so setting
+      # it in .env silently had no effect and every deployment got the
+      # admin123 fallback (backend/src/index.ts's seedDefaultAdmin).
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
       # ── SNMP trap receiver ───────────────────────────────────────────────
       SNMP_ENABLED: "${SNMP_ENABLED:-true}"
       SNMP_PORT: "${SNMP_PORT:-1162}"
