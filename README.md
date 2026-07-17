@@ -407,6 +407,8 @@ eventagg/
 ├── supervisord.conf              Manages postgres + backend + nginx
 ├── entrypoint.sh                 Container startup: init DB, run migrations, start supervisord
 ├── OPERATIONS.md                 WAL archiving, rate limiting, partition management, tuning
+├── CHANGELOG.md                  Notable changes, Keep a Changelog format
+├── LICENSE                       MIT
 └── README.md
 ```
 
@@ -415,3 +417,9 @@ eventagg/
 ## Operations
 
 See [OPERATIONS.md](./OPERATIONS.md) for duplicate-detection internals, WAL archiving, rate limiting, partition management SQL, migration rollback procedure, and query timeout/cache TTL reference.
+
+---
+
+## License
+
+[MIT](./LICENSE). See [CHANGELOG.md](./CHANGELOG.md) for notable changes.

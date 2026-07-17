@@ -2,6 +2,7 @@
   "name": "eventagg-backend",
   "version": "1.0.0",
   "description": "EventAgg API server",
+  "license": "MIT",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",

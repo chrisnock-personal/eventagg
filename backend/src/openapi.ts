@@ -11,7 +11,8 @@ export const openApiSpec = {
       "Intelligent event stream aggregation. Ingest events from any source, " +
       "group them by configurable key, track cradle-to-grave lifecycle, and " +
       "surface real-time insights. All core features are available headlessly via this API.",
-    contact: { name: "Aggre/Gator", url: "https://github.com/your-org/aggre-gator" },
+    contact: { name: "Aggre/Gator", url: "https://github.com/chrisnock-personal/eventagg" },
+    license: { name: "MIT", url: "https://github.com/chrisnock-personal/eventagg/blob/main/LICENSE" },
   },
   servers: [{ url: "/api/v1", description: "Current instance" }],
 
