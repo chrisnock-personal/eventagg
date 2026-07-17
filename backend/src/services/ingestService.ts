@@ -2,6 +2,7 @@ import { PoolClient } from "pg";
 import { withTransaction, queryOne } from "../db/pool";
 import { Policy, AuditAction, EventGroupDetail, RawEventDetail } from "../types";
 import { triggerWebhooks, WebhookGroupPayload } from "./webhookService";
+import { logger } from "../logger";
 
 // Resolve a dot-notation path against a JSON object
 // e.g. resolvePath({ trade: { ref: "T-001" } }, "trade.ref") => "T-001"
@@ -357,7 +358,7 @@ async function insertRawEvent(
     [opts.inProgressId ?? opts.completedId, JSON.stringify(opts.body)]
   );
 
-  console.log(`⚠️  Duplicate raw event detected for key "${opts.aggregationKey}" seq=${opts.sequence} — skipping`);
+  logger.warn({ aggregationKey: opts.aggregationKey, sequence: opts.sequence }, "⚠️  Duplicate raw event detected — skipping");
   return { id: existing.rows[0]?.id ?? "duplicate", isDuplicate: true };
 }
 

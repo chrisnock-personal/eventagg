@@ -12,6 +12,7 @@ import {
 import { createError } from "../middleware/errorHandler";
 import { requireAuth } from "../middleware/session";
 import { orgContextMiddleware } from "../middleware/orgContext";
+import { logger } from "../logger";
 
 const router = Router();
 
@@ -81,7 +82,7 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
 
     if (policy.timeoutMs !== null && policy.timeoutMs !== undefined) {
       const count = await applyPolicyTimeout(orgId, req.params.id);
-      if (count > 0) console.log(`⏱  Retroactive timeout: ${count} group(s) closed for policy ${policy.name}`);
+      if (count > 0) logger.info({ count, policyName: policy.name }, "⏱  Retroactive timeout");
     }
 
     audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.updated", actor: req.user?.username, sourceIp: req.ip, afterState: { name: policy.name, timeoutMs: policy.timeoutMs } });

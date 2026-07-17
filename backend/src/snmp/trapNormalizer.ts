@@ -7,6 +7,7 @@ import {
 } from "./oidMap";
 import { query } from "../db/pool";
 import { IngestInput } from "../services/ingestService";
+import { logger } from "../logger";
 
 export interface RawTrap {
   sourceAddress: string;
@@ -190,7 +191,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     // right body property and know which org this event belongs to
     const policyInfo = await getPolicyKeyField(policyId);
     if (!policyInfo) {
-      console.log(`📡  SNMP: policy ${policyId} not found or inactive`);
+      logger.info({ policyId }, "📡  SNMP: policy not found or inactive");
       return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: communityOrgId };
     }
     const { keyField, orgId } = policyInfo;
@@ -202,7 +203,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     // Still attributed to the community's org (not null) so that tenant's
     // admin can actually see the misconfigured trap arrived.
     if (communityOrgId && orgId !== communityOrgId) {
-      console.log(`📡  SNMP: policy ${policyId} belongs to a different org than community "${raw.community}" resolves to — dropping as unrouted`);
+      logger.warn({ policyId, community: raw.community }, "📡  SNMP: policy belongs to a different org than community resolves to — dropping as unrouted");
       return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: communityOrgId };
     }
 

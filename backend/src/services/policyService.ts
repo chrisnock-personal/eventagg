@@ -1,5 +1,6 @@
 import { PoolClient } from "pg";
 import { query, queryOne, withTransaction } from "../db/pool";
+import { logger } from "../logger";
 import {
   Policy,
   PolicyResponse,
@@ -296,7 +297,7 @@ export async function applyPolicyTimeout(orgId: string | null, policyId: string)
       );
       await client.query(`DELETE FROM in_progress_events WHERE id = $1`, [group.id]);
       count++;
-      console.log(`    ✓ Retroactively timed out: ${group.aggregation_key} (${group.id.slice(0,8)}…)`);
+      logger.info({ aggregationKey: group.aggregation_key, groupId: group.id }, "✓ Retroactively timed out");
     }
     return count;
   });

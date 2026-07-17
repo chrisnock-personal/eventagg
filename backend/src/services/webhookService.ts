@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { query, queryOne } from "../db/pool";
+import { logger } from "../logger";
 
 export interface Webhook {
   id: string;
@@ -208,11 +209,11 @@ export async function triggerWebhooks(
       const webhook = toWebhook(row);
       setImmediate(() => {
         attemptDelivery(webhook, eventType, group, delivery.id, 1).catch(err =>
-          console.error(`Webhook delivery error [${row.id}]:`, err)
+          logger.error({ err, webhookId: row.id }, "Webhook delivery error")
         );
       });
     }
   } catch (err) {
-    console.error("triggerWebhooks error:", err);
+    logger.error({ err }, "triggerWebhooks error");
   }
 }

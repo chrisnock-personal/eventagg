@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { config } from "../config";
+import { logger } from "../logger";
 
 // A hardcoded fallback secret here would be a real hole — it's sitting in
 // public source, so anyone could forge a valid session (including
@@ -15,10 +16,10 @@ import { config } from "../config";
 // must have a value").
 const SECRET = config.jwtSecret || crypto.randomBytes(32).toString("hex");
 if (!config.jwtSecret) {
-  console.warn(
-    "⚠️  JWT_SECRET is not set — using a random secret generated for this boot only.\n" +
-    "    All sessions will be invalidated on every restart. Set JWT_SECRET in your\n" +
-    "    environment for persistent sessions and to avoid regenerating it on every deploy."
+  logger.warn(
+    "⚠️  JWT_SECRET is not set — using a random secret generated for this boot only. " +
+    "All sessions will be invalidated on every restart. Set JWT_SECRET in your " +
+    "environment for persistent sessions and to avoid regenerating it on every deploy."
   );
 }
 

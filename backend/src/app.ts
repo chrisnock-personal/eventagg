@@ -7,6 +7,7 @@ import { config } from "./config";
 import { query } from "./db/pool";
 import { errorHandler, notFound } from "./middleware/errorHandler";
 import { requireApiKey } from "./middleware/auth";
+import { requestLogging } from "./middleware/requestLogging";
 import { statsCache, performanceCache } from "./cache";
 import { openApiSpec } from "./openapi";
 import authRouter     from "./routes/auth";
@@ -24,6 +25,9 @@ import { getSnmpStats } from "./snmp/trapReceiver";
 const app = express();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
+// First, so every subsequent middleware/route/error handler logs under the
+// same requestId (see middleware/requestLogging.ts + logger.ts's mixin).
+app.use(requestLogging);
 // Empty CORS_ORIGIN (the default) means same-origin only — origin: false
 // tells the cors package to skip Access-Control-Allow-Origin entirely,
 // which is exactly right for this app's own same-origin nginx-proxied
@@ -32,14 +36,6 @@ app.use(cors({ origin: config.corsOrigin === "" ? false : config.corsOrigin, cre
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-
-// Request logging in development
-if (config.nodeEnv === "development") {
-  app.use((req, _res, next) => {
-    console.log(`${new Date().toISOString()} ${req.method} ${req.path}`);
-    next();
-  });
-}
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/health", async (_req, res) => {

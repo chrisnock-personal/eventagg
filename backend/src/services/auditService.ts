@@ -1,4 +1,5 @@
 import { query } from "../db/pool";
+import { logger } from "../logger";
 
 export type AuditAction =
   | "user.login"
@@ -52,7 +53,7 @@ export function audit(entry: AuditEntry): void {
       entry.afterState    ? JSON.stringify(entry.afterState)  : null,
       entry.metadata      ? JSON.stringify(entry.metadata)    : null,
     ]
-  ).catch(err => console.error("⚠️  Audit log write failed:", err.message));
+  ).catch(err => logger.error({ err }, "⚠️  Audit log write failed"));
 }
 
 // Query helpers for the audit log route

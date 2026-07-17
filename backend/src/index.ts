@@ -7,6 +7,7 @@ import { createUser } from "./services/userService";
 import { startSnmpReceiver, stopSnmpReceiver } from "./snmp/trapReceiver";
 import { triggerWebhooks } from "./services/webhookService";
 import { sendGroupTimedOutAlert } from "./services/smtpService";
+import { logger } from "./logger";
 import app from "./app";
 
 // ─── Auto-partition management ────────────────────────────────────────────────
@@ -49,9 +50,9 @@ export async function runPartitionJob(): Promise<void> {
          FOR VALUES FROM ('${startDate}') TO ('${endDate}')`
       );
     }
-    console.log(`📅  Partition job: ensured partitions for ${toCreate.map(t => `${t.year} Q${t.q+1}`).join(", ")}`);
+    logger.info({ partitions: toCreate.map(t => `${t.year} Q${t.q+1}`) }, "📅  Partition job: ensured partitions");
   } catch (err) {
-    console.error("📅  Partition job error:", err);
+    logger.error({ err }, "📅  Partition job error");
   }
   });
 }
@@ -87,7 +88,7 @@ export async function runTimeoutJob(): Promise<void> {
 
     if (timedOut.length === 0) return;
 
-    console.log(`⏱  Timeout job: ${timedOut.length} group(s) to close`);
+    logger.info({ count: timedOut.length }, "⏱  Timeout job: group(s) to close");
 
     for (const group of timedOut) {
       try {
@@ -127,7 +128,7 @@ export async function runTimeoutJob(): Promise<void> {
             [group.id]
           );
 
-          console.log(`    ✓ Timed out: ${group.aggregation_key} (${group.id.slice(0,8)}…)`);
+          logger.info({ aggregationKey: group.aggregation_key, groupId: group.id }, "✓ Timed out");
 
           // Fire webhooks + SMTP alert after transaction commits
           const endedAt = new Date();
@@ -152,11 +153,11 @@ export async function runTimeoutJob(): Promise<void> {
           });
         });
       } catch (err) {
-        console.error(`    ✗ Failed to time out group ${group.id}:`, err);
+        logger.error({ err, groupId: group.id }, "✗ Failed to time out group");
       }
     }
   } catch (err) {
-    console.error("⏱  Timeout job error:", err);
+    logger.error({ err }, "⏱  Timeout job error");
   }
   });
 }
@@ -171,7 +172,7 @@ async function seedDefaultAdmin(): Promise<void> {
         "SELECT id FROM organisations WHERE slug = 'default' LIMIT 1"
       );
       if (defaultOrg.length === 0) {
-        console.error("⚠️  Default Organisation not found — cannot seed admin user");
+        logger.error("⚠️  Default Organisation not found — cannot seed admin user");
         return;
       }
       const orgId = defaultOrg[0].id;
@@ -182,7 +183,7 @@ async function seedDefaultAdmin(): Promise<void> {
       const password = process.env.ADMIN_PASSWORD || "admin123";
       if (existing.length === 0) {
         await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
-        console.log(`👤  Default admin created — username: admin  password: ${password}  org: Default Organisation`);
+        logger.info({ username: "admin", password, org: "Default Organisation" }, "👤  Default admin created");
       } else {
         // Direct update by id — not the org-scoped updateUser() service
         // function, which requires WHERE id=$1 AND org_id=$2. The seeded
@@ -198,11 +199,11 @@ async function seedDefaultAdmin(): Promise<void> {
           `UPDATE users SET password_hash = $1, password_changed = FALSE, updated_at = NOW() WHERE id = $2`,
           [hash, existing[0].id]
         );
-        console.log(`👤  Admin password refreshed — username: admin  password: ${password}`);
+        logger.info({ username: "admin", password }, "👤  Admin password refreshed");
       }
     });
   } catch (err) {
-    console.error("⚠️  Failed to seed admin user:", err);
+    logger.error({ err }, "⚠️  Failed to seed admin user");
   }
 }
 
@@ -216,13 +217,20 @@ async function start(): Promise<void> {
     await seedDefaultAdmin();
 
     const server = app.listen(config.port, () => {
-      console.log(`🚀  Aggre/Gator API running on port ${config.port} [${config.nodeEnv}]`);
-      console.log(`    Health:   http://localhost:${config.port}/health`);
-      console.log(`    Policies: http://localhost:${config.port}/api/v1/policies`);
-      console.log(`    Events:   http://localhost:${config.port}/api/v1/events`);
-      console.log(`    Ingest:   POST http://localhost:${config.port}/api/v1/events/ingest`);
-      console.log(`    Docs:     http://localhost:${config.port}/api/v1/docs`);
-      console.log(`    SNMP:     UDP port ${process.env.SNMP_PORT ?? "1162"} (${process.env.SNMP_ENABLED === "true" ? "enabled" : "disabled — set SNMP_ENABLED=true"})`);
+      logger.info(
+        {
+          port: config.port,
+          env: config.nodeEnv,
+          healthUrl: `http://localhost:${config.port}/health`,
+          policiesUrl: `http://localhost:${config.port}/api/v1/policies`,
+          eventsUrl: `http://localhost:${config.port}/api/v1/events`,
+          ingestUrl: `POST http://localhost:${config.port}/api/v1/events/ingest`,
+          docsUrl: `http://localhost:${config.port}/api/v1/docs`,
+          snmpPort: process.env.SNMP_PORT ?? "1162",
+          snmpEnabled: process.env.SNMP_ENABLED === "true",
+        },
+        "🚀  Aggre/Gator API running"
+      );
     });
 
     // Start timeout job — run immediately then every 60 seconds
@@ -242,7 +250,7 @@ async function start(): Promise<void> {
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
-      console.log(`\n${signal} received — shutting down gracefully...`);
+      logger.info({ signal }, "Signal received — shutting down gracefully");
       clearInterval(timeoutJobInterval);
       clearInterval(partitionJobInterval);
       stopSnmpReceiver();
@@ -250,7 +258,7 @@ async function start(): Promise<void> {
       performanceCache.destroy();
       server.close(async () => {
         await closePool();
-        console.log("✅  Shutdown complete");
+        logger.info("✅  Shutdown complete");
         process.exit(0);
       });
     };
@@ -258,7 +266,7 @@ async function start(): Promise<void> {
     process.on("SIGTERM", () => shutdown("SIGTERM"));
     process.on("SIGINT",  () => shutdown("SIGINT"));
   } catch (err) {
-    console.error("❌  Failed to start:", err);
+    logger.error({ err }, "❌  Failed to start");
     process.exit(1);
   }
 }

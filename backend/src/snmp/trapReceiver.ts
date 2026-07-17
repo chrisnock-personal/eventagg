@@ -2,6 +2,7 @@ import { query, runWithOrgContext } from "../db/pool";
 import { ingestRawEvent } from "../services/ingestService";
 import { normalizeTrap, RawTrap, invalidateRoutingCache, getDefaultOrgId } from "./trapNormalizer";
 import { statsCache, performanceCache } from "../cache";
+import { logger } from "../logger";
 import * as dgram from "dgram";
 
 export interface SnmpReceiverConfig {
@@ -55,7 +56,7 @@ async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?:
       [orgId, trap.agentAddr, trap.agentAddr, trap.community]
     );
   } catch (err) {
-    console.error("📡  SNMP log error:", (err as any).message);
+    logger.error({ err }, "📡  SNMP log error");
   }
 }
 
@@ -70,7 +71,7 @@ async function processTrap(raw: RawTrap): Promise<void> {
       const normalized = await normalizeTrap(raw);
       if (!normalized.ingestInput || !normalized.orgId) {
         stats.unrouted++;
-        console.log(`📡  SNMP unrouted | ${normalized.trapName} | from ${raw.sourceAddress}`);
+        logger.info({ trapName: normalized.trapName, sourceAddress: raw.sourceAddress }, "📡  SNMP unrouted");
         await logTrap(normalized);
         return;
       }
@@ -78,11 +79,14 @@ async function processTrap(raw: RawTrap): Promise<void> {
       stats.routed++;
       statsCache.invalidateAll();
       performanceCache.invalidateAll();
-      console.log(`📡  SNMP ${normalized.routeType} | ${normalized.trapName} | key=${result.aggregationKey} | ${result.action}`);
+      logger.info(
+        { routeType: normalized.routeType, trapName: normalized.trapName, aggregationKey: result.aggregationKey, action: result.action },
+        "📡  SNMP trap processed"
+      );
       await logTrap(normalized, result);
     } catch (err: any) {
       stats.errors++;
-      console.error(`📡  SNMP process error | from ${raw.sourceAddress}:`, err.message);
+      logger.error({ err, sourceAddress: raw.sourceAddress }, "📡  SNMP process error");
     }
   });
 }
@@ -147,7 +151,7 @@ function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): R
 
 export function startSnmpReceiver(config: SnmpReceiverConfig): void {
   if (!config.enabled) {
-    console.log("📡  SNMP trap receiver disabled (set SNMP_ENABLED=true to enable)");
+    logger.info("📡  SNMP trap receiver disabled (set SNMP_ENABLED=true to enable)");
     return;
   }
   if (socket) return;
@@ -155,15 +159,15 @@ export function startSnmpReceiver(config: SnmpReceiverConfig): void {
   socket = dgram.createSocket({ type: "udp4", reuseAddr: true });
 
   socket.on("error", (err: NodeJS.ErrnoException) => {
-    console.error(`📡  SNMP socket error: ${err.message}`);
+    logger.error({ err }, "📡  SNMP socket error");
     socket = null;
   });
 
   socket.on("message", async (msg: Buffer, rinfo: dgram.RemoteInfo) => {
-    console.log(`📡  UDP packet from ${rinfo.address}:${rinfo.port} — ${msg.length} bytes`);
+    logger.debug({ address: rinfo.address, port: rinfo.port, bytes: msg.length }, "📡  UDP packet received");
     const raw = parseTrap(msg, rinfo.address, config.community);
     if (!raw) {
-      console.log(`📡  Not a valid SNMPv2c trap — first byte: 0x${msg[0]?.toString(16)}`);
+      logger.warn({ firstByte: `0x${msg[0]?.toString(16)}` }, "📡  Not a valid SNMPv2c trap");
       return;
     }
     await processTrap(raw);
@@ -172,8 +176,7 @@ export function startSnmpReceiver(config: SnmpReceiverConfig): void {
   socket.bind({ port: config.port, address: "0.0.0.0", exclusive: false }, () => {
     const addr = socket?.address();
     stats.startedAt = new Date();
-    console.log(`📡  SNMP trap receiver listening on UDP ${addr?.address}:${addr?.port}`);
-    console.log(`    Enterprise OID: 1.3.6.1.4.1.99999`);
+    logger.info({ address: addr?.address, port: addr?.port, enterpriseOid: "1.3.6.1.4.1.99999" }, "📡  SNMP trap receiver listening");
   });
 }
 
@@ -181,7 +184,7 @@ export function stopSnmpReceiver(): void {
   if (socket) {
     try { socket.close(); } catch { /* ignore */ }
     socket = null;
-    console.log("📡  SNMP trap receiver stopped");
+    logger.info("📡  SNMP trap receiver stopped");
   }
 }
 

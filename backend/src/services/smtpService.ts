@@ -1,4 +1,5 @@
 import { query } from '../db/pool';
+import { logger } from '../logger';
 
 export interface SmtpConfig {
   host:     string;
@@ -63,6 +64,6 @@ export async function sendGroupTimedOutAlert(group: {
       text,
     });
   } catch (err) {
-    console.error('[smtp] Failed to send timeout alert:', (err as Error).message);
+    logger.error({ err }, '[smtp] Failed to send timeout alert');
   }
 }

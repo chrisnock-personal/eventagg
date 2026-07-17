@@ -308,25 +308,37 @@ router.post('/logs/rotate', requireAuth, adminOnly, (_req: Request, res: Respons
 
 const SERVICE_LOGS: Record<string, string> = {
   backend:         `${LOG_DIR}/backend.log`,
+  // Genuine uncaught-crash output that bypasses pino entirely (backend.log
+  // is now the complete structured stream — see logger.ts) still lands
+  // here, so it's kept as its own tab, mirroring nginx's error/access split.
+  'backend-err':   `${LOG_DIR}/backend-err.log`,
   nginx:           `${LOG_DIR}/nginx-err.log`,
   'nginx-access':  '/var/log/nginx/access.log',
   postgres:        `${LOG_DIR}/postgres-err.log`,
 };
 
 router.get('/logs/:service', requireAuth, adminOnly, (req: Request, res: Response, next: NextFunction) => {
-  const logFile = SERVICE_LOGS[req.params.service];
+  const service = req.params.service;
+  const logFile = SERVICE_LOGS[service];
   if (!logFile) return res.status(404).json({ error: 'Unknown service' });
   try {
-    if (!fs.existsSync(logFile)) return res.json({ lines: [], errors: [], service: req.params.service });
+    if (!fs.existsSync(logFile)) return res.json({ lines: [], errors: [], service });
     const { lines: lineCount } = z.object({
       lines: z.coerce.number().int().min(1).max(2000).default(200),
     }).parse(req.query);
     const output    = execSync(`tail -n ${lineCount} ${logFile}`, { encoding: 'utf8' });
     const allLines  = output.split('\n').filter(Boolean);
-    const errors    = allLines.filter(l =>
-      l.toLowerCase().includes('error') || l.toLowerCase().includes('warn') || l.toLowerCase().includes('fatal')
-    ).slice(-100);
-    res.json({ lines: allLines, errors, service: req.params.service });
+    // `backend` is now real pino JSON — determine severity from the actual
+    // `level` field (pino: warn=40, error=50, fatal=60) instead of a
+    // substring match. Every other service is an external process in its
+    // own native (non-JSON) format, so keeps the old substring heuristic.
+    const errors = allLines.filter(l => {
+      if (service !== 'backend') {
+        return l.toLowerCase().includes('error') || l.toLowerCase().includes('warn') || l.toLowerCase().includes('fatal');
+      }
+      try { return JSON.parse(l).level >= 40; } catch { return false; }
+    }).slice(-100);
+    res.json({ lines: allLines, errors, service });
   } catch (e) { next(e); }
 });
 

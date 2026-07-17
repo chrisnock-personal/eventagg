@@ -1,6 +1,7 @@
 import { Pool, PoolClient } from "pg";
 import { AsyncLocalStorage } from "async_hooks";
 import { config } from "../config";
+import { logger } from "../logger";
 
 let pool: Pool;
 
@@ -9,13 +10,13 @@ export function getPool(): Pool {
     pool = new Pool(config.db);
 
     pool.on("error", (err) => {
-      console.error("Unexpected PostgreSQL pool error:", err);
+      logger.error({ err }, "Unexpected PostgreSQL pool error");
     });
 
     pool.on("connect", () => {
-      if (config.nodeEnv === "development") {
-        console.log("📦  New PostgreSQL client connected");
-      }
+      // logger.ts's level config already suppresses debug outside
+      // development — no manual nodeEnv check needed here anymore.
+      logger.debug("📦  New PostgreSQL client connected");
     });
   }
   return pool;
@@ -149,8 +150,9 @@ export async function testConnection(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query("SELECT 1");
-    console.log(
-      `✅  PostgreSQL connected — ${config.db.host}:${config.db.port}/${config.db.database}`
+    logger.info(
+      { host: config.db.host, port: config.db.port, database: config.db.database },
+      "✅  PostgreSQL connected"
     );
   } finally {
     client.release();

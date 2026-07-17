@@ -1889,6 +1889,28 @@ function AdminCard({ label, value, sub, pct, color }: { label: string; value: st
 
 // ─── Admin panel: System Health ───────────────────────────────────────────────
 
+const PINO_LEVEL_NAMES: Record<number, string> = { 10: "TRACE", 20: "DEBUG", 30: "INFO", 40: "WARN", 50: "ERROR", 60: "FATAL" };
+
+// backend/backend-err are real pino JSON lines (one object per line, see
+// backend/src/logger.ts); nginx/nginx-access/postgres are external
+// processes in their own native (non-JSON) formats. Parses a pino line into
+// a friendly "HH:MM:SS [LEVEL] message  {extra fields}" string; falls back
+// to the raw line (with the old substring-based highlight) for anything
+// that isn't valid pino JSON.
+function formatLogLine(line: string): { text: string; isErr: boolean } {
+  try {
+    const parsed = JSON.parse(line);
+    if (typeof parsed.level !== "number" || typeof parsed.msg !== "string") throw new Error("not a pino line");
+    const time = parsed.time ? new Date(parsed.time).toLocaleTimeString() : "";
+    const levelName = PINO_LEVEL_NAMES[parsed.level] ?? String(parsed.level);
+    const { level, time: _t, msg, pid, hostname, ...rest } = parsed;
+    const extra = Object.keys(rest).length ? "  " + JSON.stringify(rest) : "";
+    return { text: `${time} [${levelName}] ${msg}${extra}`, isErr: parsed.level >= 40 };
+  } catch {
+    return { text: line, isErr: /error|warn|fatal/i.test(line) };
+  }
+}
+
 function HealthPanel() {
   const [health,    setHealth]    = useState<any>(null);
   const [loading,   setLoading]   = useState(true);
@@ -1961,7 +1983,7 @@ function HealthPanel() {
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.07em", flex: 1 }}>Logs</span>
-              {[["backend","backend"],["nginx","nginx (error)"],["nginx-access","nginx (access)"],["postgres","postgres"]].map(([svc, label]) => (
+              {[["backend","backend"],["backend-err","backend (error)"],["nginx","nginx (error)"],["nginx-access","nginx (access)"],["postgres","postgres"]].map(([svc, label]) => (
                 <button key={svc} onClick={() => setLogSvc(svc)} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${logSvc === svc ? C.accent : C.border}`, borderRadius: 5, background: logSvc === svc ? C.accentLight : "none", cursor: "pointer", fontFamily: "monospace", color: logSvc === svc ? C.accent : C.textMid, fontWeight: logSvc === svc ? 700 : 400 }}>{label}</button>
               ))}
               <button onClick={rotate} disabled={rotating} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: "none", cursor: rotating ? "default" : "pointer", fontFamily: "inherit", color: C.textMid }}>Rotate</button>
@@ -1970,8 +1992,8 @@ function HealthPanel() {
             <div style={{ maxHeight: 360, overflowY: "auto", background: "#1A1916", padding: "10px 14px" }}>
               {logLoading && <div style={{ color: "#8A8680", fontSize: 11, fontFamily: "monospace" }}>Loading…</div>}
               {logData && (logData.lines ?? []).slice(-200).map((line: string, i: number) => {
-                const isErr = /error|warn|fatal/i.test(line);
-                return <div key={i} style={{ fontSize: 10, fontFamily: "monospace", color: isErr ? "#FCA5A5" : "#D1FAE5", lineHeight: 1.5, whiteSpace: "pre-wrap" as const, wordBreak: "break-all" as const }}>{line}</div>;
+                const { text, isErr } = formatLogLine(line);
+                return <div key={i} style={{ fontSize: 10, fontFamily: "monospace", color: isErr ? "#FCA5A5" : "#D1FAE5", lineHeight: 1.5, whiteSpace: "pre-wrap" as const, wordBreak: "break-all" as const }}>{text}</div>;
               })}
             </div>
           </div>

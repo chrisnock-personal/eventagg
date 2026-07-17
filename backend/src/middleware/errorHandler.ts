@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
+import { logger } from "../logger";
 
 export interface ApiError extends Error {
   statusCode?: number;
@@ -27,7 +28,7 @@ export function errorHandler(
   const code = (err as any).code as string | undefined;
 
   if (status >= 500) {
-    console.error("Server error:", err);
+    logger.error({ err }, "Server error");
   }
 
   res.status(status).json({ error: message, ...(code ? { code } : {}) });
