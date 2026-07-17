@@ -316,7 +316,7 @@ node scripts/demo.js --host <host> --api-key <key>
 | `PG_POOL_MAX` | `10` | Max pool connections |
 | `PG_POOL_IDLE_TIMEOUT_MS` | `30000` | Pool idle connection timeout |
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection acquire timeout |
-| `CORS_ORIGIN` | `*` | CORS origin |
+| `CORS_ORIGIN` | *(empty — same-origin only)* | Set only if a separately-hosted frontend calls this API directly (see below) |
 | `JWT_SECRET` | random per boot | JWT signing secret. **Set this explicitly in production** — if unset, a random secret is generated every time the process starts, invalidating every session on each restart. There is no insecure hardcoded fallback. |
 | `COOKIE_SECURE` | `false` | Marks the session cookie `Secure` (HTTPS-only). Only enable once you've put TLS in front of this app (see below) — this app's own nginx.conf serves plain HTTP, and browsers silently drop `Secure` cookies over HTTP, breaking every login. |
 | `ADMIN_PASSWORD` | `admin123` | Password set for the default org's admin on first boot |
@@ -332,6 +332,19 @@ there's no TLS termination built in. For a production deployment, put a
 TLS-terminating reverse proxy (e.g. nginx, Caddy, or a cloud load balancer)
 in front of it, forwarding to port 8080, and set `COOKIE_SECURE=true` once
 that's in place so session cookies are marked HTTPS-only.
+
+### CORS
+
+The bundled `nginx.conf` proxies both the frontend and the API on the same
+origin (port 8080) — the browser never makes a cross-origin request in the
+standard deployment, so `CORS_ORIGIN` defaults to empty (same-origin only,
+no `Access-Control-Allow-Origin` header sent at all). Only set it if you're
+serving the frontend from a different origin than this API — a specific
+origin (e.g. `https://dashboard.example.com`) or `*` for a non-credentialed
+integration. Note `*` combined with cookie-based auth (`credentials:
+"include"`) is rejected by browsers regardless of this setting — a
+cross-origin frontend that needs to stay logged in via the session cookie
+must set a specific origin here, not `*`.
 
 ---
 

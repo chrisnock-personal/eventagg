@@ -28,7 +28,9 @@ services:
       # ── Backend ──────────────────────────────────────────────────────────
       PORT: "3001"
       NODE_ENV: "${NODE_ENV:-production}"
-      CORS_ORIGIN: "*"
+      # Same-origin only by default — set only if a separately-hosted
+      # frontend needs to call this API directly (see README's CORS note).
+      CORS_ORIGIN: "${CORS_ORIGIN:-}"
       PG_POOL_MAX: "10"
       # Set explicitly for persistent sessions across restarts — if unset,
       # a random secret is generated each boot (see middleware/session.ts).
