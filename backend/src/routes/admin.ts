@@ -164,10 +164,10 @@ router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: R
     res.setHeader('Content-Length', stat.size);
     const stream = fs.createReadStream(tmpFile);
     stream.pipe(res);
-    stream.on('end',   () => { try { fs.unlinkSync(tmpFile); } catch {} });
+    stream.on('end',   () => { try { fs.unlinkSync(tmpFile); } catch { /* ignore */ } });
     stream.on('error', next);
   } catch (e) {
-    try { fs.unlinkSync(tmpFile); } catch {}
+    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     next(e);
   }
 });
@@ -198,7 +198,7 @@ router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: R
   } catch (e) {
     next(e);
   } finally {
-    try { fs.unlinkSync(tmpFile); } catch {}
+    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
   }
 });
 

@@ -41,7 +41,7 @@ app.use(cookieParser());
 app.get("/health", async (_req, res) => {
   try {
     // DB connectivity + partition check
-    const [dbCheck, partitionCheck] = await Promise.all([
+    const [_dbCheck, partitionCheck] = await Promise.all([
       query("SELECT 1 AS ok"),
       query<{ relname: string }>(`
         SELECT child.relname

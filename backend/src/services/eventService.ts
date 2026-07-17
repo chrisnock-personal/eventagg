@@ -268,7 +268,6 @@ export async function listEvents(
   const status = filters.status ?? "all";
 
   const results: EventGroupSummary[] = [];
-  let total = 0;
 
   // ── Detect body search mode ─────────────────────────────────────────────────
   const bodySearchMode = (() => {
@@ -397,7 +396,7 @@ export async function listEvents(
   results.sort(
     (a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime()
   );
-  total = results.length;
+  const total = results.length;
   const paged = results.slice(offset, offset + limit);
 
   return {

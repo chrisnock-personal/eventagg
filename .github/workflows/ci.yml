@@ -55,8 +55,13 @@ jobs:
             GRANT ALL PRIVILEGES ON DATABASE eventagg TO eventagg_user;
           "
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
+      - run: npm run build
       - run: npm test
+      # Everything here ships to production (Dockerfile's --omit=dev keeps
+      # only these), so a real severity threshold is worth blocking on.
+      - run: npm audit --audit-level=high
 
   frontend:
     runs-on: ubuntu-latest
@@ -71,5 +76,36 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      # --omit=dev: this package's only runtime dependencies are
+      # react/react-dom — everything else (vite, esbuild, the eslint
+      # toolchain) is a build-time tool whose output never ships (this is
+      # a statically-built frontend served by nginx, never a running dev
+      # server). vite/esbuild currently carry a known dev-server-only
+      # advisory (GHSA-67mh-4wv8-2f99) that doesn't apply to the built
+      # static output; fixing it needs a Vite 5→8 major bump, tracked as
+      # its own follow-up rather than silently ignored here.
+      - run: npm audit --omit=dev --audit-level=high
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t eventagg:ci .
+      - name: Smoke test — boot and check /health
+        run: |
+          docker run -d --name eventagg-ci -p 3001:3001 -p 8080:80 eventagg:ci
+          echo "Waiting for the container to become healthy..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3001/health > /dev/null; then
+              echo "Backend /health is up."
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Container did not become healthy in time — dumping logs:"
+          docker logs eventagg-ci
+          exit 1

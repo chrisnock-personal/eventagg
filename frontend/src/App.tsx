@@ -1241,19 +1241,6 @@ function timeAgo(iso: string): string {
   return `${Math.floor(s / 86400)}d ago`;
 }
 
-// ─── Mini sparkline SVG ───────────────────────────────────────────────────────
-function MiniSparkline({ data, color }: { data: number[]; color: string }) {
-  const max = Math.max(...data, 1);
-  const w = 80, h = 28;
-  const pts = data.map((v, i) => `${(i / (data.length - 1)) * w},${h - (v / max) * h}`).join(" ");
-  return (
-    <svg width={w} height={h} style={{ display: "block", flexShrink: 0 }}>
-      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.8" />
-      <polyline points={`0,${h} ${pts} ${w},${h}`} fill={color} fillOpacity="0.1" stroke="none" />
-    </svg>
-  );
-}
-
 // ─── Stats Bar ────────────────────────────────────────────────────────────────
 function StatsBar({ events, eventsTotal, policies, eventStats }: {
   events: EventGroupSummary[];
@@ -1392,7 +1379,7 @@ function StatusMultiSelect({ selected, onChange }: {
 }
 
 // ─── Change Password Screen ───────────────────────────────────────────────────
-function ChangePasswordScreen({ user, onChanged }: { user: import("./api").SessionUser; onChanged: () => void }) {
+function ChangePasswordScreen({ onChanged }: { user: import("./api").SessionUser; onChanged: () => void }) {
   const [cur,  setCur]  = useState("");
   const [next, setNext] = useState("");
   const [conf, setConf] = useState("");
@@ -1513,7 +1500,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
 }
 
 // ─── SNMP Panel ───────────────────────────────────────────────────────────────
-function SnmpPanel({ onBack, policies }: { onBack: () => void; policies: Policy[] }) {
+function SnmpPanel({ onBack }: { onBack: () => void; policies: Policy[] }) {
   const [tab,     setTab]     = useState<"status"|"sources"|"rules"|"log">("status");
   const [status,  setStatus]  = useState<any>(null);
   const [sources, setSources] = useState<any[]>([]);
@@ -1903,7 +1890,7 @@ function formatLogLine(line: string): { text: string; isErr: boolean } {
     if (typeof parsed.level !== "number" || typeof parsed.msg !== "string") throw new Error("not a pino line");
     const time = parsed.time ? new Date(parsed.time).toLocaleTimeString() : "";
     const levelName = PINO_LEVEL_NAMES[parsed.level] ?? String(parsed.level);
-    const { level, time: _t, msg, pid, hostname, ...rest } = parsed;
+    const { level: _level, time: _time, msg, pid: _pid, hostname: _hostname, ...rest } = parsed;
     const extra = Object.keys(rest).length ? "  " + JSON.stringify(rest) : "";
     return { text: `${time} [${levelName}] ${msg}${extra}`, isErr: parsed.level >= 40 };
   } catch {
@@ -3002,7 +2989,7 @@ function PieSlices({ data, hovered, setHovered }: { data: { label: string; value
   if (total === 0) return null;
   const W = 220, CX = 110, CY = 110, R = 88;
   let cum = -Math.PI / 2;
-  const slices = data.map((d, i) => {
+  const slices = data.map((d) => {
     const angle = (d.value / total) * 2 * Math.PI;
     const start = cum; cum += angle; const end = cum;
     const large = angle > Math.PI ? 1 : 0;
@@ -3192,8 +3179,10 @@ function AuditLogView() {
 
 // ─── Reports — Overview ───────────────────────────────────────────────────────
 function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policies: Policy[]; stats: EventStats | null; dateRange: string; policyFilter: string[] }) {
-  if (!stats) return <div style={{ padding: 48, textAlign: "center", color: C.textMuted }}>Loading…</div>;
-
+  // Hooks must run unconditionally on every render — the `!stats` guard
+  // moves after them (was before, tripping react-hooks/rules-of-hooks: if
+  // `stats` ever went from populated back to null on a later render, e.g.
+  // a refetch, the hook call order would change between renders).
   const [grpPinned, setGrpPinned] = useState<number | null>(null);
   const [segPinned, setSegPinned] = useState<number | null>(null);
   const [grpShow, setGrpShow] = useState({ opened: true, closed: true, inProgress: true });
@@ -3201,6 +3190,8 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
   const [grpHovered, setGrpHovered] = useState<number | null>(null);
   const [segHovered, setSegHovered] = useState<number | null>(null);
   const [pieHovered, setPieHovered] = useState<number | null>(null);
+
+  if (!stats) return <div style={{ padding: 48, textAlign: "center", color: C.textMuted }}>Loading…</div>;
 
   const tp = stats.throughput;
   const numBuckets = tp.length;
@@ -3288,7 +3279,6 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
                 {data.map((b, i) => {
                   const isPinned  = pinned === i;
                   const isActive  = activeIdx === i;
-                  const pct = i / Math.max(data.length - 1, 1) * 100;
                   const barMaxW = `${(100 / Math.max(data.length, 10)).toFixed(1)}%`;
                   return (
                     <div key={i}
@@ -3414,7 +3404,6 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
         const completionRate = stats.totalGroups > 0 ? Math.round((stats.completed / stats.totalGroups) * 100) : 0;
         const avgSegs = stats.totalGroups > 0 ? (stats.totalRawEvents / stats.totalGroups).toFixed(1) : "0";
         const throughput = tp.length > 0 ? Math.round(tp.slice(-6).reduce((a, b) => a + b.opened, 0) / 6) : 0;
-        const stale = stats.inProgress;
         return (
           <div>
             <div style={{ fontSize: 12, fontWeight: 800, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 10 }}>Key metrics</div>
@@ -3441,11 +3430,13 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
 
 // ─── Reports — Policy Stats ───────────────────────────────────────────────────
 function ReportsPolicyStats({ policies, stats }: { policies: Policy[]; stats: EventStats | null }) {
+  // Hook must run unconditionally on every render — see the same fix in
+  // ReportsOverview above (react-hooks/rules-of-hooks).
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   if (!stats) return <div style={{ padding: 48, textAlign: "center", color: C.textMuted }}>Loading…</div>;
   const palette = [C.info, C.accent, C.warn, C.purple];
   const polColors: Record<string, string> = {};
   policies.forEach((p, i) => { polColors[p.id] = palette[i % palette.length]; });
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -4232,7 +4223,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
         }
 
         const html = "<!DOCTYPE html><html><head><title>Aggre/Gator Report</title><style>" + css + "</style></head><body>"
-          + header + body + "<script>window.onload=function(){window.print();}<\/script></body></html>";
+          + header + body + "<script>window.onload=function(){window.print();}</script></body></html>";
         const blob = new Blob([html], { type: "text/html" });
         window.open(URL.createObjectURL(blob), "_blank");
       }
@@ -4595,7 +4586,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
                 <ColVisMenu
                   cols={activeTab === "groups" ? GROUP_COLS : SEG_COLS}
                   visible={activeTab === "groups" ? groupVisible : segVisible}
-                  onToggle={activeTab === "groups" ? k => setGroupVisible(v => { const n = new Set(v); n.has(k) ? n.delete(k) : n.add(k); return n; }) : k => setSegVisible(v => { const n = new Set(v); n.has(k) ? n.delete(k) : n.add(k); return n; })}
+                  onToggle={activeTab === "groups" ? k => setGroupVisible(v => { const n = new Set(v); if (n.has(k)) { n.delete(k); } else { n.add(k); } return n; }) : k => setSegVisible(v => { const n = new Set(v); if (n.has(k)) { n.delete(k); } else { n.add(k); } return n; })}
                   onClose={() => setShowColMenu(false)}
                 />
               )}

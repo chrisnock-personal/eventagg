@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { verifyCredentials, listUsers, createUser, updateUser, deleteUser, changePassword, forcePasswordChange } from "../services/userService";
+import { verifyCredentials, listUsers, createUser, updateUser, deleteUser, changePassword } from "../services/userService";
 import { audit } from "../services/auditService";
 import { setSessionCookie, clearSessionCookie, requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";

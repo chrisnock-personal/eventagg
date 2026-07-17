@@ -39,7 +39,7 @@ router.get('/config/:key', requireAuth, adminOnly, async (req: Request, res: Res
     const rows = await query<{ value: unknown }>(
       `SELECT value FROM system_config WHERE key = $1`, [req.params.key]
     );
-    rows.length ? res.json(rows[0].value) : res.status(404).json({ error: 'Not found' });
+    if (rows.length) { res.json(rows[0].value); } else { res.status(404).json({ error: 'Not found' }); }
   } catch (e) { next(e); }
 });
 
@@ -300,7 +300,7 @@ router.post('/logs/rotate', requireAuth, adminOnly, (_req: Request, res: Respons
   try {
     let truncated = 0;
     for (const f of ALL_LOG_FILES) {
-      try { if (fs.existsSync(f)) { fs.writeFileSync(f, ''); truncated++; } } catch {}
+      try { if (fs.existsSync(f)) { fs.writeFileSync(f, ''); truncated++; } } catch { /* ignore */ }
     }
     res.json({ ok: true, output: `Truncated ${truncated} log file(s)` });
   } catch (e) { next(e); }

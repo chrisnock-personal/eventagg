@@ -1,10 +1,4 @@
-import {
-  resolveOid, isAggreGatorTrap,
-  AG_POLICY_ID_OID, AG_AGGREGATION_KEY_OID,
-  AG_EVENT_TYPE_OID, AG_EVENT_BODY_OID,
-  AG_SOURCE_SYSTEM_OID, AG_SEVERITY_OID,
-  SEVERITY_NAMES,
-} from "./oidMap";
+import { resolveOid, isAggreGatorTrap, SEVERITY_NAMES } from "./oidMap";
 import { query } from "../db/pool";
 import { IngestInput } from "../services/ingestService";
 import { logger } from "../logger";

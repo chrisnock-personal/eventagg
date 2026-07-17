@@ -93,8 +93,6 @@ export async function runTimeoutJob(): Promise<void> {
     for (const group of timedOut) {
       try {
         await withTransaction(async (client) => {
-          const now = new Date().toISOString();
-
           // Promote to completed_events with timed_out status
           const [completed] = await client.query<{ id: string }>(
             `INSERT INTO completed_events

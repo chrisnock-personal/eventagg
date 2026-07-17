@@ -1,6 +1,6 @@
 import { PoolClient } from "pg";
-import { withTransaction, queryOne } from "../db/pool";
-import { Policy, AuditAction, EventGroupDetail, RawEventDetail } from "../types";
+import { withTransaction } from "../db/pool";
+import { Policy, AuditAction } from "../types";
 import { triggerWebhooks, WebhookGroupPayload } from "./webhookService";
 import { logger } from "../logger";
 
