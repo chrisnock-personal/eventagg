@@ -153,7 +153,7 @@ export async function getEventPerformance(orgId: string, filters: EventQueryFilt
   };
 }
 
-// ─── Stats for Reports (aggregate queries — no pagination) ────────────────────
+// ─── Stats for Reports (aggregate queries -no pagination) ────────────────────
 
 export async function getEventStats(orgId: string, filters: EventQueryFilters): Promise<{
   totalGroups: number; completed: number; inProgress: number; timedOut: number;
@@ -178,7 +178,7 @@ export async function getEventStats(orgId: string, filters: EventQueryFilters): 
      FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${where}`, params
   );
 
-  // Completed count — split by status
+  // Completed count -split by status
   const ceRow = await queryOne<{ cnt: string; rawevts: string; avg_dur: string; timed_out_cnt: string }>(
     `SELECT COUNT(*)::TEXT AS cnt,
             COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts,
@@ -194,7 +194,7 @@ export async function getEventStats(orgId: string, filters: EventQueryFilters): 
                          + (status !== "in_progress" ? parseInt(ceRow?.rawevts ?? "0") : 0);
   const avgDurationMs    = status !== "in_progress" ? parseFloat(ceRow?.avg_dur ?? "0") : 0;
 
-  // Per-policy breakdown — include timed_out split
+  // Per-policy breakdown -include timed_out split
   const polRows = await query<{ policy_id: string; policy_name: string; status: string; cnt: string; rawevts: string; avg_dur: string }>(
     `SELECT e.policy_id, p.name AS policy_name, 'ip' AS status,
             COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts, '0' AS avg_dur
@@ -301,7 +301,7 @@ export async function listEvents(
       params.push(filters.to);
     }
 
-    // Body search — EXISTS subquery against raw_events
+    // Body search -EXISTS subquery against raw_events
     // Using EXISTS avoids JOIN fan-out and DISTINCT complications
     if (bodySearchMode === "pair") {
       const eqIdx = filters.bodySearch!.indexOf("=");
@@ -310,7 +310,7 @@ export async function listEvents(
       const idCol  = store === "in_progress" ? "in_progress_id" : "completed_id";
 
       if (field.includes(".")) {
-        // Nested path — jsonb_path_exists with string cast
+        // Nested path -jsonb_path_exists with string cast
         conditions.push(
           `EXISTS (
             SELECT 1 FROM raw_events re
@@ -320,7 +320,7 @@ export async function listEvents(
         );
         params.push(`$.${field} == "${value}"`);
       } else {
-        // Top-level key — try @> containment first (works for string values);
+        // Top-level key -try @> containment first (works for string values);
         // also fall back to casting stored value to text for numeric matches
         conditions.push(
           `EXISTS (

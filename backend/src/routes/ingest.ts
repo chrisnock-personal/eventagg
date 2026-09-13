@@ -48,7 +48,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       });
     }
 
-    // Fire webhook after transaction — fire-and-forget, never blocks response
+    // Fire webhook after transaction -fire-and-forget, never blocks response
     if (result.action === "group_promoted") {
       fireGroupCompletedWebhook(result).catch(() => {});
     }

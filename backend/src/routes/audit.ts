@@ -7,7 +7,7 @@ import { orgContextMiddleware } from "../middleware/orgContext";
 const router = Router();
 router.use(requireAuth);
 
-// Superadmin has no org to scope the audit log to — Phase 2 (Organizations
+// Superadmin has no org to scope the audit log to -Phase 2 (Organizations
 // admin panel) is where instance-wide audit visibility would be built.
 router.use((req: Request, res: Response, next: NextFunction) => {
   const user = req.user!;
@@ -17,10 +17,10 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Mounted after the guard above — user.orgId is guaranteed set by this point.
+// Mounted after the guard above -user.orgId is guaranteed set by this point.
 router.use(orgContextMiddleware);
 
-// GET /api/v1/audit — returns { rows, total, limit, offset }
+// GET /api/v1/audit -returns { rows, total, limit, offset }
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;

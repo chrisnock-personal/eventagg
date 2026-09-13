@@ -42,7 +42,7 @@ export interface IngestResult {
 
 export async function ingestRawEvent(orgId: string, input: IngestInput): Promise<IngestResult> {
   return withTransaction(async (client) => {
-    // 1. Load and validate policy — check existence and active state separately.
+    // 1. Load and validate policy -check existence and active state separately.
     //    Scoping by org_id here is the key tenant boundary: a caller authenticated
     //    with org A's ingest key can never target a policy belonging to org B,
     //    even if they guess its UUID. Global policies (org_id IS NULL) are usable
@@ -61,7 +61,7 @@ export async function ingestRawEvent(orgId: string, input: IngestInput): Promise
     }
     if (!policyRow.is_active) {
       const err = new Error(
-        `Policy "${policyRow.name}" (${input.policyId}) is inactive — activate it before ingesting`
+        `Policy "${policyRow.name}" (${input.policyId}) is inactive -activate it before ingesting`
       );
       (err as any).statusCode = 400;
       (err as any).code = "POLICY_INACTIVE";
@@ -97,7 +97,7 @@ export async function ingestRawEvent(orgId: string, input: IngestInput): Promise
 
     // 5. Branch: open, append, or promote
     if (!existingGroup && isGrave && !isCradle) {
-      // Grave with no open group — discard (no group to close)
+      // Grave with no open group -discard (no group to close)
       throw new Error(
         `Received grave raw event for key "${aggregationKey}" but no open group exists`
       );
@@ -180,7 +180,7 @@ export async function ingestRawEvent(orgId: string, input: IngestInput): Promise
       eventSequenceNumber: input.sequenceNumber,
     });
 
-    // Idempotent duplicate — return existing group state without side-effects
+    // Idempotent duplicate -return existing group state without side-effects
     if (rawEvent.isDuplicate) {
       return { groupId: existingGroup.id, rawEventId: rawEvent.id, aggregationKey, isCradle: false, isGrave: false, action: "raw_event_appended", status: "in_progress", orgId };
     }
@@ -343,9 +343,9 @@ async function insertRawEvent(
     return { id: result.rows[0].id, isDuplicate: false };
   }
 
-  // ON CONFLICT hit — fetch the existing raw event id.
+  // ON CONFLICT hit -fetch the existing raw event id.
   // body_hash is GENERATED ALWAYS AS (md5(body::text)) STORED where body is
-  // jsonb — Postgres's jsonb-to-text serialization inserts spaces after `:`
+  // jsonb -Postgres's jsonb-to-text serialization inserts spaces after `:`
   // and `,` that a plain JS JSON.stringify string doesn't have, so casting
   // straight to ::text here would compute a different hash and never match.
   // Casting through ::jsonb first reproduces the same serialization the
@@ -358,7 +358,7 @@ async function insertRawEvent(
     [opts.inProgressId ?? opts.completedId, JSON.stringify(opts.body)]
   );
 
-  logger.warn({ aggregationKey: opts.aggregationKey, sequence: opts.sequence }, "⚠️  Duplicate raw event detected — skipping");
+  logger.warn({ aggregationKey: opts.aggregationKey, sequence: opts.sequence }, "⚠️  Duplicate raw event detected -skipping");
   return { id: existing.rows[0]?.id ?? "duplicate", isDuplicate: true };
 }
 

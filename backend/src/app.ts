@@ -28,7 +28,7 @@ const app = express();
 // First, so every subsequent middleware/route/error handler logs under the
 // same requestId (see middleware/requestLogging.ts + logger.ts's mixin).
 app.use(requestLogging);
-// Empty CORS_ORIGIN (the default) means same-origin only — origin: false
+// Empty CORS_ORIGIN (the default) means same-origin only -origin: false
 // tells the cors package to skip Access-Control-Allow-Origin entirely,
 // which is exactly right for this app's own same-origin nginx-proxied
 // deployment and correctly blocks any actual cross-origin browser caller.
@@ -72,7 +72,7 @@ const ingestRateLimit = rateLimit({
   max: 10_000,               // 10k requests/min per IP
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: "Ingest rate limit exceeded — reduce request frequency or batch events" },
+  message: { error: "Ingest rate limit exceeded -reduce request frequency or batch events" },
 });
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ app.use("/api/v1/snmp",             snmpRouter);
 app.use("/api/v1/audit",            auditRouter);
 app.use("/api/v1/webhooks",         webhooksRouter);
 app.use("/api/v1/system",           systemRouter);
-// Restore route needs raw SQL body — must be registered before adminRouter
+// Restore route needs raw SQL body -must be registered before adminRouter
 app.use("/api/v1/admin/restore",    express.text({ type: "application/sql", limit: "1gb" }));
 app.use("/api/v1/admin",            adminRouter);
 app.use("/api/v1/orgs",             orgsRouter);

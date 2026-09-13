@@ -75,7 +75,7 @@ export async function verifyCredentials(
 
 // ── CRUD ──────────────────────────────────────────────────────────────────────
 // Every function below takes the caller's orgId explicitly. Regular admins
-// always pass their own orgId (they can never be null — the DB CHECK
+// always pass their own orgId (they can never be null -the DB CHECK
 // constraint guarantees any non-superadmin user has an org), scoping every
 // query to that org so one org's admin can never see/touch another org's
 // users. Superadmin's cross-org user management goes through
@@ -185,7 +185,7 @@ export async function deleteUser(orgId: string, id: string): Promise<boolean> {
 }
 
 // ── Superadmin-only: move a user between orgs, and promote/demote to/from
-// superadmin. No org_id WHERE-scoping — superadmin can touch any user.
+// superadmin. No org_id WHERE-scoping -superadmin can touch any user.
 // Enforces the same invariant as the DB's users_org_role_check CHECK
 // constraint proactively, so a bad request gets a clean 400 instead of a raw
 // constraint-violation error: role='superadmin' forces orgId to null; any

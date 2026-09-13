@@ -20,7 +20,7 @@ export async function getMultiTenancyConfig(): Promise<TenancyConfig> {
 
 // The only path to a superadmin: an org's own admin re-confirms their
 // password and promotes themselves, flipping the platform-wide flag in the
-// same transaction. One-way — 400s if multi-tenancy is already enabled.
+// same transaction. One-way -400s if multi-tenancy is already enabled.
 export async function enableMultiTenancy(
   username: string,
   password: string

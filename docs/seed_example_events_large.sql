@@ -75,7 +75,7 @@ BEGIN
   SELECT id INTO pol_api     FROM policies WHERE name = 'EXAMPLE - API Request/Response' LIMIT 1;
 
   IF pol_session IS NULL OR pol_trade IS NULL OR pol_order IS NULL OR pol_api IS NULL THEN
-    RAISE EXCEPTION 'EXAMPLE policies not found — run migrations first (006_seed_policies.sql)';
+    RAISE EXCEPTION 'EXAMPLE policies not found -run migrations first (006_seed_policies.sql)';
   END IF;
 
   -- ══════════════════════════════════════════════════════════════════════════

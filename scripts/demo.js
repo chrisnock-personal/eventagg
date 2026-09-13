@@ -36,11 +36,11 @@ Options:
   --api-key <key>   X-API-Key for HTTP ingest (optional if INGEST_API_KEY unset)
 
 Scenarios:
-  1  Trade Lifecycle   — 4 steps via SNMP
-  2  Network Link      — 2 steps via SNMP
-  3  Order Lifecycle   — 5 steps via HTTP
-  4  Telephone Call    — 8 steps via HTTP  (requires migration 014)
-  5  Out-of-Order      — 5 steps via HTTP  (sequence numbers arrive scrambled: 1,4,3,2,5)
+  1  Trade Lifecycle   -4 steps via SNMP
+  2  Network Link      -2 steps via SNMP
+  3  Order Lifecycle   -5 steps via HTTP
+  4  Telephone Call    -8 steps via HTTP  (requires migration 014)
+  5  Out-of-Order      -5 steps via HTTP  (sequence numbers arrive scrambled: 1,4,3,2,5)
   a  All scenarios in sequence
 `);
   process.exit(0);
@@ -239,12 +239,12 @@ function stepOk(transport, detail) {
   console.log(`  ${green("✓")} Sent via ${transport}  ${gray(detail)}`);
 }
 
-// ─── Scenario 1: Trade Lifecycle — SNMP ──────────────────────────────────────
+// ─── Scenario 1: Trade Lifecycle -SNMP ──────────────────────────────────────
 async function scenarioTrade(policy) {
   const key = `TRD-${Date.now().toString(36).toUpperCase()}`;
   const transport = `SNMP → ${SNMP_HOST}:${SNMP_PORT}`;
 
-  // Grave fires on body.status === "settled" (not eventType — see policy seed)
+  // Grave fires on body.status === "settled" (not eventType -see policy seed)
   const steps = [
     {
       role: "CRADLE", eventType: "trade.initiated",
@@ -277,7 +277,7 @@ async function scenarioTrade(policy) {
   }
 }
 
-// ─── Scenario 2: Network Link — SNMP ─────────────────────────────────────────
+// ─── Scenario 2: Network Link -SNMP ─────────────────────────────────────────
 async function scenarioLink() {
   const transport  = `SNMP → ${SNMP_HOST}:${SNMP_PORT}`;
   const iface      = "GigabitEthernet0/1";
@@ -296,7 +296,7 @@ async function scenarioLink() {
     console.log(`  ${bold(`Step ${i + 1}/${steps.length}`)}  ${roleLabel}  ${bold(label)}`);
     console.log(`  ${gray("Interface:")}  ${iface}`);
     console.log(`  ${gray("Transport:")}  ${transport}`);
-    console.log(`  ${gray("Note:")}       Standard MIB-II trap — no AggreGator policy required`);
+    console.log(`  ${gray("Note:")}       Standard MIB-II trap -no AggreGator policy required`);
     console.log(HR);
     await waitForEnter();
     const pkt = buildTrapV2(COMMUNITY, [
@@ -309,7 +309,7 @@ async function scenarioLink() {
   }
 }
 
-// ─── Scenario 3: Order Lifecycle — HTTP ──────────────────────────────────────
+// ─── Scenario 3: Order Lifecycle -HTTP ──────────────────────────────────────
 async function scenarioOrder(policy) {
   const key = `ORD-${Date.now().toString(36).toUpperCase()}`;
   const transport = `HTTP → ${API_BASE}`;
@@ -346,7 +346,7 @@ async function scenarioOrder(policy) {
   }
 }
 
-// ─── Scenario 4: Telephone Call — HTTP ───────────────────────────────────────
+// ─── Scenario 4: Telephone Call -HTTP ───────────────────────────────────────
 async function scenarioCall(policy) {
   const key       = `CALL-${Date.now().toString(36).toUpperCase()}`;
   const transport = `HTTP → ${API_BASE}`;
@@ -397,7 +397,7 @@ async function scenarioCall(policy) {
   }
 }
 
-// ─── Scenario 5: Out-of-Order Events — HTTP ──────────────────────────────────
+// ─── Scenario 5: Out-of-Order Events -HTTP ──────────────────────────────────
 // True sequence: created(1) → processing(2) → dispatched(3) → out-for-delivery(4) → delivered(5)
 // Arrival order:        1  →           4    →         3     →         2            →       5
 // Steps 2-4 arrive scrambled, simulating delayed messages from distributed microservices.
@@ -409,27 +409,27 @@ async function scenarioOutOfOrder(policy) {
     {
       role: "CRADLE", eventType: "order.created", seqNum: 1,
       body: { orderId: key, customer: "GlobalCo Ltd", items: 7, total: 3892.00, currency: "USD" },
-      note: "Emitted by order-service — arrives first (in order)",
+      note: "Emitted by order-service -arrives first (in order)",
     },
     {
       role: "MIDDLE", eventType: "order.out-for-delivery", seqNum: 4,
       body: { orderId: key, driver: "D-214", eta: "16:45", vehicleId: "VAN-099" },
-      note: yellow(`⚠  true position #4 — delayed delivery-service message arrives 2nd`),
+      note: yellow(`⚠  true position #4 -delayed delivery-service message arrives 2nd`),
     },
     {
       role: "MIDDLE", eventType: "order.dispatched", seqNum: 3,
       body: { orderId: key, carrier: "FastShip", trackingRef: `FSP-${Date.now()}`, depot: "NW-1" },
-      note: yellow(`⚠  true position #3 — buffered carrier-service message arrives 3rd`),
+      note: yellow(`⚠  true position #3 -buffered carrier-service message arrives 3rd`),
     },
     {
       role: "MIDDLE", eventType: "order.processing", seqNum: 2,
       body: { orderId: key, warehouseId: "WH-SOUTH", pickedBy: "OP-118", lane: "B4" },
-      note: yellow(`⚠  true position #2 — most delayed, warehouse-service arrives 4th`),
+      note: yellow(`⚠  true position #2 -most delayed, warehouse-service arrives 4th`),
     },
     {
       role: "GRAVE", eventType: "order.delivered", seqNum: 5,
       body: { orderId: key, signedBy: "R. Patel", proofRef: `POD-${Date.now()}` },
-      note: "Emitted by delivery-service — arrives last (in order)",
+      note: "Emitted by delivery-service -arrives last (in order)",
     },
   ];
 
@@ -471,7 +471,7 @@ async function scenarioMenu(callAvailable) {
 async function main() {
   console.log();
   console.log(bold("╔════════════════════════════════════════════════════╗"));
-  console.log(bold("║         Aggre/Gator  —  Interactive Demo           ║"));
+  console.log(bold("║         Aggre/Gator  - Interactive Demo           ║"));
   console.log(bold("╚════════════════════════════════════════════════════╝"));
   console.log();
   console.log(`  SNMP:  ${cyan(`${SNMP_HOST}:${SNMP_PORT}`)}`);
@@ -508,7 +508,7 @@ async function main() {
   if (callPol) {
     console.log(`  ${green("✓")} Telephone Call policy found`);
   } else {
-    console.log(`  ${yellow("!")} Telephone Call policy not found — deploy migration 014 to enable scenario 4`);
+    console.log(`  ${yellow("!")} Telephone Call policy not found -deploy migration 014 to enable scenario 4`);
   }
 
   while (true) {
@@ -549,7 +549,7 @@ async function main() {
 
     const runOutOfOrder = async () => {
       console.log(`\n${magenta(bold("━━━  Scenario 5: Out-of-Order Events  (HTTP)  ━━━"))}`);
-      console.log(gray("  5 order events from distributed microservices — arrive as seqNums 1,4,3,2,5"));
+      console.log(gray("  5 order events from distributed microservices -arrive as seqNums 1,4,3,2,5"));
       console.log(gray("  Open the group in the UI and toggle \"# Sort by Seq\" to reveal true order"));
       await scenarioOutOfOrder(orderPol);
       console.log(`\n  ${green("✓")} Out-of-Order scenario complete.\n`);
@@ -562,7 +562,7 @@ async function main() {
       else if (choice === "4") await runCall();
       else if (choice === "5") await runOutOfOrder();
       else if (choice === "a") { await runTrade(); await runLink(); await runOrder(); await runCall(); await runOutOfOrder(); }
-      else console.log(yellow("\n  Unknown choice — enter 1, 2, 3, 4, 5, a, or q.\n"));
+      else console.log(yellow("\n  Unknown choice -enter 1, 2, 3, 4, 5, a, or q.\n"));
     } catch (err) {
       console.log(red(`\n  Error: ${err.message}\n`));
     }

@@ -87,7 +87,7 @@ describe("organizations + global policies (superadmin)", () => {
     expect(promoted.status).toBe(200);
     expect(promoted.body).toMatchObject({ role: "superadmin", orgId: null });
 
-    // Demoting without specifying an org should fail — can't leave a
+    // Demoting without specifying an org should fail -can't leave a
     // non-superadmin user with no org.
     const badDemote = await request(app)
       .put(`/api/v1/orgs/users/${editor.id}`)

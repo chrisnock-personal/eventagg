@@ -192,7 +192,7 @@ Examples:
   }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(2);
-  console.log(`\n✓ Done — ${ok} ok, ${fail} failed, ${elapsed}s elapsed (${(total / elapsed).toFixed(0)} events/s)`);
+  console.log(`\n✓ Done -${ok} ok, ${fail} failed, ${elapsed}s elapsed (${(total / elapsed).toFixed(0)} events/s)`);
   if (fail > 0) process.exit(1);
 }
 

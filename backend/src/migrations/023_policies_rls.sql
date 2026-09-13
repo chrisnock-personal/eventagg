@@ -5,7 +5,7 @@
 -- WHERE clause entirely can't return another org's rows.
 --
 -- FORCE (not just ENABLE) is required because eventagg_user owns this table
--- (it runs both migrations and all runtime queries — see entrypoint.sh) and
+-- (it runs both migrations and all runtime queries -see entrypoint.sh) and
 -- RLS never applies to a table's owner otherwise.
 --
 -- Fails closed: if the app forgets to establish an org context for a given

@@ -18,7 +18,7 @@ describe("multi-tenancy enable flow", () => {
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ role: "superadmin", orgId: null });
 
-    // Asserting raw DB state, not going through a request — needs bypass
+    // Asserting raw DB state, not going through a request -needs bypass
     // now that `users` is RLS-protected (024), same as createTestUser.
     const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>
       queryOne<{ role: string; org_id: string | null }>(

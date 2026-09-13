@@ -6,11 +6,11 @@ import { queryOne, runWithOrgContext } from "../db/pool";
 import { createTestOrg } from "../test/helpers";
 
 // This file calls the service layer directly, bypassing Express and its
-// orgContextMiddleware entirely — so every touch of the RLS-protected
+// orgContextMiddleware entirely -so every touch of the RLS-protected
 // `policies` table (creates, the ad-hoc UPDATE below, and ingestRawEvent's
 // own internal policy lookup) needs its own explicit runWithOrgContext,
 // exactly like a background job would. HTTP-level tests (multiTenancy.test.ts
-// etc.) don't need this — supertest(app) already goes through the real
+// etc.) don't need this -supertest(app) already goes through the real
 // middleware chain.
 
 async function makeOrderPolicy(orgId: string) {

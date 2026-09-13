@@ -8,7 +8,7 @@ import { orgContextMiddleware } from "../middleware/orgContext";
 
 const router = Router();
 
-// Platform-operator territory — superadmin only, not org-scoped admins.
+// Platform-operator territory -superadmin only, not org-scoped admins.
 // role is guaranteed "superadmin" past this point, so orgContextMiddleware's
 // existing bypass: user.role === "superadmin" logic naturally grants every
 // route below cross-org visibility on the users/audit_log RLS policies.
@@ -64,7 +64,7 @@ router.get("/:id/users", async (req: Request, res: Response, next: NextFunction)
   } catch (err) { next(err); }
 });
 
-// POST /api/v1/orgs/:id/users — create a user directly in this org
+// POST /api/v1/orgs/:id/users -create a user directly in this org
 router.post("/:id/users", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = z.object({
@@ -78,7 +78,7 @@ router.post("/:id/users", async (req: Request, res: Response, next: NextFunction
   } catch (err) { next(err); }
 });
 
-// PUT /api/v1/orgs/users/:userId — move a user between orgs, and/or
+// PUT /api/v1/orgs/users/:userId -move a user between orgs, and/or
 // promote/demote to/from superadmin.
 router.put("/users/:userId", async (req: Request, res: Response, next: NextFunction) => {
   try {

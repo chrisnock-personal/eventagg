@@ -5,7 +5,7 @@ import app from "../app";
 import { query, runWithOrgContext } from "../db/pool";
 import { createTestOrg, createTestUser, TEST_PASSWORD } from "./helpers";
 
-// These tests deliberately bypass the service layer entirely — the point of
+// These tests deliberately bypass the service layer entirely -the point of
 // RLS is that even a raw, unscoped query against a protected table can't
 // leak another org's rows. Every other test in this suite goes through
 // policyService/routes, which already scope correctly; these prove the
@@ -33,14 +33,14 @@ describe("Postgres RLS backstop on policies", () => {
     await runWithOrgContext({ orgId: orgB.id, bypass: false }, async () => {
       await makePolicy(orgB.id, nameB);
     });
-    // Only superadmin (bypass) can write a global policy — WITH CHECK
+    // Only superadmin (bypass) can write a global policy -WITH CHECK
     // rejects org_id IS NULL from a regular org context (proven separately
     // below), so this insert has to happen under bypass.
     await runWithOrgContext({ orgId: null, bypass: true }, async () => {
       await makePolicy(null, nameGlobal);
     });
 
-    // No WHERE clause at all — RLS is the only thing keeping this scoped.
+    // No WHERE clause at all -RLS is the only thing keeping this scoped.
     const seenAsOrgA = await runWithOrgContext({ orgId: orgA.id, bypass: false }, () =>
       query<{ name: string }>(`SELECT name FROM policies WHERE name IN ($1, $2, $3)`, [nameA, nameB, nameGlobal])
     );
@@ -56,7 +56,7 @@ describe("Postgres RLS backstop on policies", () => {
       await makePolicy(org.id, name);
     });
 
-    // Deliberately outside runWithOrgContext — no context established at all.
+    // Deliberately outside runWithOrgContext -no context established at all.
     const rows = await query<{ name: string }>(`SELECT name FROM policies WHERE name = $1`, [name]);
     expect(rows).toEqual([]);
   });
@@ -108,7 +108,7 @@ describe("Postgres RLS backstop on policies", () => {
 });
 
 // Unlike policies, org_id IS NULL on `users`/`audit_log` means "superadmin" /
-// "a superadmin's own action" — NOT "visible to everyone". So there's no
+// "a superadmin's own action" -NOT "visible to everyone". So there's no
 // global-row branch to prove here; a regular org context must see neither
 // another org's rows nor the superadmin's.
 describe("Postgres RLS backstop on users", () => {
@@ -146,7 +146,7 @@ describe("Postgres RLS backstop on users", () => {
     expect(seenAsBypass.map((r) => r.id).sort()).toEqual([userA.id, userB.id, superadmin.id].sort());
   });
 
-  it("login has no session yet but still succeeds — regression test for the bypass wrap on POST /login", async () => {
+  it("login has no session yet but still succeeds -regression test for the bypass wrap on POST /login", async () => {
     // Authenticating by username is a cross-org lookup before any org is
     // known; if the bypass wrap on the login handler were missing, RLS
     // would fail this closed and every login would 401.
@@ -226,7 +226,7 @@ describe("Postgres RLS backstop on audit_log", () => {
 
     await request(app).post("/api/v1/auth/login").send({ username: user.username, password: TEST_PASSWORD });
 
-    // audit() is fire-and-forget — give its query a tick to land.
+    // audit() is fire-and-forget -give its query a tick to land.
     await new Promise((r) => setTimeout(r, 50));
 
     const rows = await runWithOrgContext({ orgId: null, bypass: true }, () =>

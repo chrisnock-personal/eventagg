@@ -12,7 +12,7 @@ jobs:
     services:
       postgres:
         image: postgres:16
-        # Deliberately no POSTGRES_USER override here — the service's
+        # Deliberately no POSTGRES_USER override here -the service's
         # bootstrap user is always a Postgres superuser, and superusers
         # always bypass Row-Level Security regardless of FORCE ROW LEVEL
         # SECURITY. A setup step below creates a genuinely non-superuser
@@ -80,7 +80,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       # --omit=dev: this package's only runtime dependencies are
-      # react/react-dom — everything else (vite, esbuild, the eslint
+      # react/react-dom -everything else (vite, esbuild, the eslint
       # toolchain) is a build-time tool whose output never ships (this is
       # a statically-built frontend served by nginx, never a running dev
       # server). vite/esbuild currently carry a known dev-server-only
@@ -95,7 +95,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build image
         run: docker build -t eventagg:ci .
-      - name: Smoke test — boot and check /health
+      - name: Smoke test -boot and check /health
         run: |
           docker run -d --name eventagg-ci -p 3001:3001 -p 8080:80 eventagg:ci
           echo "Waiting for the container to become healthy..."
@@ -106,6 +106,6 @@ jobs:
             fi
             sleep 2
           done
-          echo "Container did not become healthy in time — dumping logs:"
+          echo "Container did not become healthy in time -dumping logs:"
           docker logs eventagg-ci
           exit 1

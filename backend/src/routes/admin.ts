@@ -11,7 +11,7 @@ import * as os from 'os';
 
 const router         = Router();
 const adminOnly      = requireRole('admin');
-// Whole-instance operations — a pg_dump/restore/VACUUM/table-stats touches
+// Whole-instance operations -a pg_dump/restore/VACUUM/table-stats touches
 // every org's data, so these are superadmin-only, not reachable by an
 // individual org's admin. See CLAUDE.md's RC roadmap: this was a known gap
 // while multi-tenancy had no platform-level role to restrict it to.
@@ -19,7 +19,7 @@ const superadminOnly = requireRole('superadmin');
 const execAsync = promisify(exec);
 
 // ── Policy export ─────────────────────────────────────────────────────────────
-// orgContextMiddleware here (not router.use — this router's other routes are
+// orgContextMiddleware here (not router.use -this router's other routes are
 // whole-instance operations, not per-tenant, see the note further down) since
 // these two routes touch the RLS-protected `policies` table.
 
@@ -49,12 +49,12 @@ router.get('/export/policies', requireAuth, adminOnly, orgContextMiddleware, asy
 // ── Policy import ─────────────────────────────────────────────────────────────
 
 // Only the bundle's outer shape (version + policies being an array) is
-// validated strictly — a single malformed policy entry inside a mostly-good
+// validated strictly -a single malformed policy entry inside a mostly-good
 // bundle is collected into results.errors below rather than rejecting the
 // whole import, matching this route's existing partial-success design (the
 // same reason DB-constraint failures per policy are caught individually).
 const policyImportBundleSchema = z.object({
-  version:  z.string().min(1, 'Invalid bundle — missing version field'),
+  version:  z.string().min(1, 'Invalid bundle -missing version field'),
   policies: z.array(z.unknown()).default([]),
 });
 
@@ -119,7 +119,7 @@ router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, as
 
 // NOTE: backup/restore below use pg_dump/psql against the whole database —
 // fundamentally not tenant-scopable (a dump contains every organisation's
-// data) — so these, plus the whole-instance table stats and VACUUM further
+// data) -so these, plus the whole-instance table stats and VACUUM further
 // down, are superadmin-only. /db/purge stays admin-accessible since it's
 // already scoped to the caller's own org.
 
@@ -151,7 +151,7 @@ router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: R
     // --clean --if-exists: without these, the dump is bare CREATE TABLE/
     // CREATE FUNCTION/etc. statements with nothing dropping the old ones
     // first. Restoring that into a database that already has the schema
-    // (always true here — migrations run at container boot, before the
+    // (always true here -migrations run at container boot, before the
     // restore feature is even reachable) collides on every single object
     // with "already exists" errors.
     await execAsync(
@@ -178,7 +178,7 @@ router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: R
   const tmpFile = path.join(os.tmpdir(), `eventagg-restore-${Date.now()}.sql`);
   try {
     if (typeof req.body !== 'string' || !req.body.startsWith('--')) {
-      return res.status(400).json({ error: 'Invalid backup file — must be a PostgreSQL SQL dump' });
+      return res.status(400).json({ error: 'Invalid backup file -must be a PostgreSQL SQL dump' });
     }
     fs.writeFileSync(tmpFile, req.body);
     const host = process.env.PGHOST     || 'localhost';
@@ -188,7 +188,7 @@ router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: R
     // ON_ERROR_STOP=1 is essential here: without it, psql prints an error for
     // a failing statement (e.g. a schema mismatch from a dump taken on an
     // older version of this app) and just carries on to the next statement,
-    // exiting 0 regardless — silently leaving a partially-restored database
+    // exiting 0 regardless -silently leaving a partially-restored database
     // while reporting success.
     await execAsync(
       `psql -v ON_ERROR_STOP=1 -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,

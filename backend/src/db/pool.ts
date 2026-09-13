@@ -15,7 +15,7 @@ export function getPool(): Pool {
 
     pool.on("connect", () => {
       // logger.ts's level config already suppresses debug outside
-      // development — no manual nodeEnv check needed here anymore.
+      // development -no manual nodeEnv check needed here anymore.
       logger.debug("📦  New PostgreSQL client connected");
     });
   }
@@ -41,13 +41,13 @@ export function runWithOrgContext<T>(ctx: OrgContext, fn: () => Promise<T>): Pro
 }
 
 // set_config() (not a string-interpolated SET LOCAL) is the parameterizable
-// form — avoids building SQL out of the org UUID. Third arg `true` = local,
+// form -avoids building SQL out of the org UUID. Third arg `true` = local,
 // i.e. transaction-scoped, automatically reverting at COMMIT/ROLLBACK so a
 // pooled connection never carries stale org context into an unrelated
 // later request.
 async function applyOrgContext(client: PoolClient): Promise<void> {
   const ctx = orgContextStorage.getStore();
-  if (!ctx) return; // no context — RLS-protected tables fail closed, by design
+  if (!ctx) return; // no context -RLS-protected tables fail closed, by design
   if (ctx.bypass) {
     await client.query(`SELECT set_config('app.bypass_rls', 'true', true)`);
   } else {
@@ -127,7 +127,7 @@ export async function withStatementTimeout<T>(
   const client = await pool.connect();
   try {
     // statement_timeout is session-level (not LOCAL) so it's set/reset
-    // outside the transaction below — but applyOrgContext's set_config(...,
+    // outside the transaction below -but applyOrgContext's set_config(...,
     // true) is LOCAL (transaction-scoped) and needs an explicit BEGIN/COMMIT
     // around it to take effect at all, otherwise it reverts immediately.
     await client.query(`SET statement_timeout = ${timeoutMs}`);

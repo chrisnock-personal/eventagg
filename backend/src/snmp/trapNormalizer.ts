@@ -23,9 +23,9 @@ export interface NormalizedTrap {
   routedTo:    string | null;
   // Which org this trap belongs to. Resolved from the trap's community
   // string against organisations.snmp_community FIRST (see
-  // resolveOrgByCommunity below) — that becomes authoritative for routing,
+  // resolveOrgByCommunity below) -that becomes authoritative for routing,
   // rule scoping, AND log/source attribution even when routeType ends up
-  // "unrouted" (no policy/rule match) — a trap from a registered org still
+  // "unrouted" (no policy/rule match) -a trap from a registered org still
   // shows up in that org's SNMP log even with nothing configured to ingest
   // it yet. Only null when the community string isn't registered to any
   // org at all, in which case routing falls back to legacy (unscoped)
@@ -57,7 +57,7 @@ async function resolveOrgByCommunity(community: string): Promise<string | null> 
 }
 
 // ─── Routing rules cache ──────────────────────────────────────────────────────
-// Keyed by org id once a community string resolves one — scopes rule
+// Keyed by org id once a community string resolves one -scopes rule
 // matching to that org only, closing a latent cross-tenant bug where a
 // broad rule in one org could match a trap actually meant for another org's
 // narrower rule. Key "*" is the legacy unscoped fallback for traps whose
@@ -115,7 +115,7 @@ async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; 
   return null;
 }
 
-// ─── Default org fallback (for logging unrouted traps — see logTrap) ─────────
+// ─── Default org fallback (for logging unrouted traps -see logTrap) ─────────
 let defaultOrgIdCache: string | null = null;
 
 export async function getDefaultOrgId(): Promise<string | null> {
@@ -172,7 +172,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
 
     // Even when nothing below ends up routable to a policy, an unrouted
     // trap still gets attributed to whichever org its community string
-    // resolves to (or null if truly unrecognised) — that's what makes it
+    // resolves to (or null if truly unrecognised) -that's what makes it
     // visible in the right tenant's SNMP log/sources view instead of
     // silently falling into the Default Organisation. This is the actual
     // point of community-based org resolution: it doesn't depend on a
@@ -191,13 +191,13 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     const { keyField, orgId } = policyInfo;
 
     // The community string identified an org, but this trap's policy
-    // belongs to a different one — a real misconfiguration signal (a
+    // belongs to a different one -a real misconfiguration signal (a
     // device sending org A's community string while referencing org B's
     // policy), not something to silently trust the policy's org for.
     // Still attributed to the community's org (not null) so that tenant's
     // admin can actually see the misconfigured trap arrived.
     if (communityOrgId && orgId !== communityOrgId) {
-      logger.warn({ policyId, community: raw.community }, "📡  SNMP: policy belongs to a different org than community resolves to — dropping as unrouted");
+      logger.warn({ policyId, community: raw.community }, "📡  SNMP: policy belongs to a different org than community resolves to -dropping as unrouted");
       return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: communityOrgId };
     }
 
@@ -223,9 +223,9 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     };
   }
 
-  // ── Standard trap — routing rules ─────────────────────────────────────────
+  // ── Standard trap -routing rules ─────────────────────────────────────────
   // Scoped to the community-resolved org when one exists, so a trap can only
-  // ever match that org's own rules — falls back to the legacy unscoped
+  // ever match that org's own rules -falls back to the legacy unscoped
   // search only when the community string isn't registered to any org.
   const rules = await getRoutingRules(communityOrgId ?? undefined);
   const matched = rules.find(r => {

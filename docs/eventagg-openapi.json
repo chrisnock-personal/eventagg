@@ -3,11 +3,11 @@
   "info": {
     "title": "EventAgg API",
     "version": "1.1.0",
-    "description": "Policy-driven event aggregation platform. Ingests individual event segments, correlates them using configurable field-path conditions, and promotes complete groups to a durable completed store. All lifecycle detection (cradle/grave) is handled server-side by the policy — producers send plain JSON payloads."
+    "description": "Policy-driven event aggregation platform. Ingests individual event segments, correlates them using configurable field-path conditions, and promotes complete groups to a durable completed store. All lifecycle detection (cradle/grave) is handled server-side by the policy -producers send plain JSON payloads."
   },
   "servers": [
-    { "url": "http://localhost:3001", "description": "Local — direct backend" },
-    { "url": "http://localhost:9090", "description": "Local — via nginx proxy" }
+    { "url": "http://localhost:3001", "description": "Local -direct backend" },
+    { "url": "http://localhost:9090", "description": "Local -via nginx proxy" }
   ],
   "tags": [
     { "name": "Health",   "description": "Service health check" },
@@ -92,7 +92,7 @@
       "put": {
         "tags": ["Policies"],
         "summary": "Update a policy",
-        "description": "All fields are optional — only supplied fields are updated.",
+        "description": "All fields are optional -only supplied fields are updated.",
         "operationId": "updatePolicy",
         "requestBody": {
           "required": true,
@@ -142,21 +142,21 @@
               "schema": { "$ref": "#/components/schemas/IngestRequest" },
               "examples": {
                 "cradle": {
-                  "summary": "Cradle (start) event — opens a new group",
+                  "summary": "Cradle (start) event -opens a new group",
                   "value": {
                     "policyId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                     "body": { "eventType": "user.login", "sessionId": "sess-ABC123", "userId": "u001" }
                   }
                 },
                 "intermediate": {
-                  "summary": "Intermediate event — appended to existing group",
+                  "summary": "Intermediate event -appended to existing group",
                   "value": {
                     "policyId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                     "body": { "eventType": "user.action", "sessionId": "sess-ABC123", "action": "view_dashboard" }
                   }
                 },
                 "grave": {
-                  "summary": "Grave (end) event — closes and promotes group",
+                  "summary": "Grave (end) event -closes and promotes group",
                   "value": {
                     "policyId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
                     "body": { "eventType": "user.logout", "sessionId": "sess-ABC123", "userId": "u001" }
@@ -176,7 +176,7 @@
         },
         "responses": {
           "201": {
-            "description": "Cradle event received — new group opened in in_progress_events",
+            "description": "Cradle event received -new group opened in in_progress_events",
             "content": {
               "application/json": {
                 "schema": { "$ref": "#/components/schemas/IngestResponse" },
@@ -195,7 +195,7 @@
                     "value": { "groupId": "f1e2d3c4-b5a6-7890-abcd-123456789012", "segmentId": "b1c2d3e4-f5a6-7890-abcd-123456789013", "aggregationKey": "sess-ABC123", "isCradle": false, "isGrave": false, "action": "segment_appended", "status": "in_progress" }
                   },
                   "promoted": {
-                    "summary": "Grave received — group promoted to completed_events",
+                    "summary": "Grave received -group promoted to completed_events",
                     "value": { "groupId": "f1e2d3c4-b5a6-7890-abcd-123456789012", "segmentId": "c1d2e3f4-a5b6-7890-abcd-123456789014", "aggregationKey": "sess-ABC123", "isCradle": false, "isGrave": true, "action": "group_promoted", "status": "completed" }
                   }
                 }
@@ -305,7 +305,7 @@
       },
       "PolicyUpdateRequest": {
         "type": "object",
-        "description": "All fields optional — only supplied fields are updated",
+        "description": "All fields optional -only supplied fields are updated",
         "properties": {
           "name":        { "type": "string", "minLength": 1, "maxLength": 255 },
           "domain":      { "type": "string", "minLength": 1, "maxLength": 255 },

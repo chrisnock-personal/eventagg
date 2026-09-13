@@ -14,7 +14,7 @@ import app from "./app";
 // Ensures completed_events partitions exist for the current + next 3 quarters.
 // Runs on startup and every 24h. Safe to run repeatedly (IF NOT EXISTS).
 export async function runPartitionJob(): Promise<void> {
-  // Runs outside any HTTP request — no middleware to establish org context,
+  // Runs outside any HTTP request -no middleware to establish org context,
   // and this job legitimately operates across every org (it's org-agnostic
   // partition maintenance today, but wiring the bypass now means it's
   // already correct if RLS ever extends to org-scoped tables this job touches).
@@ -39,7 +39,7 @@ export async function runPartitionJob(): Promise<void> {
       const startDate = `${y}-${String(startM).padStart(2, "0")}-01`;
       const endDate   = `${endY}-${String(endM).padStart(2, "0")}-01`;
 
-      // PostgreSQL rejects bind parameters inside FOR VALUES FROM/TO — partition
+      // PostgreSQL rejects bind parameters inside FOR VALUES FROM/TO -partition
       // bounds must be literal constants over the extended query protocol
       // ("bind message supplies N parameters, but prepared statement requires 0").
       // startDate/endDate are built from numeric year/month above, never from
@@ -62,7 +62,7 @@ export async function runPartitionJob(): Promise<void> {
 // is in the past, and promotes them to completed_events with status='timed_out'.
 export async function runTimeoutJob(): Promise<void> {
   // Runs outside any HTTP request, and legitimately scans across every org's
-  // in_progress_events by design — bypass context, matching runPartitionJob.
+  // in_progress_events by design -bypass context, matching runPartitionJob.
   await runWithOrgContext({ orgId: null, bypass: true }, async () => {
   try {
     // Find all in-progress groups where the policy has a timeout and it has elapsed
@@ -163,14 +163,14 @@ export async function runTimeoutJob(): Promise<void> {
 // ─── Seed default admin ───────────────────────────────────────────────────────
 async function seedDefaultAdmin(): Promise<void> {
   try {
-    // Runs at boot with no request/session — bypass so the users RLS policy
+    // Runs at boot with no request/session -bypass so the users RLS policy
     // (024) doesn't fail this closed before any admin user exists to log in as.
     await runWithOrgContext({ orgId: null, bypass: true }, async () => {
       const defaultOrg = await query<{ id: string }>(
         "SELECT id FROM organisations WHERE slug = 'default' LIMIT 1"
       );
       if (defaultOrg.length === 0) {
-        logger.error("⚠️  Default Organisation not found — cannot seed admin user");
+        logger.error("⚠️  Default Organisation not found -cannot seed admin user");
         return;
       }
       const orgId = defaultOrg[0].id;
@@ -183,7 +183,7 @@ async function seedDefaultAdmin(): Promise<void> {
         await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
         logger.info({ username: "admin", password, org: "Default Organisation" }, "👤  Default admin created");
       } else {
-        // Direct update by id — not the org-scoped updateUser() service
+        // Direct update by id -not the org-scoped updateUser() service
         // function, which requires WHERE id=$1 AND org_id=$2. The seeded
         // admin may since have been promoted to superadmin (org_id set to
         // NULL by that flow), in which case updateUser()'s org_id match
@@ -231,11 +231,11 @@ async function start(): Promise<void> {
       );
     });
 
-    // Start timeout job — run immediately then every 60 seconds
+    // Start timeout job -run immediately then every 60 seconds
     runTimeoutJob();
     const timeoutJobInterval = setInterval(runTimeoutJob, 60_000);
 
-    // Start partition job — run immediately then every 24 hours
+    // Start partition job -run immediately then every 24 hours
     runPartitionJob();
     const partitionJobInterval = setInterval(runPartitionJob, 24 * 60 * 60_000);
 
@@ -248,7 +248,7 @@ async function start(): Promise<void> {
 
     // Graceful shutdown
     const shutdown = async (signal: string) => {
-      logger.info({ signal }, "Signal received — shutting down gracefully");
+      logger.info({ signal }, "Signal received -shutting down gracefully");
       clearInterval(timeoutJobInterval);
       clearInterval(partitionJobInterval);
       stopSnmpReceiver();
@@ -270,7 +270,7 @@ async function start(): Promise<void> {
 }
 
 // Only boot the real server when this file is run directly (node dist/index.js,
-// ts-node-dev src/index.ts) — not when imported by tests wanting the plain
+// ts-node-dev src/index.ts) -not when imported by tests wanting the plain
 // job functions or the Express app without side effects.
 if (require.main === module) {
   start();

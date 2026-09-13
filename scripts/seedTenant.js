@@ -48,7 +48,7 @@ function randomDurationMs() {
   return rand(28800000, 172800000);
 }
 
-// Same template set as scripts/seedviasql.js — these are the global
+// Same template set as scripts/seedviasql.js -these are the global
 // EXAMPLE policies seeded by migrations 006/014.
 const POLICY_TEMPLATES = [
   {
@@ -114,7 +114,7 @@ const POLICY_TEMPLATES = [
 
 const s = (v) => `'${String(v).replace(/'/g, "''")}'`;
 const j = (o) => `$re$${JSON.stringify(o)}$re$::jsonb`;
-// Subquery resolving a global policy's id by name at apply-time — never
+// Subquery resolving a global policy's id by name at apply-time -never
 // needs to know the UUID up front, works against any target database.
 const policySubquery = (name) => `(SELECT id FROM policies WHERE name = ${s(name)} AND org_id IS NULL)`;
 const orgSubquery = `(SELECT id FROM organisations WHERE slug = ${s(ORG_SLUG)})`;

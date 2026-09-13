@@ -33,7 +33,7 @@ export interface AuditEntry {
   metadata?:      Record<string, unknown>;
 }
 
-// Fire-and-forget — never throws, never blocks the caller
+// Fire-and-forget -never throws, never blocks the caller
 export function audit(entry: AuditEntry): void {
   query(
     `INSERT INTO audit_log

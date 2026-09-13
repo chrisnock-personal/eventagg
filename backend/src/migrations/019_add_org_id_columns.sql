@@ -9,7 +9,7 @@
 --     though superadmin has no org context; a NOT NULL constraint here would
 --     make audit() silently drop those entries (it never throws on failure).
 --
--- system_config is intentionally NOT touched — it holds instance-wide config
+-- system_config is intentionally NOT touched -it holds instance-wide config
 -- (SMTP settings etc.), not per-tenant data.
 
 DO $$
@@ -23,7 +23,7 @@ BEGIN
     UPDATE policies SET org_id = default_org_id WHERE org_id IS NULL;
     ALTER TABLE policies ALTER COLUMN org_id SET NOT NULL;
 
-    -- ── users (nullable — see comment above) ─────────────────────────────
+    -- ── users (nullable -see comment above) ─────────────────────────────
     ALTER TABLE users ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organisations(id);
     UPDATE users SET org_id = default_org_id WHERE org_id IS NULL;
 
@@ -32,7 +32,7 @@ BEGIN
     UPDATE in_progress_events SET org_id = default_org_id WHERE org_id IS NULL;
     ALTER TABLE in_progress_events ALTER COLUMN org_id SET NOT NULL;
 
-    -- ── completed_events (partitioned — ADD COLUMN on parent propagates) ──
+    -- ── completed_events (partitioned -ADD COLUMN on parent propagates) ──
     ALTER TABLE completed_events ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organisations(id);
     UPDATE completed_events SET org_id = default_org_id WHERE org_id IS NULL;
     ALTER TABLE completed_events ALTER COLUMN org_id SET NOT NULL;
@@ -42,7 +42,7 @@ BEGIN
     UPDATE raw_events SET org_id = default_org_id WHERE org_id IS NULL;
     ALTER TABLE raw_events ALTER COLUMN org_id SET NOT NULL;
 
-    -- ── audit_log (nullable — see comment above) ─────────────────────────
+    -- ── audit_log (nullable -see comment above) ─────────────────────────
     ALTER TABLE audit_log ADD COLUMN IF NOT EXISTS org_id UUID REFERENCES organisations(id);
     UPDATE audit_log SET org_id = default_org_id WHERE org_id IS NULL;
 

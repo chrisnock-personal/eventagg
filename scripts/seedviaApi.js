@@ -234,7 +234,7 @@ async function main() {
   }
 
   const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-  console.log(`\n\n✅  Done — ${created} groups, ${totalSegments} segments, ${failed} errors, ${elapsed}s`);
+  console.log(`\n\n✅  Done -${created} groups, ${totalSegments} segments, ${failed} errors, ${elapsed}s`);
   console.log(`    Throughput: ${(totalSegments / elapsed).toFixed(0)} segments/s`);
   if (failed > 0) process.exit(1);
 }

@@ -25,10 +25,10 @@ export async function createTestUser(
   role: "superadmin" | "admin" | "editor" | "viewer" = "admin"
 ): Promise<{ id: string; username: string; password: string }> {
   const username = `test-user-${randomUUID().slice(0, 8)}`;
-  // Low bcrypt cost factor — these are throwaway test credentials, not real
+  // Low bcrypt cost factor -these are throwaway test credentials, not real
   // secrets, and a low cost keeps the suite fast across many test users.
   const hash = await bcrypt.hash(TEST_PASSWORD, 4);
-  // Fixture setup, not a real tenant action — bypass, same as seedDefaultAdmin,
+  // Fixture setup, not a real tenant action -bypass, same as seedDefaultAdmin,
   // so this can insert regardless of which org (or no org, for superadmin
   // fixtures) the caller asked for.
   const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>

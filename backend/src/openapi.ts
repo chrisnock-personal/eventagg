@@ -21,7 +21,7 @@ export const openApiSpec = {
     { name: "Ingest",   description: "Push events into the aggregation engine" },
     { name: "Policies", description: "Manage aggregation policies" },
     { name: "Webhooks", description: "Register endpoints to receive POST notifications when groups complete or time out" },
-    { name: "Audit",    description: "Audit log — every mutation and authentication event" },
+    { name: "Audit",    description: "Audit log -every mutation and authentication event" },
     { name: "System",   description: "System health, logs, and configuration (admin only)" },
     { name: "Admin",    description: "Policy import/export, database backup/restore, and maintenance (admin only)" },
   ],
@@ -679,7 +679,7 @@ export const openApiSpec = {
               },
             },
           },
-          "403": { description: "Forbidden — admin role required" },
+          "403": { description: "Forbidden -admin role required" },
         },
       },
     },
@@ -895,7 +895,7 @@ export const openApiSpec = {
       post: {
         tags: ["Admin"],
         summary: "Restore from backup",
-        description: "Executes a PostgreSQL SQL dump against the live database. Destructive — use with caution. Admin only.",
+        description: "Executes a PostgreSQL SQL dump against the live database. Destructive -use with caution. Admin only.",
         security: [{ cookieAuth: [] }],
         requestBody: {
           required: true,

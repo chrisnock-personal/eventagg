@@ -1,4 +1,4 @@
-# EventAgg — Database Schema
+# EventAgg -Database Schema
 
 **PostgreSQL 16+** · Version 1.1 · May 2026
 
@@ -8,10 +8,10 @@
 
 The schema is organised around four concerns:
 
-1. **Policy storage** — rules defining how events are correlated, when a group opens, and when it closes
-2. **Live event groups** — in-flight groups waiting for their grave condition, stored in a hot write-optimised table
-3. **Completed event groups** — fully closed groups promoted to a durable, query-optimised table with time-based partitioning
-4. **Audit trail** — an immutable record of every state transition, required for compliance
+1. **Policy storage** -rules defining how events are correlated, when a group opens, and when it closes
+2. **Live event groups** -in-flight groups waiting for their grave condition, stored in a hot write-optimised table
+3. **Completed event groups** -fully closed groups promoted to a durable, query-optimised table with time-based partitioning
+4. **Audit trail** -an immutable record of every state transition, required for compliance
 
 ---
 
@@ -63,8 +63,8 @@ CREATE UNIQUE INDEX idx_policies_name ON policies (name) WHERE is_active = TRUE;
 
 **Notes:**
 - `key_field`, `cradle_field`, and `grave_field` all use dot-notation (e.g. `trade.reference`, `meta.correlationId`). The ingest service resolves these against the segment body JSON at runtime.
-- `cradle_field` and `grave_field` can reference different fields — e.g. cradle on `eventType` and grave on `status`.
-- `domain` is a glob pattern reserved for future event routing — not enforced at the database level.
+- `cradle_field` and `grave_field` can reference different fields -e.g. cradle on `eventType` and grave on `status`.
+- `domain` is a glob pattern reserved for future event routing -not enforced at the database level.
 - `is_active = FALSE` soft-deletes a policy without breaking foreign key references on historical event groups.
 - `updated_at` is maintained by a trigger (see Triggers section).
 
@@ -81,7 +81,7 @@ CREATE UNIQUE INDEX idx_policies_name ON policies (name) WHERE is_active = TRUE;
 
 ## 2. `in_progress_events`
 
-Holds every event group from the moment its cradle segment is observed until its grave segment promotes it to `completed_events`. This is the hot path — every ingest write touches it.
+Holds every event group from the moment its cradle segment is observed until its grave segment promotes it to `completed_events`. This is the hot path -every ingest write touches it.
 
 ```sql
 CREATE TABLE in_progress_events (
@@ -111,7 +111,7 @@ CREATE INDEX idx_ipe_expires_at ON in_progress_events (expires_at)
 
 **Notes:**
 - The `UNIQUE` index on `(policy_id, aggregation_key)` is the most important index in the schema. It enforces that only one open group per policy per key can exist at any time, and makes the ingest lookup an O(log n) index seek.
-- `segment_count` and `last_seen_at` are updated automatically by a trigger on `event_segments` insert — see Triggers section.
+- `segment_count` and `last_seen_at` are updated automatically by a trigger on `event_segments` insert -see Triggers section.
 - `expires_at` supports a future TTL feature: a background worker queries `WHERE expires_at < now()` to auto-close stale groups.
 - The ingest service uses `SELECT FOR UPDATE` on this row to prevent concurrent grave processing races.
 
@@ -119,7 +119,7 @@ CREATE INDEX idx_ipe_expires_at ON in_progress_events (expires_at)
 
 ## 3. `event_segments`
 
-All individual event segments — whether belonging to an in-progress or completed group — stored as immutable insert-only rows.
+All individual event segments -whether belonging to an in-progress or completed group -stored as immutable insert-only rows.
 
 ```sql
 CREATE TABLE event_segments (
@@ -159,7 +159,7 @@ CREATE INDEX idx_segs_body ON event_segments USING GIN (body jsonb_path_ops);
 **Notes:**
 - Segments are stored in their own table rather than embedded as a JSONB array inside the event group row. This avoids row bloat and lock contention on high-frequency appends to the same group.
 - `completed_id` carries no foreign key constraint because PostgreSQL does not enforce FK references across partition boundaries. Referential integrity is enforced at the application layer.
-- `is_cradle` and `is_grave` are evaluated by the ingest service at write time using the policy's field/value conditions and stored for fast retrieval — avoids re-evaluating on every read.
+- `is_cradle` and `is_grave` are evaluated by the ingest service at write time using the policy's field/value conditions and stored for fast retrieval -avoids re-evaluating on every read.
 - `sequence` is assigned by the ingest service atomically within the group lock.
 
 ---
@@ -190,7 +190,7 @@ CREATE TABLE completed_events (
     PRIMARY KEY (id, completed_at)   -- partition key must be included in PK
 ) PARTITION BY RANGE (completed_at);
 
--- Quarterly partitions — add new ones via migration as time passes
+-- Quarterly partitions -add new ones via migration as time passes
 CREATE TABLE completed_events_2026_q2 PARTITION OF completed_events
     FOR VALUES FROM ('2026-04-01') TO ('2026-07-01');
 
@@ -211,9 +211,9 @@ CREATE INDEX idx_ce_duration     ON completed_events (duration_ms);
 ```
 
 **Notes:**
-- `duration_ms` is a generated stored column — computed from `started_at` and `ended_at` and persisted physically, making duration-based queries index-scannable without a runtime calculation.
+- `duration_ms` is a generated stored column -computed from `started_at` and `ended_at` and persisted physically, making duration-based queries index-scannable without a runtime calculation.
 - Partitions must be created in advance. A missing partition for the current period will cause inserts to fail. Add new partitions via numbered migration files before the quarter begins.
-- Segment data is not embedded in the completed group row — segments remain in `event_segments` with `completed_id` set, keeping group rows narrow for fast aggregation queries.
+- Segment data is not embedded in the completed group row -segments remain in `event_segments` with `completed_id` set, keeping group rows narrow for fast aggregation queries.
 
 ---
 
@@ -368,7 +368,7 @@ CREATE TRIGGER trg_segment_inserted
 
 ## Compliance Configuration
 
-**WAL archiving** — enabled by `entrypoint.sh` at container startup:
+**WAL archiving** -enabled by `entrypoint.sh` at container startup:
 
 ```
 wal_level = replica
@@ -382,7 +382,7 @@ archive_mode = on
 archive_command = 'wal-g wal-push %p'
 ```
 
-**Role-level delete restrictions** — the application role cannot delete from compliance tables:
+**Role-level delete restrictions** -the application role cannot delete from compliance tables:
 
 ```sql
 REVOKE DELETE ON audit_log        FROM eventagg_app;

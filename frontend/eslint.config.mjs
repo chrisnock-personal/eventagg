@@ -11,7 +11,7 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       // Matches tsconfig.json's own noUnusedLocals/noUnusedParameters: false
-      // (App.tsx is one large file with many components) — warn, don't block.
+      // (App.tsx is one large file with many components) -warn, don't block.
       "@typescript-eslint/no-explicit-any": "off",
       "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
     },

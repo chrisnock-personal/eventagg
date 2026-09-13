@@ -104,7 +104,7 @@ if [ ! -f "$PG_DATA/PG_VERSION" ]; then
   rm -f "$pwfile"
   log "Data directory initialised."
 else
-  log "Data directory already initialised — skipping initdb."
+  log "Data directory already initialised -skipping initdb."
 fi
 
 # =============================================================================
@@ -122,7 +122,7 @@ grep -q "^port" "$PG_CONFIG" 2>/dev/null \
 
 grep -q "# EventAgg" "$PG_CONFIG" 2>/dev/null || cat >> "$PG_CONFIG" <<EOF
 
-# EventAgg — added by entrypoint
+# EventAgg -added by entrypoint
 wal_level = replica
 max_wal_senders = 3
 EOF
@@ -168,7 +168,7 @@ log "Checking database user '$APP_PGUSER'..."
 USER_EXISTS=$(pg_admin "SELECT 1 FROM pg_roles WHERE rolname='${APP_PGUSER}';" | tr -d '[:space:]')
 
 if [ "$USER_EXISTS" = "1" ]; then
-  warn "User '$APP_PGUSER' exists — updating password."
+  warn "User '$APP_PGUSER' exists -updating password."
   pg_admin "ALTER USER ${APP_PGUSER} WITH PASSWORD '${APP_PGPASSWORD}';"
 else
   log "Creating user '$APP_PGUSER'..."
@@ -183,7 +183,7 @@ log "Checking database '$APP_PGDATABASE'..."
 DB_EXISTS=$(pg_admin "SELECT 1 FROM pg_database WHERE datname='${APP_PGDATABASE}';" | tr -d '[:space:]')
 
 if [ "$DB_EXISTS" = "1" ]; then
-  warn "Database '$APP_PGDATABASE' already exists — skipping."
+  warn "Database '$APP_PGDATABASE' already exists -skipping."
 else
   log "Creating database '$APP_PGDATABASE'..."
   pg_admin "CREATE DATABASE ${APP_PGDATABASE} OWNER ${APP_PGUSER};"

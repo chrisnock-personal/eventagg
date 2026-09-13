@@ -16,7 +16,7 @@ const adminOnly = requireRole('admin');
 // the superadmin promotion in the same transaction. Allowing it through here
 // too would let any admin flip the flag without actually promoting anyone.
 
-// Shared with POST /config/smtp/test below — both need the same shape.
+// Shared with POST /config/smtp/test below -both need the same shape.
 const smtpConfigSchema = z.object({
   host:     z.string().min(1),
   port:     z.number().int().min(1).max(65535),
@@ -75,7 +75,7 @@ router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Re
     const user = req.user!;
     // Authenticating by username (before org is re-confirmed) and the
     // subsequent org_id -> NULL self-promotion to superadmin both need
-    // bypass — the org_id NULL write is exactly what WITH CHECK otherwise
+    // bypass -the org_id NULL write is exactly what WITH CHECK otherwise
     // reserves for bypass contexts only (see migration 024).
     const result = await runWithOrgContext({ orgId: null, bypass: true }, () =>
       enableMultiTenancy(user.username, password)
@@ -309,7 +309,7 @@ router.post('/logs/rotate', requireAuth, adminOnly, (_req: Request, res: Respons
 const SERVICE_LOGS: Record<string, string> = {
   backend:         `${LOG_DIR}/backend.log`,
   // Genuine uncaught-crash output that bypasses pino entirely (backend.log
-  // is now the complete structured stream — see logger.ts) still lands
+  // is now the complete structured stream -see logger.ts) still lands
   // here, so it's kept as its own tab, mirroring nginx's error/access split.
   'backend-err':   `${LOG_DIR}/backend-err.log`,
   nginx:           `${LOG_DIR}/nginx-err.log`,
@@ -328,7 +328,7 @@ router.get('/logs/:service', requireAuth, adminOnly, (req: Request, res: Respons
     }).parse(req.query);
     const output    = execSync(`tail -n ${lineCount} ${logFile}`, { encoding: 'utf8' });
     const allLines  = output.split('\n').filter(Boolean);
-    // `backend` is now real pino JSON — determine severity from the actual
+    // `backend` is now real pino JSON -determine severity from the actual
     // `level` field (pino: warn=40, error=50, fatal=60) instead of a
     // substring match. Every other service is an external process in its
     // own native (non-JSON) format, so keeps the old substring heuristic.

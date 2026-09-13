@@ -45,7 +45,7 @@ export const OID_NAMES: Record<string, string> = {
   "1.3.6.1.6.3.1.1.4.3.0": "snmpTrapEnterprise",
   "1.3.6.1.2.1.11.1.0":    "snmpInPkts",
 
-  // ── UPS-MIB (RFC 1628) — common in data centre monitoring ─────────────────
+  // ── UPS-MIB (RFC 1628) -common in data centre monitoring ─────────────────
   "1.3.6.1.2.1.33.1.6.3.1": "upsTrapOnBattery",
   "1.3.6.1.2.1.33.1.6.3.2": "upsTrapLowBattery",
   "1.3.6.1.2.1.33.1.6.3.3": "upsTrapBatteryNormal",

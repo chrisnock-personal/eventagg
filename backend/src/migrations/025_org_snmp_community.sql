@@ -1,5 +1,5 @@
 -- 025_org_snmp_community.sql
--- Reversibility: schema-only — DROP COLUMN fully reverses this, no
+-- Reversibility: schema-only -DROP COLUMN fully reverses this, no
 -- dependent data.
 --
 -- Multi-tenancy phase 3: each org gets its own SNMP community string, the
@@ -18,7 +18,7 @@ UPDATE organisations SET snmp_community = 'public'
   WHERE slug = 'default' AND snmp_community IS NULL;
 
 -- Any other pre-existing orgs get a random unique placeholder, same
--- convention as ingest_api_key's own DEFAULT — an admin can rename it to
+-- convention as ingest_api_key's own DEFAULT -an admin can rename it to
 -- something meaningful via the Organizations panel.
 UPDATE organisations SET snmp_community = encode(gen_random_bytes(6), 'hex')
   WHERE snmp_community IS NULL;

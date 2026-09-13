@@ -19,7 +19,7 @@ const router = Router();
 router.use(requireAuth);
 router.use(orgContextMiddleware);
 
-// orgId is string | null throughout this file — null means superadmin, who
+// orgId is string | null throughout this file -null means superadmin, who
 // reads/writes only global (org_id IS NULL) policies. Regular org-scoped
 // callers read their own org's policies plus every global one (handled
 // inside policyService), but writes stay confined to their own org.
@@ -90,7 +90,7 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
   } catch (err) { next(err); }
 });
 
-// PATCH /api/v1/policies/:id/toggle — activate or deactivate
+// PATCH /api/v1/policies/:id/toggle -activate or deactivate
 router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId;

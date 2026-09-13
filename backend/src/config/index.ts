@@ -23,29 +23,29 @@ const envSchema = z.object({
 
   // CORS
   // Defaults to same-origin only (no Access-Control-Allow-Origin header at
-  // all) rather than "*" — this app's own nginx.conf proxies the frontend
+  // all) rather than "*" -this app's own nginx.conf proxies the frontend
   // and API on the same origin, so no cross-origin browser requests are
   // needed for the documented deployment. "*" combined with credentials:
   // true (see app.ts) is silently rejected by browsers anyway, so the old
   // "*" default never actually worked for a credentialed cross-origin
-  // caller — it was a footgun with no upside. Set this explicitly to a
+  // caller -it was a footgun with no upside. Set this explicitly to a
   // real origin (or "*", for a non-credentialed integration) only if a
   // separately-hosted frontend needs to call this API directly.
   CORS_ORIGIN: z.string().default(""),
 
   // Auth
   // JWT_SECRET is intentionally optional here (not required like PGPASSWORD)
-  // — session.ts auto-generates a random one at boot if unset, rather than
+  // -session.ts auto-generates a random one at boot if unset, rather than
   // refusing to start, matching this codebase's existing pattern for other
   // secrets (organisations.ingest_api_key auto-generates too). The
   // trade-off is documented there: sessions invalidate on every restart
   // unless this is set explicitly.
   // docker-compose.yml passes this through as "" (not unset) when the host
-  // doesn't set it — normalize "" to undefined here so config.jwtSecret is
+  // doesn't set it -normalize "" to undefined here so config.jwtSecret is
   // never a falsy-but-truthy-looking empty string downstream.
   JWT_SECRET: z.string().optional().transform((v) => v || undefined),
   // Only enable Secure cookies once you've actually put TLS in front (a
-  // reverse proxy, etc.) — this app's own nginx.conf serves plain HTTP, and
+  // reverse proxy, etc.) -this app's own nginx.conf serves plain HTTP, and
   // a Secure cookie is silently dropped by the browser over HTTP, which
   // would break every login. Defaults to false to match today's deployments.
   COOKIE_SECURE: z.enum(["true", "false"]).default("false"),

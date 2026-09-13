@@ -5,7 +5,7 @@ import { runWithOrgContext, OrgContext } from "../db/pool";
 // mounted after requireAuth/requireApiKey, since it reads req.user/req.org.
 //
 // AsyncLocalStorage's .run() propagates its context through the entire async
-// chain kicked off by the synchronous next() call inside it — everything
+// chain kicked off by the synchronous next() call inside it -everything
 // downstream (however deeply nested via async/await) sees this context, no
 // need to bracket against res.on('finish').
 export function orgContextMiddleware(req: Request, res: Response, next: NextFunction): void {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // ─── Aggre/Gator SNMP Trap Sender ────────────────────────────────────────────
-// Uses raw dgram + BER encoding — no net-snmp dependency, port is always respected.
+// Uses raw dgram + BER encoding -no net-snmp dependency, port is always respected.
 //
 // Usage:
 //   node scripts/send-trap.js --list-policies
@@ -146,7 +146,7 @@ function apiGet(path) {
 async function main() {
   if (has("--help") || has("-h")) {
     console.log(`
-Aggre/Gator SNMP Trap Sender (raw dgram — no net-snmp required)
+Aggre/Gator SNMP Trap Sender (raw dgram -no net-snmp required)
 
 Options:
   --host <ip>         Target host (default: 127.0.0.1)

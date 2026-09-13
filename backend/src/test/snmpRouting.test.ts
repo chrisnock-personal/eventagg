@@ -4,7 +4,7 @@ import { query, queryOne, runWithOrgContext } from "../db/pool";
 import { normalizeTrap, RawTrap, invalidateRoutingCache } from "../snmp/trapNormalizer";
 import { createTestOrg } from "./helpers";
 
-// Standard (non-AggreGator) trap OID — SNMPv2-MIB linkDown, used throughout
+// Standard (non-AggreGator) trap OID -SNMPv2-MIB linkDown, used throughout
 // as a stand-in for "some ordinary trap routed via snmp_routing_rules".
 const LINK_DOWN_OID = "1.3.6.1.6.3.1.1.5.3";
 const AG_TRAP_OID = "1.3.6.1.4.1.99999.2.1";
@@ -12,7 +12,7 @@ const AG_POLICY_ID_OID = "1.3.6.1.4.1.99999.4.1";
 const AG_AGGREGATION_KEY_OID = "1.3.6.1.4.1.99999.4.2";
 
 // In production, trapReceiver.ts's processTrap() establishes a bypass org
-// context before calling normalizeTrap() — the dgram receiver has no
+// context before calling normalizeTrap() -the dgram receiver has no
 // request/session to derive org from ahead of time; org is resolved
 // per-trap by normalizeTrap()'s own queries instead. Replicate that same
 // context here since these tests call normalizeTrap() directly.
@@ -32,7 +32,7 @@ function rawTrap(overrides: Partial<RawTrap> & { community: string }): RawTrap {
 }
 
 async function makePolicy(orgId: string, keyField = "orderId"): Promise<string> {
-  // Fixture setup, not a real tenant action — bypass, since policies is
+  // Fixture setup, not a real tenant action -bypass, since policies is
   // RLS-protected (023) and this helper is called with no ambient context.
   const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>
     queryOne<{ id: string }>(
@@ -77,7 +77,7 @@ describe("SNMP community-string org resolution", () => {
     const sharedOid = `1.3.6.1.4.1.55555.${randomUUID().slice(0, 4)}`;
 
     // Org B's rule has a much better (lower) priority number and would win
-    // an unscoped global search — proving scoping, not just priority, is
+    // an unscoped global search -proving scoping, not just priority, is
     // what keeps this correct.
     await makeRule(orgB.id, policyB, { priority: 1, matchTrapOid: sharedOid });
     await makeRule(orgA.id, policyA, { priority: 100, matchTrapOid: sharedOid });
@@ -99,7 +99,7 @@ describe("SNMP community-string org resolution", () => {
     const result = await callNormalizeTrap(trap);
 
     // No org claims this community string, but the wildcard-community rule
-    // still matches via the legacy global search — unchanged behavior for
+    // still matches via the legacy global search -unchanged behavior for
     // sources nobody has migrated to a per-org community string yet.
     expect(result.orgId).toBe(org.id);
     expect(result.routedTo).toBe(policy);

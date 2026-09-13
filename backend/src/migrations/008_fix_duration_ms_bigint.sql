@@ -1,6 +1,6 @@
 -- ── Fix duration_ms overflow ──────────────────────────────────────────────────
 -- INT (32-bit) overflows at ~24.8 days. Change to BIGINT for long-running groups.
--- For partitioned tables, drop the column on the PARENT only — partitions inherit.
+-- For partitioned tables, drop the column on the PARENT only -partitions inherit.
 
 ALTER TABLE completed_events DROP COLUMN IF EXISTS duration_ms;
 

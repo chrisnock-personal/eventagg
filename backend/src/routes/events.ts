@@ -11,7 +11,7 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Superadmin has no org to scope events to — reject rather than silently
+// Superadmin has no org to scope events to -reject rather than silently
 // returning empty/all-org data.
 router.use((req: Request, res: Response, next: NextFunction) => {
   const user = req.user!;
@@ -51,7 +51,7 @@ router.get("/stats", async (req: Request, res: Response, next: NextFunction) => 
       res.setHeader("X-Cache", "HIT");
       return res.json(cached);
     }
-    // Apply 15s statement timeout — aggregate queries can be slow on large datasets
+    // Apply 15s statement timeout -aggregate queries can be slow on large datasets
     const result = await withStatementTimeout(TIMEOUTS.stats, () => getEventStats(orgId, filters));
     statsCache.set(key, result);
     res.setHeader("X-Cache", "MISS");
@@ -89,7 +89,7 @@ router.get("/performance", async (req: Request, res: Response, next: NextFunctio
   }
 });
 
-// GET /api/v1/events — paginated list
+// GET /api/v1/events -paginated list
 router.get("/", async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;

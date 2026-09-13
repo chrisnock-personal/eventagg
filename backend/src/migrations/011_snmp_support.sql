@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS snmp_routing_rules (
 CREATE INDEX IF NOT EXISTS idx_snmp_routing_priority ON snmp_routing_rules (priority ASC);
 CREATE INDEX IF NOT EXISTS idx_snmp_sources_agent    ON snmp_trap_sources   (agent_addr);
 
--- Recent raw traps log (ring buffer — trimmed to last 1000)
+-- Recent raw traps log (ring buffer -trimmed to last 1000)
 CREATE TABLE IF NOT EXISTS snmp_trap_log (
   id          BIGSERIAL   PRIMARY KEY,
   received_at TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -31,7 +31,7 @@ function toResponse(p: Policy): PolicyResponse {
 //             policies plus every global (org_id IS NULL) policy, read-only
 //             for the global ones (enforced by the WHERE clauses below).
 //   null   -> superadmin: sees/owns only global policies. There is no
-//             "all orgs' policies" view — superadmin manages global
+//             "all orgs' policies" view -superadmin manages global
 //             templates, not other orgs' private policies.
 
 export async function listPolicies(orgId: string | null, includeInactive = false): Promise<PolicyResponse[]> {
@@ -236,7 +236,7 @@ async function writeAudit(
 
 // ─── Retroactive timeout sweep for a specific policy ─────────────────────────
 // orgId=null (superadmin editing a global policy) sweeps every org currently
-// using this policy_id, not just one — there's no single "owning" org for a
+// using this policy_id, not just one -there's no single "owning" org for a
 // global policy's in-flight groups. Each group's own org_id (already stamped
 // at ingest time, independent of the policy's org_id) is used when
 // promoting it, never the outer orgId param.

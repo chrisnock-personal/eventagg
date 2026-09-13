@@ -12,14 +12,14 @@ Aggre/Gator is an intelligent event stream aggregation platform. It ingests even
 
 Modern systems produce floods of related events that arrive fragmented, out of order, and from many sources. Aggre/Gator solves this by:
 
-- **Accepting events from any producer** — a single HTTP endpoint handles APIs, queues, webhooks and batch jobs; a built-in SNMP trap receiver handles network/telecom sources
+- **Accepting events from any producer** -a single HTTP endpoint handles APIs, queues, webhooks and batch jobs; a built-in SNMP trap receiver handles network/telecom sources
 - **Grouping events automatically** by a configurable field in the event body (e.g. `tradeRef`, `orderId`, `sessionId`)
 - **Tracking lifecycle from first to last event** using user-defined cradle (open) and grave (close) conditions per policy
 - **Auto-closing stale groups** via configurable per-policy timeouts with retroactive sweep, and emailing admins when a group times out
 - **Surfacing insights** through real-time charts, per-policy health cards, duration histograms, and performance tables
 - **Notifying external systems** via HMAC-signed webhooks on group open/complete/timeout, with delivery logging and retry
-- **Auditing every mutation** — logins, policy changes, ingests and admin actions are all recorded and viewable/paginated in the UI
-- **Full headless access** — every core feature is available via the REST API with no UI required
+- **Auditing every mutation** -logins, policy changes, ingests and admin actions are all recorded and viewable/paginated in the UI
+- **Full headless access** -every core feature is available via the REST API with no UI required
 
 ---
 
@@ -30,17 +30,17 @@ Modern systems produce floods of related events that arrive fragmented, out of o
 podman build --no-cache --layers=false -t localhost/eventagg_eventagg:latest .
 podman-compose up -d
 
-# UI (login: admin / admin123 — forced password change on first login)
+# UI (login: admin / admin123 -forced password change on first login)
 open http://localhost:8080
 
-# API docs — Swagger UI
+# API docs -Swagger UI
 open http://localhost:3001/api/v1/docs
 
 # Health check
 curl http://localhost:3001/health
 ```
 
-Runs as a single container — PostgreSQL 16 + Node.js backend + nginx frontend, managed by supervisord. `docker-compose.yml` uses `network_mode: host` (required so the SNMP UDP receiver can see external traffic under rootless Podman), so services bind directly to host ports rather than going through a port mapping.
+Runs as a single container -PostgreSQL 16 + Node.js backend + nginx frontend, managed by supervisord. `docker-compose.yml` uses `network_mode: host` (required so the SNMP UDP receiver can see external traffic under rootless Podman), so services bind directly to host ports rather than going through a port mapping.
 
 The base OS image is selectable at build time:
 
@@ -95,7 +95,7 @@ REST API + React UI                 headless or browser, JWT session auth
 
 The UI requires login. Credentials are stored in the `users` table with bcryptjs-hashed passwords, and sessions are a JWT in an httpOnly cookie (`ag_session`, 8h TTL).
 
-Default account created on first boot: `admin` / `admin123` — the seeded admin is forced to change their password on first login (`ADMIN_PASSWORD` env var can set the initial password instead).
+Default account created on first boot: `admin` / `admin123` -the seeded admin is forced to change their password on first login (`ADMIN_PASSWORD` env var can set the initial password instead).
 
 | Role | Permissions |
 |------|-------------|
@@ -120,8 +120,8 @@ Full interactive docs at `GET /api/v1/docs` (Swagger UI) · Spec at `GET /api/v1
 | `GET` | `/api/v1/events/:id` | Event group detail |
 | `GET` | `/api/v1/events/:id/raw-events` | Raw events belonging to a group |
 | `DELETE` | `/api/v1/events/:id` | Delete an event group |
-| `GET` | `/api/v1/events/stats` | Aggregate statistics — cached 60s |
-| `GET` | `/api/v1/events/performance` | Slowest groups, aging in-progress, histogram — cached 30s |
+| `GET` | `/api/v1/events/stats` | Aggregate statistics -cached 60s |
+| `GET` | `/api/v1/events/performance` | Slowest groups, aging in-progress, histogram -cached 30s |
 
 ### Policies
 
@@ -138,7 +138,7 @@ Full interactive docs at `GET /api/v1/docs` (Swagger UI) · Spec at `GET /api/v1
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/auth/login` | Sign in — sets `ag_session` httpOnly cookie |
+| `POST` | `/api/v1/auth/login` | Sign in -sets `ag_session` httpOnly cookie |
 | `POST` | `/api/v1/auth/logout` | Sign out |
 | `GET` | `/api/v1/auth/me` | Current session user |
 | `POST` | `/api/v1/auth/change-password` | Change own password |
@@ -165,23 +165,23 @@ Full interactive docs at `GET /api/v1/docs` (Swagger UI) · Spec at `GET /api/v1
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/audit` | Paginated audit log — `{ rows, total, limit, offset }` |
-| `GET` / `PUT` | `/api/v1/system/config/:key` | System config (e.g. `smtp`) — admin only |
-| `POST` | `/api/v1/system/config/smtp/test` | Send a test email — admin only |
-| `GET` | `/api/v1/system/health` | CPU/mem/disk + table sizes — admin only |
-| `GET` | `/api/v1/system/logs/:service`, `/logs/sizes` | Log viewer / rotation — admin only |
-| `POST` | `/api/v1/system/logs/rotate` | Rotate logs — admin only |
-| `GET` | `/api/v1/admin/export/policies` | Download policy bundle — admin only |
-| `POST` | `/api/v1/admin/import/policies` | Upload policy bundle — admin only |
-| `GET` | `/api/v1/admin/backup/info`, `POST /backup` | pg_dump backup — admin only |
-| `POST` | `/api/v1/admin/restore` | Restore from SQL dump — admin only |
-| `GET` | `/api/v1/admin/db/stats` | Table/row statistics — admin only |
-| `POST` | `/api/v1/admin/db/vacuum` | VACUUM ANALYZE — admin only |
-| `POST` | `/api/v1/admin/db/purge` | Purge old completed events — admin only |
+| `GET` | `/api/v1/audit` | Paginated audit log -`{ rows, total, limit, offset }` |
+| `GET` / `PUT` | `/api/v1/system/config/:key` | System config (e.g. `smtp`) -admin only |
+| `POST` | `/api/v1/system/config/smtp/test` | Send a test email -admin only |
+| `GET` | `/api/v1/system/health` | CPU/mem/disk + table sizes -admin only |
+| `GET` | `/api/v1/system/logs/:service`, `/logs/sizes` | Log viewer / rotation -admin only |
+| `POST` | `/api/v1/system/logs/rotate` | Rotate logs -admin only |
+| `GET` | `/api/v1/admin/export/policies` | Download policy bundle -admin only |
+| `POST` | `/api/v1/admin/import/policies` | Upload policy bundle -admin only |
+| `GET` | `/api/v1/admin/backup/info`, `POST /backup` | pg_dump backup -admin only |
+| `POST` | `/api/v1/admin/restore` | Restore from SQL dump -admin only |
+| `GET` | `/api/v1/admin/db/stats` | Table/row statistics -admin only |
+| `POST` | `/api/v1/admin/db/vacuum` | VACUUM ANALYZE -admin only |
+| `POST` | `/api/v1/admin/db/purge` | Purge old completed events -admin only |
 
 `X-Cache: HIT | MISS` header is present on `/stats` and `/performance` responses.
 
-Every ingest request requires `X-API-Key: <key>` — the key identifies which
+Every ingest request requires `X-API-Key: <key>` -the key identifies which
 organisation the event belongs to (`organisations.ingest_api_key`, generated
 per-org; there is no global/env-var key anymore).
 
@@ -224,7 +224,7 @@ curl -X POST http://localhost:3001/api/v1/events/ingest \
 | `graveField` / `graveValue` | Field + value that closes a group |
 | `timeoutMs` | Auto-close groups after this many ms of inactivity (optional) |
 
-Policies take effect immediately — no restart required.
+Policies take effect immediately -no restart required.
 Inactive policies return `400 POLICY_INACTIVE` on ingest.
 
 ---
@@ -274,12 +274,12 @@ Six panels under **☰ → Administration** (admin only):
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/ingest.js` | HTTP ingest CLI — single events, files, or load-test bursts |
+| `scripts/ingest.js` | HTTP ingest CLI -single events, files, or load-test bursts |
 | `scripts/seedviaApi.js` | Configurable seeder that posts realistic data through the HTTP API |
 | `scripts/seedviasql.js` | Generates backdated SQL inserts spread across N days, for piping into `psql` |
-| `scripts/send-trap.js` | SNMP trap sender (raw dgram BER encoder — does not use net-snmp) |
+| `scripts/send-trap.js` | SNMP trap sender (raw dgram BER encoder -does not use net-snmp) |
 | `scripts/snmp-bridge.js` | Host-side UDP→HTTP bridge, an alternative to the in-container receiver |
-| `scripts/demo.js` | Interactive step-by-step demo — 4 scenarios (trade, link down/up, order, telephone call), SNMP + HTTP, Enter to advance |
+| `scripts/demo.js` | Interactive step-by-step demo -4 scenarios (trade, link down/up, order, telephone call), SNMP + HTTP, Enter to advance |
 
 ```bash
 # Discover policies, then ingest
@@ -287,7 +287,7 @@ node scripts/ingest.js --list-policies
 node scripts/ingest.js --policy <uuid> --body '{"eventType":"trade.initiated","tradeRef":"TRD-001"}'
 node scripts/ingest.js --policy <uuid> --file ./events/trade.json
 
-# Load test — 500 events, 10ms apart, {{i}} substitution
+# Load test -500 events, 10ms apart, {{i}} substitution
 node scripts/ingest.js --policy <uuid> \
   --body '{"eventType":"order.created","orderId":"ORD-{{i}}"}' \
   --count 500 --delay 10
@@ -307,18 +307,18 @@ node scripts/demo.js --host <host> --api-key <key>
 | Variable | Default | Description |
 |----------|---------|--------------|
 | `PORT` | `3001` | Backend API port |
-| `PGHOST` | — (required) | PostgreSQL host |
+| `PGHOST` | -(required) | PostgreSQL host |
 | `PGPORT` | `5432` | PostgreSQL port |
-| `PGDATABASE` | — (required) | Database name |
-| `PGUSER` | — (required) | Database user |
-| `PGPASSWORD` | — (required) | Database password |
+| `PGDATABASE` | -(required) | Database name |
+| `PGUSER` | -(required) | Database user |
+| `PGPASSWORD` | -(required) | Database password |
 | `PGSSL` | `false` | Enable TLS to PostgreSQL |
 | `PG_POOL_MAX` | `10` | Max pool connections |
 | `PG_POOL_IDLE_TIMEOUT_MS` | `30000` | Pool idle connection timeout |
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection acquire timeout |
-| `CORS_ORIGIN` | *(empty — same-origin only)* | Set only if a separately-hosted frontend calls this API directly (see below) |
-| `JWT_SECRET` | random per boot | JWT signing secret. **Set this explicitly in production** — if unset, a random secret is generated every time the process starts, invalidating every session on each restart. There is no insecure hardcoded fallback. |
-| `COOKIE_SECURE` | `false` | Marks the session cookie `Secure` (HTTPS-only). Only enable once you've put TLS in front of this app (see below) — this app's own nginx.conf serves plain HTTP, and browsers silently drop `Secure` cookies over HTTP, breaking every login. |
+| `CORS_ORIGIN` | *(empty -same-origin only)* | Set only if a separately-hosted frontend calls this API directly (see below) |
+| `JWT_SECRET` | random per boot | JWT signing secret. **Set this explicitly in production** -if unset, a random secret is generated every time the process starts, invalidating every session on each restart. There is no insecure hardcoded fallback. |
+| `COOKIE_SECURE` | `false` | Marks the session cookie `Secure` (HTTPS-only). Only enable once you've put TLS in front of this app (see below) -this app's own nginx.conf serves plain HTTP, and browsers silently drop `Secure` cookies over HTTP, breaking every login. |
 | `ADMIN_PASSWORD` | `admin123` | Password set for the default org's admin on first boot |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
 | `SNMP_PORT` | `1162` | SNMP UDP listen port |
@@ -336,13 +336,13 @@ that's in place so session cookies are marked HTTPS-only.
 ### CORS
 
 The bundled `nginx.conf` proxies both the frontend and the API on the same
-origin (port 8080) — the browser never makes a cross-origin request in the
+origin (port 8080) -the browser never makes a cross-origin request in the
 standard deployment, so `CORS_ORIGIN` defaults to empty (same-origin only,
 no `Access-Control-Allow-Origin` header sent at all). Only set it if you're
-serving the frontend from a different origin than this API — a specific
+serving the frontend from a different origin than this API -a specific
 origin (e.g. `https://dashboard.example.com`) or `*` for a non-credentialed
 integration. Note `*` combined with cookie-based auth (`credentials:
-"include"`) is rejected by browsers regardless of this setting — a
+"include"`) is rejected by browsers regardless of this setting -a
 cross-origin frontend that needs to stay logged in via the session cookie
 must set a specific origin here, not `*`.
 
@@ -353,8 +353,8 @@ must set a specific origin here, not `*`.
 ```
 eventagg/
 ├── frontend/src/
-│   ├── App.tsx               Full UI (~4300 lines) — login, burger menu, event groups, reports, admin panels
-│   └── api.ts                Typed API client — typed functions hoisted above the plain `api` object
+│   ├── App.tsx               Full UI (~4300 lines) -login, burger menu, event groups, reports, admin panels
+│   └── api.ts                Typed API client -typed functions hoisted above the plain `api` object
 ├── backend/src/
 │   ├── index.ts               Express app, background jobs, SNMP startup, admin seeder
 │   ├── config/index.ts        Zod-validated environment config

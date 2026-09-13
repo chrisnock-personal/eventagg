@@ -7,7 +7,7 @@ AGGRE-GATOR-MIB DEFINITIONS ::= BEGIN
 --  Enterprise OID: 1.3.6.1.4.1.99999
 --
 --  NOTE: 99999 is a placeholder. Register a real Private Enterprise Number
---  (PEN) with IANA at https://pen.iana.org/pen/PenApplication.page — it is
+--  (PEN) with IANA at https://pen.iana.org/pen/PenApplication.page -it is
 --  free and takes a few days. Replace 99999 with your assigned PEN before
 --  deploying in a production network.
 --

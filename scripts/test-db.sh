@@ -2,7 +2,7 @@
 # ─── Aggre/Gator Test Database ────────────────────────────────────────────────
 # Spins up (or tears down) a throwaway Postgres 16 container for running the
 # backend test suite locally. Mirrors the container used to develop/verify
-# the test suite itself — nothing here is meant to persist.
+# the test suite itself -nothing here is meant to persist.
 #
 # Usage:
 #   ./scripts/test-db.sh up      # start the container
@@ -16,14 +16,14 @@ ENGINE="${CONTAINER_ENGINE:-podman}"
 
 case "$1" in
   up)
-    # Deliberately does NOT set POSTGRES_USER=eventagg_user — the vanilla
+    # Deliberately does NOT set POSTGRES_USER=eventagg_user -the vanilla
     # postgres image's bootstrap user is always a superuser, and superusers
     # always bypass Row-Level Security regardless of FORCE ROW LEVEL
     # SECURITY, which would make any RLS test pass/fail for the wrong
     # reason. Mirrors entrypoint.sh's real production setup instead: a
     # `postgres` superuser only for bootstrapping, and a separate,
     # genuinely non-superuser eventagg_user (CREATEDB, not SUPERUSER) that
-    # the app — and this test suite — actually connects as.
+    # the app -and this test suite -actually connects as.
     "$ENGINE" run -d --name "$CONTAINER" \
       -e POSTGRES_PASSWORD=postgres_admin_pass \
       -e POSTGRES_DB=eventagg \

@@ -2,7 +2,7 @@
 ARG BASE_IMAGE=ubuntu:22.04
 
 # =============================================================================
-# Stage 1 — Build the frontend (React → static files)
+# Stage 1 -Build the frontend (React → static files)
 # =============================================================================
 FROM node:20-alpine AS frontend-builder
 
@@ -21,7 +21,7 @@ RUN npm run build
 
 
 # =============================================================================
-# Stage 2 — Build the backend (TypeScript → JavaScript)
+# Stage 2 -Build the backend (TypeScript → JavaScript)
 # =============================================================================
 FROM node:20-alpine AS backend-builder
 
@@ -43,7 +43,7 @@ RUN npm install --omit=dev
 
 
 # =============================================================================
-# Stage 3 — Runtime image
+# Stage 3 -Runtime image
 #
 # Override BASE_IMAGE at build time:
 #   podman-compose build --build-arg BASE_IMAGE=fedora:40

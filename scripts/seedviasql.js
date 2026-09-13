@@ -41,7 +41,7 @@ function genUuid() {
   });
 }
 
-// Weighted random duration — skewed toward shorter completions
+// Weighted random duration -skewed toward shorter completions
 function randomDurationMs() {
   const r = Math.random();
   if (r < 0.30) return rand(5000,    120000);    // 5s–2min
@@ -172,7 +172,7 @@ async function main() {
   let created = 0, skipped = 0;
 
   // Emit CREATE TABLE IF NOT EXISTS for every quarter covered by the date range.
-  // completed_events is partitioned by completed_at — missing partitions cause INSERTs to fail.
+  // completed_events is partitioned by completed_at -missing partitions cause INSERTs to fail.
   const rangeStart = new Date(nowMs - N_DAYS * 86400000);
   const quarters = [];
   const d = new Date(rangeStart);
@@ -252,7 +252,7 @@ async function main() {
       process.stderr.write(`\r  ${created} groups generated…`);
     }
   }
-  process.stderr.write(`\r  ✅  ${created} groups generated (${skipped} skipped — duration exceeded now)\n\n`);
+  process.stderr.write(`\r  ✅  ${created} groups generated (${skipped} skipped -duration exceeded now)\n\n`);
 }
 
 main().catch(err => { process.stderr.write(err.message + "\n"); process.exit(1); });

@@ -84,7 +84,7 @@ export async function deleteOrg(id: string): Promise<boolean> {
     return (result as any).rowCount > 0;
   } catch (err: any) {
     if (err.code === "23503") { // foreign_key_violation
-      const friendly = new Error("Organisation still has policies, users, or events — deactivate it instead of deleting");
+      const friendly = new Error("Organisation still has policies, users, or events -deactivate it instead of deleting");
       (friendly as any).statusCode = 409;
       throw friendly;
     }

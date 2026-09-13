@@ -4,7 +4,7 @@ import { logger, runWithRequestId } from "../logger";
 
 // Mounted first in app.ts, before cors/json/cookie-parser, so every
 // subsequent middleware, route, and error handler during this request logs
-// under the same requestId (via logger.ts's mixin) — replaces the old
+// under the same requestId (via logger.ts's mixin) -replaces the old
 // dev-only method+path console.log with real access logging in every
 // environment.
 export function requestLogging(req: Request, res: Response, next: NextFunction): void {

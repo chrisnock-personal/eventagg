@@ -126,7 +126,7 @@ router.post("/rules", requireRole("editor", "admin"), async (req, res, next) => 
       keyField:       z.string().default("sourceIp"),
     }).parse(req.body);
 
-    // The referenced policy must belong to this org — otherwise an editor
+    // The referenced policy must belong to this org -otherwise an editor
     // could route SNMP traps into another org's policy by guessing its UUID.
     const policy = await queryOne(`SELECT id FROM policies WHERE id = $1 AND org_id = $2`, [body.policyId, orgId]);
     if (!policy) return next(createError("Policy not found", 404));

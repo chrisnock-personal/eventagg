@@ -271,7 +271,7 @@ function PolicyEditor({ policy, onSave, onDelete, onClose }: {
     <div style={{ position: "fixed", inset: 0, background: "rgba(26,25,22,0.55)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ width: 620, maxHeight: "92vh", overflowY: "auto", background: C.surface, borderRadius: 12, border: `1px solid ${C.border}` }}>
         <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start", position: "sticky", top: 0, background: C.surface, zIndex: 1 }}>
-          <div><div style={{ fontSize: 15, fontWeight: 800 }}>{isNew ? "New Aggregation Policy" : `Edit — ${policy.name}`}</div><div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Defines correlation key, cradle condition, and grave condition</div></div>
+          <div><div style={{ fontSize: 15, fontWeight: 800 }}>{isNew ? "New Aggregation Policy" : `Edit -${policy.name}`}</div><div style={{ fontSize: 11, color: C.textMuted, marginTop: 2 }}>Defines correlation key, cradle condition, and grave condition</div></div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.textMuted }}>×</button>
         </div>
         <div style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 22 }}>
@@ -281,7 +281,7 @@ function PolicyEditor({ policy, onSave, onDelete, onClose }: {
             <div style={{ marginTop: 10 }}><FInput label="Description" value={form.description} onChange={v => set("description", v)} placeholder="Human-readable purpose" /></div>
           </div>
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
-            <SectionLabel text="Conditions — all three evaluated against every ingested raw event body" />
+            <SectionLabel text="Conditions -all three evaluated against every ingested raw event body" />
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 14 }}>
               <div style={{ padding: "14px 16px", borderRadius: 8, border: `2px solid ${C.info}50`, background: C.infoLight }}>
                 <div style={{ fontSize: 11, fontWeight: 800, color: C.info, letterSpacing: "0.05em", marginBottom: 12 }}>⬡ AGGREGATION KEY</div>
@@ -304,7 +304,7 @@ function PolicyEditor({ policy, onSave, onDelete, onClose }: {
           </div>
           <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 18 }}>
             <SectionLabel text="⏱ Auto-timeout" />
-            <div style={{ marginBottom: 8, fontSize: 11, color: C.textMuted }}>Automatically close groups that stop receiving raw events. Defaults to off — grave raw event required to close.</div>
+            <div style={{ marginBottom: 8, fontSize: 11, color: C.textMuted }}>Automatically close groups that stop receiving raw events. Defaults to off -grave raw event required to close.</div>
             <DurationInput value={form.timeoutMs} onChange={v => set("timeoutMs", v)} />
           </div>
           {error && <div style={{ padding: "8px 12px", borderRadius: 6, background: C.dangerLight, color: C.danger, fontSize: 12 }}>{error}</div>}
@@ -350,9 +350,9 @@ function ValidatePolicyPanel({ pol }: { pol: Policy }) {
       const isCradle = String(cradleResolved) === pol.cradleValue;
       const isGrave  = String(graveResolved)  === pol.graveValue;
       const checks = [
-        { icon: "⬡", label: "KEY",   color: C.info,   field: `body.${pol.keyField}`,    resolved: keyResolved,    expected: undefined,        pass: keyOk,    note: keyOk ? `Aggregation key: "${keyResolved}"` : `body.${pol.keyField} not found — event would be rejected` },
-        { icon: "▶", label: "START", color: C.accent, field: `body.${pol.cradleField}`, resolved: cradleResolved, expected: pol.cradleValue,  pass: isCradle, note: isCradle ? "Cradle matched — would OPEN a new group" : "Cradle not matched" },
-        { icon: "■", label: "END",   color: C.danger, field: `body.${pol.graveField}`,  resolved: graveResolved,  expected: pol.graveValue,   pass: isGrave,  note: isGrave  ? "Grave matched — would CLOSE the group" : "Grave not matched" },
+        { icon: "⬡", label: "KEY",   color: C.info,   field: `body.${pol.keyField}`,    resolved: keyResolved,    expected: undefined,        pass: keyOk,    note: keyOk ? `Aggregation key: "${keyResolved}"` : `body.${pol.keyField} not found -event would be rejected` },
+        { icon: "▶", label: "START", color: C.accent, field: `body.${pol.cradleField}`, resolved: cradleResolved, expected: pol.cradleValue,  pass: isCradle, note: isCradle ? "Cradle matched -would OPEN a new group" : "Cradle not matched" },
+        { icon: "■", label: "END",   color: C.danger, field: `body.${pol.graveField}`,  resolved: graveResolved,  expected: pol.graveValue,   pass: isGrave,  note: isGrave  ? "Grave matched -would CLOSE the group" : "Grave not matched" },
       ];
       const outcome = !keyOk
         ? { bg: C.dangerLight, color: C.danger, border: C.danger+"40", label: "✕  Key unresolvable",             desc: `body.${pol.keyField} is missing. Ingest would return 422 Unprocessable Entity.` }
@@ -364,7 +364,7 @@ function ValidatePolicyPanel({ pol }: { pol: Policy }) {
         ? { bg: C.dangerLight, color: C.danger, border: C.danger+"40", label: "■  Closes an open group",          desc: `POST /api/v1/events/ingest → 200 OK. Group for key "${keyResolved}" promoted to completed_events.` }
         : { bg: C.infoLight,   color: C.info,   border: C.info+"40",   label: "+  Intermediate raw event",         desc: `POST /api/v1/events/ingest → 200 OK. Raw event appended to existing group for key "${keyResolved}".` };
       setResult({ checks, outcome });
-    } catch { setParseErr("Invalid JSON — check your event body"); setResult(null); }
+    } catch { setParseErr("Invalid JSON -check your event body"); setResult(null); }
   }
 
   return (
@@ -689,7 +689,7 @@ function EventDetail({ event, policy, onClose, initialRawEventId }: { event: Eve
         {/* Timeout banner */}
         {event.status === "timed_out" && policy?.timeoutMs && (
           <div style={{ margin: "12px 24px 0", background: C.timeoutLight, border: `1px solid ${C.timeoutSoft}`, borderRadius: 8, padding: "10px 14px" }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: C.timeout, marginBottom: 3 }}>⏱ Group timed out — no grave received</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: C.timeout, marginBottom: 3 }}>⏱ Group timed out -no grave received</div>
             <div style={{ fontSize: 11, color: C.timeout, opacity: 0.9, lineHeight: 1.5 }}>
               Auto-closed after <strong>{fmtMs(policy.timeoutMs)}</strong> with no grave raw event.
               Clock started at cradle and reset on each subsequent raw event.
@@ -879,7 +879,7 @@ function IngestModal({ policies, onIngest, onClose }: {
       const field = pol.graveField.replace(/^body\./, "");
       base[field] = pol.graveValue;
     } else {
-      // Middle — use a neutral eventType if the field is eventType
+      // Middle -use a neutral eventType if the field is eventType
       const field = pol.cradleField.replace(/^body\./, "");
       base[field] = "event.update";
     }
@@ -910,8 +910,8 @@ function IngestModal({ policies, onIngest, onClose }: {
     try {
       const res = await onIngest({ policyId, body: parsed });
       const msgs = [`Raw event ingested. Key: "${res.aggregationKey}".`];
-      if (res.action === "group_opened")       msgs.push("▶ Cradle matched — new group opened.");
-      if (res.action === "group_promoted")     msgs.push("■ Grave matched — group promoted to completed.");
+      if (res.action === "group_opened")       msgs.push("▶ Cradle matched -new group opened.");
+      if (res.action === "group_promoted")     msgs.push("■ Grave matched -group promoted to completed.");
       if (res.action === "raw_event_appended") msgs.push("Appended to existing in-progress group.");
       setResult({ ok: true, msg: msgs.join(" ") });
     } catch (e: any) { setResult({ ok: false, msg: e.message ?? "Ingest failed." }); }
@@ -926,10 +926,10 @@ function IngestModal({ policies, onIngest, onClose }: {
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 20, cursor: "pointer", color: C.textMuted }}>×</button>
         </div>
         <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
-          <FSelect label="Aggregation Policy *" value={policyId} onChange={v => { setPolicyId(v); setResult(null); }} options={policies.map(p => ({ value: p.id, label: `${p.name} — ${p.domain}${p.isActive ? "" : " (inactive)"}` }))} />
+          <FSelect label="Aggregation Policy *" value={policyId} onChange={v => { setPolicyId(v); setResult(null); }} options={policies.map(p => ({ value: p.id, label: `${p.name} -${p.domain}${p.isActive ? "" : " (inactive)"}` }))} />
           {pol && !pol.isActive && (
             <div style={{ padding: "8px 12px", borderRadius: 6, background: C.warnLight, border: `1px solid ${C.warn}40`, fontSize: 12, color: C.warn, fontWeight: 600 }}>
-              ⚠ This policy is inactive — ingest will be rejected by the API.
+              ⚠ This policy is inactive -ingest will be rejected by the API.
             </div>
           )}
           {pol && (
@@ -967,9 +967,9 @@ function IngestModal({ policies, onIngest, onClose }: {
           {prev?.valid && pol && (
             <div style={{ padding: "10px 14px", borderRadius: 8, background: C.surface, border: `1px solid ${C.border}`, display: "flex", flexDirection: "column", gap: 4, fontSize: 11 }}>
               <div style={{ fontWeight: 700, color: C.textMid, marginBottom: 2 }}>Live Resolution</div>
-              <div><span style={{ color: C.textMuted }}>⬡ Key: </span>{prev.key !== undefined && prev.key !== null ? <code style={{ fontFamily: "monospace", color: C.info, fontWeight: 700 }}>{String(prev.key)}</code> : <span style={{ color: C.danger, fontStyle: "italic" }}>unresolved — body.{pol.keyField} not found</span>}</div>
-              <div><span style={{ color: C.textMuted }}>▶ Cradle: </span><span style={{ fontWeight: 700, color: prev.isCradle ? C.accent : C.textMuted }}>{prev.isCradle ? "YES — will open group" : "No"}</span></div>
-              <div><span style={{ color: C.textMuted }}>■ Grave: </span><span style={{ fontWeight: 700, color: prev.isGrave ? C.danger : C.textMuted }}>{prev.isGrave ? "YES — will promote to completed" : "No"}</span></div>
+              <div><span style={{ color: C.textMuted }}>⬡ Key: </span>{prev.key !== undefined && prev.key !== null ? <code style={{ fontFamily: "monospace", color: C.info, fontWeight: 700 }}>{String(prev.key)}</code> : <span style={{ color: C.danger, fontStyle: "italic" }}>unresolved -body.{pol.keyField} not found</span>}</div>
+              <div><span style={{ color: C.textMuted }}>▶ Cradle: </span><span style={{ fontWeight: 700, color: prev.isCradle ? C.accent : C.textMuted }}>{prev.isCradle ? "YES -will open group" : "No"}</span></div>
+              <div><span style={{ color: C.textMuted }}>■ Grave: </span><span style={{ fontWeight: 700, color: prev.isGrave ? C.danger : C.textMuted }}>{prev.isGrave ? "YES -will promote to completed" : "No"}</span></div>
             </div>
           )}
           {result && <div style={{ padding: "10px 14px", borderRadius: 6, background: result.ok ? C.accentLight : C.dangerLight, color: result.ok ? C.accent : C.danger, fontSize: 12, border: `1px solid ${result.ok ? C.accentSoft : "#FCA5A5"}` }}>{result.msg}</div>}
@@ -1042,7 +1042,7 @@ function PolicyMultiSelect({ policies, selected, onChange }: {
 
   function toggle(id: string) {
     if (allSelected) {
-      // Start from "all selected" — selecting one means excluding all others
+      // Start from "all selected" -selecting one means excluding all others
       onChange(policies.map(p => p.id).filter(pid => pid !== id));
     } else if (selected.includes(id)) {
       // Deselect this one
@@ -1789,7 +1789,7 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
           <div style={{ maxHeight: 340, overflowY: "auto" }}>
             {webhooks.length === 0 && (
               <div style={{ padding: "18px 14px", fontSize: 12, color: C.textMuted, textAlign: "center" as const }}>
-                No webhooks yet — add one to get notified when groups complete or time out.
+                No webhooks yet -add one to get notified when groups complete or time out.
               </div>
             )}
             {webhooks.map(wh => (
@@ -2194,7 +2194,7 @@ function BackupPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Backup</div>
-          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Download a full <code>pg_dump</code> SQL backup of the database. Store it safely — it contains all data.</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Download a full <code>pg_dump</code> SQL backup of the database. Store it safely -it contains all data.</div>
           <button onClick={doBackup} disabled={backing} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: backing ? C.borderStrong : C.accent, color: "#fff", cursor: backing ? "default" : "pointer", fontFamily: "inherit" }}>
             {backing ? "Creating backup…" : "⬇ Download backup.sql"}
           </button>
@@ -2215,7 +2215,7 @@ function BackupPanel() {
   );
 }
 
-// ─── Admin panel: DB Maintenance (superadmin only — whole instance) ──────────
+// ─── Admin panel: DB Maintenance (superadmin only -whole instance) ──────────
 
 function DbMaintenancePanel() {
   const [stats,   setStats]   = useState<any>(null);
@@ -2285,7 +2285,7 @@ function DbMaintenancePanel() {
   );
 }
 
-// ─── Admin panel: Data Retention (regular admin — scoped to their own org) ───
+// ─── Admin panel: Data Retention (regular admin -scoped to their own org) ───
 
 function DataRetentionPanel() {
   const [purgeable, setPurgeable] = useState<any>(null);
@@ -2316,8 +2316,8 @@ function DataRetentionPanel() {
 
       {purgeable && (
         <div style={{ display: "flex", gap: 10 }}>
-          <AdminCard label="Purgeable (90d) — Completed" value={purgeable.purgeable_90d?.completed ?? "—"} color={C.warn} />
-          <AdminCard label="Purgeable (90d) — Audit" value={purgeable.purgeable_90d?.audit ?? "—"} color={C.warn} />
+          <AdminCard label="Purgeable (90d) -Completed" value={purgeable.purgeable_90d?.completed ?? "—"} color={C.warn} />
+          <AdminCard label="Purgeable (90d) -Audit" value={purgeable.purgeable_90d?.audit ?? "—"} color={C.warn} />
         </div>
       )}
 
@@ -2761,8 +2761,8 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                     <span style={{ color: C.textMuted }}>›</span>
                   </button>
                   {([
-                    { icon: "💾", label: "Backup",         desc: "pg_dump & restore — whole instance", v: "backup" as AdminView },
-                    { icon: "🗄", label: "DB Maintenance", desc: "VACUUM, table stats — whole instance", v: "db" as AdminView },
+                    { icon: "💾", label: "Backup",         desc: "pg_dump & restore -whole instance", v: "backup" as AdminView },
+                    { icon: "🗄", label: "DB Maintenance", desc: "VACUUM, table stats -whole instance", v: "db" as AdminView },
                   ] as { icon: string; label: string; desc: string; v: AdminView }[]).map(item => (
                     <button key={item.v} onClick={() => { setOpen(false); setSection(null); onAdminNav(item.v); }}
                       style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
@@ -2965,7 +2965,7 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
   );
 }
 
-// ─── Aggre/Gator logo icon — jaw variant A, forest colour ────────────────────
+// ─── Aggre/Gator logo icon -jaw variant A, forest colour ────────────────────
 function JawIcon({ size = 32 }: { size?: number }) {
   const color = C.accent;
   return (
@@ -3041,7 +3041,7 @@ function HeatmapChart({ tp }: { tp: { bucket: string; opened: number; closed: nu
   const HOURS = Array.from({ length: 24 }, (_, i) => i);
   const DAYS  = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-  // Build a 7×24 grid from the throughput data — use bucket timestamps to assign
+  // Build a 7×24 grid from the throughput data -use bucket timestamps to assign
   // If insufficient real data, fill with zeros
   const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
   tp.forEach(b => {
@@ -3055,7 +3055,7 @@ function HeatmapChart({ tp }: { tp: { bucket: string; opened: number; closed: nu
   return (
     <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
       <div style={{ fontSize: 12, fontWeight: 800, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 12 }}>
-        Hourly Activity Heatmap — Groups Opened
+        Hourly Activity Heatmap -Groups Opened
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "32px repeat(24, 1fr)", gap: 2, alignItems: "center" }}>
         {/* Hour labels */}
@@ -3073,7 +3073,7 @@ function HeatmapChart({ tp }: { tp: { bucket: string; opened: number; closed: nu
               const v    = grid[di][h];
               const norm = v / maxVal;
               return (
-                <div key={h} title={`${day} ${String(h).padStart(2, "0")}:00 — ${v} groups opened`}
+                <div key={h} title={`${day} ${String(h).padStart(2, "0")}:00 -${v} groups opened`}
                   style={{ height: 16, borderRadius: 2, background: `rgba(29,107,78,${0.07 + norm * 0.85})`, cursor: "default" }} />
               );
             })}
@@ -3091,7 +3091,7 @@ function HeatmapChart({ tp }: { tp: { bucket: string; opened: number; closed: nu
   );
 }
 
-// ─── Reports — Overview ───────────────────────────────────────────────────────
+// ─── Reports -Overview ───────────────────────────────────────────────────────
 // ─── Audit Log View ───────────────────────────────────────────────────────────
 function AuditLogView() {
   const [entries, setEntries] = useState<any[]>([]);
@@ -3177,9 +3177,9 @@ function AuditLogView() {
   );
 }
 
-// ─── Reports — Overview ───────────────────────────────────────────────────────
+// ─── Reports -Overview ───────────────────────────────────────────────────────
 function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policies: Policy[]; stats: EventStats | null; dateRange: string; policyFilter: string[] }) {
-  // Hooks must run unconditionally on every render — the `!stats` guard
+  // Hooks must run unconditionally on every render -the `!stats` guard
   // moves after them (was before, tripping react-hooks/rules-of-hooks: if
   // `stats` ever went from populated back to null on a later render, e.g.
   // a refetch, the hook call order would change between renders).
@@ -3299,7 +3299,7 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
                 ))}
               </div>
               <div style={{ marginTop: 5, fontSize: 9, color: C.textMuted, textAlign: "center" as const }}>
-                {pinned !== null ? "● Pinned — click same bar or 'unpin' to release" : "Hover to preview · click a bar to pin the tooltip"}
+                {pinned !== null ? "● Pinned -click same bar or 'unpin' to release" : "Hover to preview · click a bar to pin the tooltip"}
               </div>
             </div>
         }
@@ -3307,7 +3307,7 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
     );
   }
 
-  // Build raw event counts from byPolicy (approximation — backend throughput doesn't include raw events)
+  // Build raw event counts from byPolicy (approximation -backend throughput doesn't include raw events)
   // We show the same buckets scaled by avg raw event count
   const avgSegsPerGroup = stats.totalGroups > 0 ? stats.totalRawEvents / stats.totalGroups : 2.5;
   const tpWithSegs = tp.map(b => ({
@@ -3340,8 +3340,8 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {renderChart("Event Group Throughput — Over Time", tp,         grpSeries as any, grpPinned, setGrpPinned, grpHovered, setGrpHovered)}
-      {renderChart("Raw Event Throughput — Over Time",   tpWithSegs, segSeries as any, segPinned, setSegPinned, segHovered, setSegHovered)}
+      {renderChart("Event Group Throughput -Over Time", tp,         grpSeries as any, grpPinned, setGrpPinned, grpHovered, setGrpHovered)}
+      {renderChart("Raw Event Throughput -Over Time",   tpWithSegs, segSeries as any, segPinned, setSegPinned, segHovered, setSegHovered)}
 
       {/* ── Pie charts ── */}
       {stats.byPolicy.length > 0 && (
@@ -3428,9 +3428,9 @@ function ReportsOverview({ policies, stats, dateRange, policyFilter }: { policie
   );
 }
 
-// ─── Reports — Policy Stats ───────────────────────────────────────────────────
+// ─── Reports -Policy Stats ───────────────────────────────────────────────────
 function ReportsPolicyStats({ policies, stats }: { policies: Policy[]; stats: EventStats | null }) {
-  // Hook must run unconditionally on every render — see the same fix in
+  // Hook must run unconditionally on every render -see the same fix in
   // ReportsOverview above (react-hooks/rules-of-hooks).
   const [expandedId, setExpandedId] = useState<string | null>(null);
   if (!stats) return <div style={{ padding: 48, textAlign: "center", color: C.textMuted }}>Loading…</div>;
@@ -3542,7 +3542,7 @@ function ReportsPolicyStats({ policies, stats }: { policies: Policy[]; stats: Ev
   );
 }
 
-// ─── Reports — Event Group Performance ───────────────────────────────────────
+// ─── Reports -Event Group Performance ───────────────────────────────────────
 function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, toFilter }: {
   policies: Policy[];
   policyFilter: string[];
@@ -3842,7 +3842,7 @@ function ReportsGroupExplorer({ policies, policyFilter, keyFilter, fromFilter, t
       {/* ── Duration distribution histogram ── */}
       {completed.length > 0 && histogram.length > 0 && (
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 4 }}>Duration Distribution — Completed Groups</div>
+          <div style={{ fontSize: 12, fontWeight: 800, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 4 }}>Duration Distribution -Completed Groups</div>
           <div style={{ fontSize: 10, color: C.textMuted, marginBottom: 14, fontFamily: "monospace" }}>How long do completed groups take?</div>
           <div style={{ display: "flex", gap: 4, alignItems: "flex-end", height: 90 }}>
             {bucketCounts.map((b, idx) => {
@@ -3952,7 +3952,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
   const [reportSection,  setReportSection] = useState<"overview" | "policies" | "explorer" | "audit">("overview");
   const [adminView,      setAdminView]   = useState<AdminView | null>(null);
 
-  // Live highlighting — track which group IDs changed and why
+  // Live highlighting -track which group IDs changed and why
   const [highlighted,    setHighlighted] = useState<HighlightedGroup[]>([]);
   const prevEventsRef    = useRef<EventGroupSummary[]>([]);
 
@@ -4199,8 +4199,8 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
             return "<tr><td>" + p.policyName.replace("EXAMPLE - ", "") + "</td><td>" + p.total + "</td><td>" + p.completed + "</td><td>" + p.inProgress + "</td><td>" + p.totalRawEvents + "</td><td>" + (p.avgDurationMs ? fmtMs(p.avgDurationMs) : "—") + "</td><td>" + rate + "%</td></tr>";
           }).join("");
           body = "<h2>Throughput</h2>"
-            + "<div class='chart'>" + buildSvgChart("Event Group Throughput — Over Time", grpData, "#1D6B4E", "Opened", "#1D4ED8", "Closed", "#B45309", "In Progress") + "</div>"
-            + "<div class='chart'>" + buildSvgChart("Raw Event Throughput — Over Time", segData, "#6D28D9", "Raw Events Opened", "#8B5CF6", "Raw Events Closed") + "</div>"
+            + "<div class='chart'>" + buildSvgChart("Event Group Throughput -Over Time", grpData, "#1D6B4E", "Opened", "#1D4ED8", "Closed", "#B45309", "In Progress") + "</div>"
+            + "<div class='chart'>" + buildSvgChart("Raw Event Throughput -Over Time", segData, "#6D28D9", "Raw Events Opened", "#8B5CF6", "Raw Events Closed") + "</div>"
             + "<h2>Policy Breakdown</h2>"
             + "<table><thead><tr><th>Policy</th><th>Total</th><th>Completed</th><th>In Progress</th><th>Raw Events</th><th>Avg Duration</th><th>Rate</th></tr></thead>"
             + "<tbody>" + polRows + "</tbody></table>";
@@ -4235,7 +4235,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
   function handleExport(format: "CSV" | "JSON") {
     setShowExport(false);
     setExporting(format);
-    // Build export from eventStats + current events — in production this would call a backend endpoint
+    // Build export from eventStats + current events -in production this would call a backend endpoint
     setTimeout(() => {
       if (format === "CSV") {
         const headers = ["id","policyName","aggregationKey","keyField","status","rawEventCount","startTime","endTime","durationMs"];
@@ -4275,7 +4275,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
         tbody tr:hover td { background: ${C.surfaceAlt}; }
       `}</style>
 
-      {/* Header — full-width bg, content constrained to match main area */}
+      {/* Header -full-width bg, content constrained to match main area */}
       <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, width: "100%" }}>
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "0 32px", display: "flex", justifyContent: "space-between", alignItems: "center", height: 56 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -4341,11 +4341,11 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
           <>
           <StatsBar events={events} eventsTotal={eventStats?.totalGroups ?? eventsTotal} policies={policies} eventStats={eventStats} />
 
-          {/* Filter bar — status greyed out for Reports */}
+          {/* Filter bar -status greyed out for Reports */}
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {/* Status — disabled in Reports, doesn't affect aggregate metrics */}
-              <div title="Status filter does not affect report metrics — reports always show aggregate data across all groups"
+              {/* Status -disabled in Reports, doesn't affect aggregate metrics */}
+              <div title="Status filter does not affect report metrics -reports always show aggregate data across all groups"
                 style={{ padding: "6px 28px 6px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, color: C.textMuted, background: "#ECEAE6", cursor: "not-allowed", opacity: 0.5, userSelect: "none" as const, display: "flex", alignItems: "center", gap: 6, flexShrink: 0, whiteSpace: "nowrap" as const }}>
                 All statuses
                 <span style={{ fontSize: 9, background: C.border, borderRadius: 3, padding: "0px 5px", color: C.textMuted, fontWeight: 700 }}>n/a</span>
@@ -4362,14 +4362,14 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 10 }}>Body Search</div>
                       <div style={{ marginBottom: 10 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⬡ Field match — field=value</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⬡ Field match -field=value</div>
                         {["trader=t-smith", "symbol=AAPL", "statusCode=200"].map(ex => (
                           <button key={ex} onClick={() => { setBodySearch(ex); setPage(1); }}
                             style={{ display: "block", padding: "3px 8px", marginBottom: 3, background: C.accentLight, border: `1px solid ${C.accentSoft}`, borderRadius: 4, fontSize: 11, fontFamily: "monospace", cursor: "pointer", color: C.accent, width: "100%", textAlign: "left" as const }}>{ex}</button>
                         ))}
                       </div>
                       <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                        <div style={{ fontSize: 10, fontWeight: 700, color: C.info, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⟡ Full-text — any string</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: C.info, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⟡ Full-text -any string</div>
                         {["t-smith", "slow response"].map(ex => (
                           <button key={ex} onClick={() => { setBodySearch(ex); setPage(1); }}
                             style={{ display: "block", padding: "3px 8px", marginBottom: 3, background: C.infoLight, border: `1px solid ${C.info}30`, borderRadius: 4, fontSize: 11, fontFamily: "monospace", cursor: "pointer", color: C.info, width: "100%", textAlign: "left" as const }}>"{ex}"</button>
@@ -4411,7 +4411,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
                 {(
                   <>
                     <div style={{ width: 1, height: 20, background: C.border }} />
-                    {/* Export button — all report sections */}
+                    {/* Export button -all report sections */}
                     <div style={{ position: "relative" }}>
                       <button onClick={() => setShowReportExport(v => !v)}
                         style={{ padding: "5px 10px", fontSize: 11, fontWeight: 600, border: `1px solid ${C.border}`, borderRadius: 5, background: reportExporting ? C.accentLight : showReportExport ? C.surfaceAlt : C.surface, cursor: "pointer", fontFamily: "inherit", color: reportExporting ? C.accent : C.textMid, display: "flex", alignItems: "center", gap: 5 }}>
@@ -4456,7 +4456,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
         {!adminView && view === "events" && (<>
         <StatsBar events={events} eventsTotal={eventsTotal} policies={policies} eventStats={eventStats} />
 
-        {/* Filters — single row */}
+        {/* Filters -single row */}
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <StatusMultiSelect selected={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }} />
@@ -4477,7 +4477,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 800, color: C.text, marginBottom: 10 }}>Body Search</div>
                   <div style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⬡ Field match — field=value</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.accent, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⬡ Field match -field=value</div>
                     <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>Precise GIN-indexed match. Supports dot-notation.</div>
                     {["trader=t-smith", "symbol=AAPL", "statusCode=200", "userId=usr-001"].map(ex => (
                       <button key={ex} onClick={() => { setBodySearch(ex); setPage(1); }}
@@ -4487,7 +4487,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
                     ))}
                   </div>
                   <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: C.info, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⟡ Full-text — any string</div>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: C.info, marginBottom: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>⟡ Full-text -any string</div>
                     <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>Searches the entire serialised body.</div>
                     {["t-smith", "WH-02", "slow response"].map(ex => (
                       <button key={ex} onClick={() => { setBodySearch(ex); setPage(1); }}
@@ -4556,8 +4556,8 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
                       Export {eventsTotal.toLocaleString()} event groups
                     </div>
                     {([
-                      { format: "CSV"  as const, icon: "📄", desc: "Flat file — one row per group, all columns" },
-                      { format: "JSON" as const, icon: "{ }", desc: "Full detail — groups with nested raw events" },
+                      { format: "CSV"  as const, icon: "📄", desc: "Flat file -one row per group, all columns" },
+                      { format: "JSON" as const, icon: "{ }", desc: "Full detail -groups with nested raw events" },
                     ]).map(opt => (
                       <button key={opt.format} onClick={() => handleExport(opt.format)}
                         style={{ width: "100%", padding: "8px 10px", border: "none", borderRadius: 6, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "flex-start" }}
@@ -4667,7 +4667,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
           )}
         </div>
 
-        {/* Pagination — groups tab */}
+        {/* Pagination -groups tab */}
         {activeTab === "groups" && totalPages > 1 && (
           <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 14 }}>
             <Btn label="← Prev" onClick={() => setPage(p => Math.max(1, p - 1))} small />
@@ -4683,7 +4683,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
           </div>
         )}
 
-        {/* Pagination — raw events tab */}
+        {/* Pagination -raw events tab */}
         {activeTab === "raw-events" && rawEvents.length > PER_PAGE && (() => {
           const segTotalPages = Math.ceil(rawEvents.length / PER_PAGE);
           return (
@@ -4704,7 +4704,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
 
         {/* Legend */}
         <div style={{ display: "flex", gap: 16, marginTop: 20, justifyContent: "center", flexWrap: "wrap" }}>
-          {[{ color: C.accent, bg: C.accentLight, label: "completed_events — durable (WAL)" }, { color: C.warn, bg: C.warnLight, label: "in_progress_events — hot" }, { color: C.purple, bg: C.purpleLight, label: "Policy-driven — key, cradle & grave from body" }, { color: C.info, bg: C.infoLight, label: "⬡ Key path resolved from raw event body" }].map(({ color, bg, label }) => (
+          {[{ color: C.accent, bg: C.accentLight, label: "completed_events -durable (WAL)" }, { color: C.warn, bg: C.warnLight, label: "in_progress_events -hot" }, { color: C.purple, bg: C.purpleLight, label: "Policy-driven -key, cradle & grave from body" }, { color: C.info, bg: C.infoLight, label: "⬡ Key path resolved from raw event body" }].map(({ color, bg, label }) => (
             <div key={label} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.textMuted }}>
               <span style={{ width: 10, height: 10, borderRadius: 2, background: bg, border: `1px solid ${color}`, display: "inline-block" }} />
               {label}

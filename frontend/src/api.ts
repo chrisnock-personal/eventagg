@@ -377,7 +377,7 @@ function enableTenancy(password: string): Promise<SessionUser> {
   return request<SessionUser>("/system/tenancy/enable", { method: "POST", body: JSON.stringify({ password }) });
 }
 
-// ─── API object — zero TypeScript syntax, plain property references only ──────
+// ─── API object -zero TypeScript syntax, plain property references only ──────
 
 export const api = {
   auth: {

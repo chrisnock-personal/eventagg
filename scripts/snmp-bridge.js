@@ -155,7 +155,7 @@ async function handleTrap(trap) {
     const bodyStr = trap.varbinds["agEventBody"];
     if(bodyStr && bodyStr.startsWith("{")) { try { extraBody = JSON.parse(bodyStr); } catch {} }
 
-    if(!policyId) { console.log("    ⚠ No agPolicyId varbind — unrouted"); return; }
+    if(!policyId) { console.log("    ⚠ No agPolicyId varbind -unrouted"); return; }
 
     const body = { ...extraBody, eventType, aggregationKey: agKey, agentAddr: trap.sourceAddress, community: trap.community, sourceSystem, uptime: trap.uptime };
     if(severityNum >= 0) body.severity = ["clear","indeterminate","warning","minor","major","critical"][severityNum] ?? severityNum;
@@ -165,14 +165,14 @@ async function handleTrap(trap) {
       if(res.status === 200 || res.status === 201) {
         console.log(`    ✓ Ingested → ${res.body.action} | key=${res.body.aggregationKey}`);
       } else {
-        console.log(`    ✗ Ingest failed: HTTP ${res.status} — ${res.body?.error ?? res.body}`);
+        console.log(`    ✗ Ingest failed: HTTP ${res.status} -${res.body?.error ?? res.body}`);
       }
     } catch(e) { console.log(`    ✗ HTTP error: ${e.message}`); }
     return;
   }
 
-  // ── Standard trap — log it (add routing rules via API to ingest these) ───
-  console.log(`    ℹ Standard trap — not routed (add an SNMP routing rule to ingest)`);
+  // ── Standard trap -log it (add routing rules via API to ingest these) ───
+  console.log(`    ℹ Standard trap -not routed (add an SNMP routing rule to ingest)`);
   if(VERBOSE) console.log(`    Varbinds:`, trap.varbinds);
 }
 
@@ -189,7 +189,7 @@ server.on("message", async (msg, rinfo) => {
   if(VERBOSE) console.log(`Raw UDP: ${msg.length} bytes from ${rinfo.address}:${rinfo.port}`);
   const trap = parseTrap(msg, rinfo.address);
   if(!trap) {
-    console.log(`⚠  Could not parse UDP packet from ${rinfo.address} (${msg.length} bytes) — not SNMPv2c`);
+    console.log(`⚠  Could not parse UDP packet from ${rinfo.address} (${msg.length} bytes) -not SNMPv2c`);
     return;
   }
   await handleTrap(trap).catch(e => console.error("Handle error:", e.message));

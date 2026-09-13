@@ -45,7 +45,7 @@ export async function sendGroupTimedOutAlert(group: {
     });
 
     const timeoutMinutes = Math.round(group.timeoutMs / 60000);
-    const subject = `[Aggre/Gator] Group timed out — ${group.policyName}`;
+    const subject = `[Aggre/Gator] Group timed out -${group.policyName}`;
     const text = [
       `An event group has timed out without receiving a closing (grave) event.`,
       ``,

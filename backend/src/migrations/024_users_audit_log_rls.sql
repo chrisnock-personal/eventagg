@@ -1,11 +1,11 @@
 -- 024_users_audit_log_rls.sql
--- Reversibility: schema-only — dropping these policies and disabling RLS
+-- Reversibility: schema-only -dropping these policies and disabling RLS
 -- fully reverses this; no data changes involved.
 --
 -- Extends the Row-Level Security backstop (023, on `policies`) to `users`
 -- and `audit_log`. Unlike `policies`, org_id IS NULL on these tables means
 -- "superadmin" (a user with no org) or "a superadmin's own action"
--- (login/logout logged with no org) — NOT "visible to everyone". So unlike
+-- (login/logout logged with no org) -NOT "visible to everyone". So unlike
 -- policies_tenant_isolation, there is no `OR org_id IS NULL` branch here:
 -- only app.bypass_rls (superadmin / system contexts) can see those rows.
 

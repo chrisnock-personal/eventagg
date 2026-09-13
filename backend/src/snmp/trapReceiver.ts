@@ -31,7 +31,7 @@ export function getSnmpStats(): SnmpReceiverStats {
 
 async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?: any): Promise<void> {
   try {
-    // SNMP multi-tenant routing is a later phase — every trap resolves to an
+    // SNMP multi-tenant routing is a later phase -every trap resolves to an
     // org today (via the policy/rule it routes to, or the Default
     // Organisation if unrouted) so the NOT NULL org_id columns below are
     // always satisfiable.
@@ -62,7 +62,7 @@ async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?:
 
 async function processTrap(raw: RawTrap): Promise<void> {
   stats.received++;
-  // The dgram receiver has no request/session — which org a trap belongs
+  // The dgram receiver has no request/session -which org a trap belongs
   // to is resolved dynamically per-trap (by community string, then
   // policy/rule) inside normalizeTrap()/ingestRawEvent(), not known ahead
   // of time. Bypass, same as the other background jobs in index.ts.
@@ -117,7 +117,7 @@ function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): R
     const prtlv= ()        => { const tag=prb(); const len=prl(); const data=pb.slice(pp,pp+len); pp+=len; return {tag,data}; };
 
     prtlv(); prtlv(); prtlv(); // reqId, errStatus, errIdx
-    // varbindList SEQUENCE — read tag+length only, don't skip content
+    // varbindList SEQUENCE -read tag+length only, don't skip content
     prb(); prl();
 
     let trapOid=""; let uptime=0;

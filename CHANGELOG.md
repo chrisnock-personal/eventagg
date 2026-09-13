@@ -9,7 +9,7 @@ tagging, but versions are noted where meaningful.
 
 Nothing yet.
 
-## [1.0.0] — Initial release
+## [1.0.0] -Initial release
 
 A single self-contained container (PostgreSQL 16 + Node/Express backend +
 React/nginx frontend, managed by supervisord) for ingesting events from any
@@ -51,7 +51,7 @@ lifecycle with a dashboard and REST API.
 
 ### Changed
 
-- `CORS_ORIGIN` defaults to same-origin-only instead of `"*"` — this
+- `CORS_ORIGIN` defaults to same-origin-only instead of `"*"` -this
   app's own nginx proxies the frontend and API on the same origin, so no
   documented deployment path ever needed cross-origin requests.
 - `.env.example` documents every real, consumed environment variable.
@@ -66,7 +66,7 @@ lifecycle with a dashboard and REST API.
   and report success.
 - `docker-compose.yml` wasn't forwarding `ADMIN_PASSWORD` from the host
   environment at all, and hardcoded `PG_POOL_MAX` instead of allowing
-  override — both had silently had zero effect no matter what was set.
+  override -both had silently had zero effect no matter what was set.
 - `seedDefaultAdmin()` silently failed to refresh the seeded admin's
   password once that account had been promoted to superadmin.
 - The SNMP trap receiver wasn't establishing a database org context,

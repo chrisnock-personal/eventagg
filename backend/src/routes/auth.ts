@@ -11,12 +11,12 @@ import { config } from "../config";
 
 const router = Router();
 
-// Brute-force mitigation — keyed by IP (default keyGenerator), not username,
+// Brute-force mitigation -keyed by IP (default keyGenerator), not username,
 // since keying by username would let an attacker spray many different
 // usernames unthrottled. skipSuccessfulRequests means a legitimate user who
 // eventually gets their password right doesn't burn through the budget on
 // the way there; only failed/invalid attempts count. Disabled under the
-// test suite — its fixture users each log in once or twice for real
+// test suite -its fixture users each log in once or twice for real
 // coverage, but 27+ logins across the file happen against the same
 // in-memory store/IP within a single process, which would otherwise trip
 // this well before any test intends to exercise the limiter itself.
@@ -27,7 +27,7 @@ const loginRateLimit = rateLimit({
   legacyHeaders: false,
   skipSuccessfulRequests: true,
   skip: () => config.nodeEnv === "test",
-  message: { error: "Too many login attempts — please wait before trying again" },
+  message: { error: "Too many login attempts -please wait before trying again" },
 });
 
 // ── POST /api/v1/auth/login ───────────────────────────────────────────────────
@@ -38,7 +38,7 @@ router.post("/login", loginRateLimit, async (req: Request, res: Response, next: 
       password: z.string().min(1),
     }).parse(req.body);
 
-    // Authenticating by username is inherently a cross-org lookup — the org
+    // Authenticating by username is inherently a cross-org lookup -the org
     // isn't known until after the row is found, and no session/JWT exists
     // yet for orgContextMiddleware to derive one from. Run under bypass so
     // the RLS policies on `users`/`audit_log` (024) don't fail this closed.

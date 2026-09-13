@@ -1,13 +1,13 @@
-# Aggre/Gator — Operations Guide
+# Aggre/Gator -Operations Guide
 
 ## Duplicate Segment Detection
 
 Two unique indexes protect against duplicate ingestion:
 
-- **Sequence-based** (`in_progress_id, sequence`): prevents the same sequence number appearing twice in a group. This is the primary guard — it catches the common case of a producer retrying a request and the same event being delivered twice.
+- **Sequence-based** (`in_progress_id, sequence`): prevents the same sequence number appearing twice in a group. This is the primary guard -it catches the common case of a producer retrying a request and the same event being delivered twice.
 - **Body-hash-based** (`in_progress_id, body_hash`): catches exact body duplicates regardless of sequence, using `md5(body::text)`.
 
-**Known limitation:** `body_hash` is computed from `body::text` (JSONB cast to text). PostgreSQL does not guarantee stable key ordering when casting JSONB to text, so two semantically identical events with different JSON key insertion orders may produce different hashes and both be stored. In practice this is rare — the sequence index catches the retry case reliably. A future improvement would use `jsonb_build_object` with sorted keys to produce a canonical hash.
+**Known limitation:** `body_hash` is computed from `body::text` (JSONB cast to text). PostgreSQL does not guarantee stable key ordering when casting JSONB to text, so two semantically identical events with different JSON key insertion orders may produce different hashes and both be stored. In practice this is rare -the sequence index catches the retry case reliably. A future improvement would use `jsonb_build_object` with sorted keys to produce a canonical hash.
 
 
 
@@ -108,7 +108,7 @@ app.use("/api/v1/events/ingest", rateLimit({
   windowMs: 60_000,    // 1 minute
   max: 10_000,         // 10k requests per minute per IP
   standardHeaders: true,
-  message: { error: "Ingest rate limit exceeded — slow down or batch your events" },
+  message: { error: "Ingest rate limit exceeded -slow down or batch your events" },
 }));
 ```
 
@@ -143,14 +143,14 @@ Migrations run automatically on every container boot (`entrypoint.sh` →
 `node dist/db/migrate.js`, before `supervisord` starts). All pending
 migrations for that boot are applied inside a **single transaction**
 (`db/migrate.ts`): if any one of them throws, the whole batch rolls back and
-the schema is left exactly as it was — that's real protection against a
+the schema is left exactly as it was -that's real protection against a
 migration failing halfway through, but it's a schema-shape safety net only.
 It doesn't help once a migration has committed and only then turns out to be
 wrong (a backfill that populated the wrong values, a partition rename that
 broke a query nobody tested), and it can't undo any application code that
 already ran against the new schema.
 
-There is no `down`/rollback tooling — 23 migrations in, several of them
+There is no `down`/rollback tooling -23 migrations in, several of them
 (partition renames, column backfills, data promotions) aren't cleanly
 reversible with a mechanical inverse anyway. Rather than maintain
 per-migration down-scripts that would mostly go untested, this project's
@@ -159,16 +159,16 @@ change that adds a migration, and restore it if the deploy goes wrong.**
 
 ### Rollback procedure
 
-1. **Before deploying**, take a backup — either via the UI (Administration →
+1. **Before deploying**, take a backup -either via the UI (Administration →
    Backup, superadmin only) or directly:
    ```bash
    ssh <remote-host> "podman exec eventagg pg_dump -U eventagg_user -d eventagg --clean --if-exists" \
      > pre-deploy-backup-$(date +%Y%m%d-%H%M%S).sql
    ```
 2. **Deploy as normal** (`./sync.sh`, which rebuilds and restarts the
-   container — `entrypoint.sh` applies any new migrations on that restart).
-3. **If something's wrong** — the app misbehaves, a migration corrupted data,
-   a query now errors — restore the pre-deploy backup via the UI (Backup panel
+   container -`entrypoint.sh` applies any new migrations on that restart).
+3. **If something's wrong** -the app misbehaves, a migration corrupted data,
+   a query now errors -restore the pre-deploy backup via the UI (Backup panel
    → restore) or:
    ```bash
    cat pre-deploy-backup-*.sql | ssh <remote-host> \
@@ -182,7 +182,7 @@ change that adds a migration, and restore it if the deploy goes wrong.**
    an acceptable cost; it's not a substitute for a real backup/retention
    policy (see WAL archiving above) for disaster recovery.
 4. Re-run `podman-compose up -d` if the restore was done against a stopped
-   app, or just confirm the app reconnects — the restore doesn't restart the
+   app, or just confirm the app reconnects -the restore doesn't restart the
    container itself.
 
 `sync.sh` prints a reminder to do this before every rebuild; it doesn't
@@ -196,13 +196,13 @@ add a one-line reversibility note to their header comment, e.g.:
 
 ```sql
 -- 024_add_widget_priority.sql
--- Reversibility: trivial — `ALTER TABLE widgets DROP COLUMN priority` fully
+-- Reversibility: trivial -`ALTER TABLE widgets DROP COLUMN priority` fully
 -- reverses this if needed; no backfill, no data loss on rollback.
 ```
 
 ```sql
 -- 025_backfill_widget_owner.sql
--- Reversibility: none — backfills owner_id from a heuristic that can't be
+-- Reversibility: none -backfills owner_id from a heuristic that can't be
 -- un-derived. Rollback is restore-from-backup only (see OPERATIONS.md).
 ```
 

@@ -1,7 +1,7 @@
 -- 020_widen_unique_constraints.sql
 -- Multi-tenancy phase 1: widen uniqueness that was accidentally global to be
 -- per-organisation instead. users.username/users.email stay globally unique
--- by design (login is by username alone, no org picker — see plan).
+-- by design (login is by username alone, no org picker -see plan).
 
 -- ── policies.name: was UNIQUE WHERE is_active, now UNIQUE per org ────────────
 DROP INDEX IF EXISTS idx_policies_name;
