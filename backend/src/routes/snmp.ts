@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { query, queryOne } from "../db/pool";
+import { orgContextMiddleware } from "../middleware/orgContext";
 import { requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { getSnmpStats, invalidateRoutingCache } from "../snmp/trapReceiver";
@@ -18,6 +19,10 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+// Sets app.current_org_id for this request, so the queries that touch the
+// row-level-secured policies table (migration 023) see this org's rows.
+router.use(orgContextMiddleware);
 
 // ── GET /api/v1/snmp/status ───────────────────────────────────────────────────
 router.get("/status", (_req, res) => {

@@ -5,6 +5,7 @@ import { createError } from "../middleware/errorHandler";
 import { statsCache, performanceCache, cacheKey } from "../cache";
 import { TIMEOUTS } from "../middleware/timeout";
 import { withStatementTimeout } from "../db/pool";
+import { orgContextMiddleware } from "../middleware/orgContext";
 import { requireAuth } from "../middleware/session";
 
 const router = Router();
@@ -20,6 +21,10 @@ router.use((req: Request, res: Response, next: NextFunction) => {
   }
   next();
 });
+
+// Sets app.current_org_id for this request, so the queries that touch the
+// row-level-secured policies table (migration 023) see this org's rows.
+router.use(orgContextMiddleware);
 
 const listQuerySchema = z.object({
   status:         z.enum(["in_progress", "completed", "timed_out", "all"]).default("all"),
