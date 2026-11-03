@@ -62,6 +62,30 @@ the committed code plus the current working tree.
     not in `openapi.ts`.
 15. **Health "Timed out (24h)" showed 0** while groups had timed out in the
     last hour; check the query.
+16. **Client IP is the proxy's, so rate limits are shared.** The audit log
+    records every source IP as `127.0.0.1` (through nginx) or the
+    container's own address (direct to :3001); `trust proxy` isn't set and
+    nginx's `X-Forwarded-For` isn't used. The login and ingest rate
+    limiters key on `req.ip`, so all clients share one bucket: a burst of
+    failed logins from anyone can lock everyone out.
+17. **Audit log misses config changes.** Logins, policy changes and ingests
+    are recorded, but `webhooks.ts`, `snmp.ts`, `orgs.ts` and `system.ts`
+    have no `audit()` calls, and `auth.ts` audits only login/logout, not
+    user create/update/delete. Wire `audit()` into those routes.
+18. **Ingest floods the audit log.** Each ingested event writes 2-3 rows
+    (`event.ingested`, `raw_event.appended`/`group.opened`/`group.promoted`):
+    about 2,300 rows in the first few minutes of the demo. That's ingest-path
+    cost and buries the human actions. Consider not auditing ingest, or a
+    separate table or sampling.
+19. **SNMP sources and rules can't be created in the UI.** The panel lists
+    them and says "Add rules via POST /api/v1/snmp/rules". Add forms.
+20. **Backup panel shows "Audit entries 0" for the superadmin**, although
+    the audit log has thousands of rows: the count runs without org
+    context/bypass.
+21. **Live highlighting is noisy at volume.** With auto-refresh on a
+    busy org, nearly every row is highlighted on each refresh, so the
+    highlight stops meaning anything. Consider highlighting only state
+    changes, or capping it.
 
 ## Next
 
