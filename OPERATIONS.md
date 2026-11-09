@@ -162,9 +162,13 @@ change that adds a migration, and restore it if the deploy goes wrong.**
 1. **Before deploying**, take a backup -either via the UI (Administration →
    Backup, superadmin only) or directly:
    ```bash
-   ssh <remote-host> "podman exec eventagg pg_dump -U eventagg_user -d eventagg --clean --if-exists" \
+   ssh <remote-host> "podman exec -e PGOPTIONS='-c app.bypass_rls=true' eventagg \
+       pg_dump -U eventagg_user -d eventagg --enable-row-security" \
      > pre-deploy-backup-$(date +%Y%m%d-%H%M%S).sql
    ```
+   The `PGOPTIONS`/`--enable-row-security` pair is required: `policies`,
+   `users` and `audit_log` are under `FORCE ROW LEVEL SECURITY`, which a
+   plain `pg_dump` refuses (see [DISASTER_RECOVERY.md](./DISASTER_RECOVERY.md)).
 2. **Deploy as normal** (`./sync.sh`, which rebuilds and restarts the
    container -`entrypoint.sh` applies any new migrations on that restart).
 3. **If something's wrong** -the app misbehaves, a migration corrupted data,
@@ -172,8 +176,11 @@ change that adds a migration, and restore it if the deploy goes wrong.**
    → restore) or:
    ```bash
    cat pre-deploy-backup-*.sql | ssh <remote-host> \
-     "podman exec -i eventagg psql -U eventagg_user -d eventagg -v ON_ERROR_STOP=1"
+     "podman exec -i -e PGOPTIONS='-c app.bypass_rls=true' eventagg psql -1 -v ON_ERROR_STOP=1 -U eventagg_user -d eventagg \
+        -c 'DROP SCHEMA IF EXISTS public CASCADE' -c 'CREATE SCHEMA public' -f -"
    ```
+   Same as the Restore button: empty the schema, then load, in one
+   transaction (a dump's own DROPs fail on the partitioned tables).
    This puts the schema *and* data back to exactly the pre-deploy state —
    strictly stronger than a schema-only `down` migration would have given you.
    The tradeoff: any real user data written between the backup and the

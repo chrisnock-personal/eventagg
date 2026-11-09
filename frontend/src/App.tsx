@@ -1415,7 +1415,7 @@ function ChangePasswordScreen({ onChanged }: { user: import("./api").SessionUser
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {[
-              { label: "Current password", val: cur,  set: setCur,  ph: "admin123" },
+              { label: "Current password", val: cur,  set: setCur,  ph: "" },
               { label: "New password",      val: next, set: setNext, ph: "at least 6 characters" },
               { label: "Confirm password",  val: conf, set: setConf, ph: "repeat new password" },
             ].map(f => (
@@ -1491,7 +1491,7 @@ function LoginScreen({ onLogin }: { onLogin: (username: string, password: string
             </button>
           </div>
           <div style={{ marginTop: 16, fontSize: 11, color: C.textMuted, textAlign: "center" }}>
-            Default credentials: <code style={{ fontFamily: "monospace", color: C.textMid }}>admin / admin123</code>
+            First sign-in: user <code style={{ fontFamily: "monospace", color: C.textMid }}>admin</code>, password printed once in the backend log
           </div>
         </div>
       </div>

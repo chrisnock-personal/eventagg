@@ -13,7 +13,7 @@ router.use(orgContextMiddleware);
 
 const ingestSchema = z.object({
   policyId:       z.string().uuid("policyId must be a valid UUID"),
-  body:           z.record(z.unknown()),
+  body:           z.record(z.string(), z.unknown()),
   sequenceNumber: z.number().int().optional(),
 });
 

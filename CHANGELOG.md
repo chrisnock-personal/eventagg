@@ -7,7 +7,51 @@ tagging, but versions are noted where meaningful.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+- Backup and restore failed on `policies`, `users` and `audit_log` since
+  row-level security was added (migrations 023/024): `pg_dump` refuses
+  FORCE-RLS tables, and restored rows failed the policies' `WITH CHECK`.
+  Both now set the app's RLS bypass for their own connection.
+- Restore failed on every backup since `completed_events` was partitioned
+  (`cannot drop inherited constraint completed_events_<q>_pkey`), stopping
+  part-way and leaving the database half-restored. Restore now empties the
+  schema and loads the dump in a single transaction (a failure changes
+  nothing), and backups no longer use `--clean`. Older backups still restore.
+- CI: backend `npm audit` failures (nodemailer, express/qs/body-parser,
+  proxy-addr, js-yaml, nanoid, vitest, zod).
+
+### Security
+- Postgres listened on every interface (`listen_addresses = '*'`, `pg_hba`
+  `0.0.0.0/0`) with host networking, so `:5432` was on the LAN with the
+  fixed default passwords. It now listens on 127.0.0.1 only, uses
+  `scram-sha-256`, and `PGPASSWORD`/`POSTGRES_PASSWORD` are generated on
+  first boot into the `secrets` volume when unset (existing md5 hashes are
+  rehashed on boot).
+- The backend listened on all interfaces (`:3001` on the LAN, bypassing
+  nginx). New `BIND_ADDRESS`, default `127.0.0.1`.
+- No more `admin123`: with `ADMIN_PASSWORD` unset, the first admin gets a
+  random one-time password printed once to the log. The password is no
+  longer reset (and logged) on every boot, which also undid any password set
+  in the UI; `ADMIN_PASSWORD_RESET=true` is the lockout recovery.
+- The first-login password change is enforced by the API (`403
+  PASSWORD_CHANGE_REQUIRED`), not only by the UI. Change-password re-issues
+  the session cookie.
+
+**Upgrading:** clients that called `http://<host>:3001` directly must use
+`http://<host>:8080` (nginx proxies `/api/`). Anything connecting to
+Postgres from outside the container needs an SSH tunnel and the generated
+password (unless `PGPASSWORD` is set in `.env`). The existing admin keeps
+its current password.
+
+### Changed
+- The JWT signing secret is generated on first boot and persisted in a new
+  `secrets` volume when `JWT_SECRET` is unset, so sessions survive restarts.
+  `JWT_SECRET` accepts `<new>,<old>` for a rotation window.
+- nodemailer 9 to 10, zod 3 to 4, vitest 4.1.12.
+
+### Added
+- `DISASTER_RECOVERY.md`, `SECRETS_ROTATION.md`, `BACKLOG.md`,
+  `docs/DECISIONS.md` (history moved out of CLAUDE.md).
 
 ## [1.0.0] -Initial release
 

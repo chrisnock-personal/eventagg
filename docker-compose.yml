@@ -22,11 +22,16 @@ services:
       PGPORT: "5432"
       PGDATABASE: "${PGDATABASE:-eventagg}"
       PGUSER: "${PGUSER:-eventagg_user}"
-      PGPASSWORD: "${PGPASSWORD:-eventagg_pass}"
+      # Leave unset and entrypoint.sh generates both on first boot, persisted
+      # in the `secrets` volume. Postgres listens on loopback only.
+      PGPASSWORD: "${PGPASSWORD:-}"
       PGSSL: "false"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-postgres_admin_pass}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-}"
       # ── Backend ──────────────────────────────────────────────────────────
       PORT: "3001"
+      # Loopback by default: nginx proxies /api/ to it. Host networking means
+      # 0.0.0.0 would put the API on the LAN, bypassing nginx.
+      BIND_ADDRESS: "${BIND_ADDRESS:-127.0.0.1}"
       NODE_ENV: "${NODE_ENV:-production}"
       # Same-origin only by default -set only if a separately-hosted
       # frontend needs to call this API directly (see README's CORS note).
@@ -34,23 +39,28 @@ services:
       PG_POOL_MAX: "${PG_POOL_MAX:-10}"
       PG_POOL_IDLE_TIMEOUT_MS: "${PG_POOL_IDLE_TIMEOUT_MS:-30000}"
       PG_POOL_CONNECTION_TIMEOUT_MS: "${PG_POOL_CONNECTION_TIMEOUT_MS:-5000}"
-      # Set explicitly for persistent sessions across restarts -if unset,
-      # a random secret is generated each boot (see middleware/session.ts).
+      # Leave unset and entrypoint.sh generates one on first boot, persisted
+      # in the `secrets` volume. Set it to manage the secret yourself; a
+      # comma-separated "<new>,<old>" keeps old sessions valid during a
+      # rotation (SECRETS_ROTATION.md).
       JWT_SECRET: "${JWT_SECRET:-}"
       # Only set to "true" once TLS is actually terminated in front of this
       # app (e.g. a reverse proxy) -nginx.conf itself serves plain HTTP.
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
-      # Password set for the default org's admin on first boot only -was
-      # never actually forwarded from the host env here before, so setting
-      # it in .env silently had no effect and every deployment got the
-      # admin123 fallback (backend/src/index.ts's seedDefaultAdmin).
+      # Password for the default org's admin when it's first created. Unset =
+      # a random one-time password printed to the backend log. Either way it
+      # must be changed at first login (enforced by the API).
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+      # Lockout recovery: "true" resets the admin's password at boot (to
+      # ADMIN_PASSWORD, or a generated one printed to the log). Remove after.
+      ADMIN_PASSWORD_RESET: "${ADMIN_PASSWORD_RESET:-false}"
       # ── SNMP trap receiver ───────────────────────────────────────────────
       SNMP_ENABLED: "${SNMP_ENABLED:-true}"
       SNMP_PORT: "${SNMP_PORT:-1162}"
       SNMP_COMMUNITY: "${SNMP_COMMUNITY:-public}"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - secrets:/app/secrets
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
@@ -61,4 +71,6 @@ services:
 
 volumes:
   pgdata:
+    driver: local
+  secrets:
     driver: local

@@ -6,6 +6,11 @@ dotenv.config();
 const envSchema = z.object({
   // Server
   PORT: z.string().default("3001"),
+  // Loopback by default: nginx (same container, host network) proxies /api/
+  // to 127.0.0.1:3001, so nothing else needs to reach the backend directly.
+  // With host networking, 0.0.0.0 here would expose the API on the LAN,
+  // bypassing nginx. "" (docker-compose's unset) counts as the default.
+  BIND_ADDRESS: z.string().optional().transform((v) => v || "127.0.0.1"),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
 
   // PostgreSQL connection
@@ -55,7 +60,7 @@ const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
   console.error("❌  Invalid environment configuration:");
-  parsed.error.errors.forEach((err) => {
+  parsed.error.issues.forEach((err) => {
     console.error(`    ${err.path.join(".")}: ${err.message}`);
   });
   process.exit(1);
@@ -65,6 +70,7 @@ const env = parsed.data;
 
 export const config = {
   port: parseInt(env.PORT, 10),
+  bindAddress: env.BIND_ADDRESS,
   nodeEnv: env.NODE_ENV,
   corsOrigin: env.CORS_ORIGIN,
 

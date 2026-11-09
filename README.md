@@ -30,14 +30,18 @@ Modern systems produce floods of related events that arrive fragmented, out of o
 podman build --no-cache --layers=false -t localhost/eventagg_eventagg:latest .
 podman-compose up -d
 
-# UI (login: admin / admin123 -forced password change on first login)
+# First admin password (generated, printed once; must be changed at first login)
+podman exec eventagg grep "Default admin created" /var/log/supervisor/backend.log
+
+# UI (login: admin / the password above)
 open http://localhost:8080
 
-# API docs -Swagger UI
-open http://localhost:3001/api/v1/docs
+# API docs -Swagger UI (the API is reached through nginx; the backend itself
+# listens on 127.0.0.1:3001 only)
+open http://localhost:8080/api/v1/docs
 
 # Health check
-curl http://localhost:3001/health
+curl http://localhost:8080/health
 ```
 
 Runs as a single container -PostgreSQL 16 + Node.js backend + nginx frontend, managed by supervisord. `docker-compose.yml` uses `network_mode: host` (required so the SNMP UDP receiver can see external traffic under rootless Podman), so services bind directly to host ports rather than going through a port mapping.
@@ -95,7 +99,7 @@ REST API + React UI                 headless or browser, JWT session auth
 
 The UI requires login. Credentials are stored in the `users` table with bcryptjs-hashed passwords, and sessions are a JWT in an httpOnly cookie (`ag_session`, 8h TTL).
 
-Default account created on first boot: `admin` / `admin123` -the seeded admin is forced to change their password on first login (`ADMIN_PASSWORD` env var can set the initial password instead).
+Default account created on first boot: `admin`, with a random one-time password printed once to the backend log (or `ADMIN_PASSWORD` if set). The API refuses everything except change-password, `/auth/me` and logout until it's changed (`403`, `"code": "PASSWORD_CHANGE_REQUIRED"`), so API clients can't keep using it either. Later boots leave the password alone; `ADMIN_PASSWORD_RESET=true` resets it for lockout recovery (see [SECRETS_ROTATION.md](./SECRETS_ROTATION.md)).
 
 | Role | Permissions |
 |------|-------------|
@@ -188,7 +192,7 @@ per-org; there is no global/env-var key anymore).
 ### Ingest example
 
 ```bash
-curl -X POST http://localhost:3001/api/v1/events/ingest \
+curl -X POST http://localhost:8080/api/v1/events/ingest \
   -H "Content-Type: application/json" \
   -d '{
     "policyId": "<policy-uuid>",
@@ -307,19 +311,22 @@ node scripts/demo.js --host <host> --api-key <key>
 | Variable | Default | Description |
 |----------|---------|--------------|
 | `PORT` | `3001` | Backend API port |
+| `BIND_ADDRESS` | `127.0.0.1` | Backend listen address. nginx proxies `/api/` to it; with host networking, `0.0.0.0` would put the API on the LAN and bypass nginx |
 | `PGHOST` | -(required) | PostgreSQL host |
-| `PGPORT` | `5432` | PostgreSQL port |
+| `PGPORT` | `5432` | PostgreSQL port. The bundled Postgres listens on 127.0.0.1 only; use an SSH tunnel for remote access |
 | `PGDATABASE` | -(required) | Database name |
 | `PGUSER` | -(required) | Database user |
-| `PGPASSWORD` | -(required) | Database password |
+| `PGPASSWORD` | *(auto-generated)* | Database password. Unset = generated on first boot into `/app/secrets/pg_app.pass` (`secrets` volume) and applied on every boot |
+| `POSTGRES_PASSWORD` | *(auto-generated)* | Bundled Postgres superuser password, same scheme (`/app/secrets/pg_super.pass`) |
 | `PGSSL` | `false` | Enable TLS to PostgreSQL |
 | `PG_POOL_MAX` | `10` | Max pool connections |
 | `PG_POOL_IDLE_TIMEOUT_MS` | `30000` | Pool idle connection timeout |
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection acquire timeout |
 | `CORS_ORIGIN` | *(empty -same-origin only)* | Set only if a separately-hosted frontend calls this API directly (see below) |
-| `JWT_SECRET` | random per boot | JWT signing secret. **Set this explicitly in production** -if unset, a random secret is generated every time the process starts, invalidating every session on each restart. There is no insecure hardcoded fallback. |
+| `JWT_SECRET` | *(auto-generated)* | Session signing secret. Leave unset and one is generated on first boot and persisted in the `secrets` volume (`/app/secrets/jwt.key`), so sessions survive restarts. Set it to manage the secret yourself; `<new>,<old>` keeps old sessions valid during a rotation (see [SECRETS_ROTATION.md](./SECRETS_ROTATION.md)). There is no hardcoded fallback. |
 | `COOKIE_SECURE` | `false` | Marks the session cookie `Secure` (HTTPS-only). Only enable once you've put TLS in front of this app (see below) -this app's own nginx.conf serves plain HTTP, and browsers silently drop `Secure` cookies over HTTP, breaking every login. |
-| `ADMIN_PASSWORD` | `admin123` | Password set for the default org's admin on first boot |
+| `ADMIN_PASSWORD` | *(generated)* | Password for the default org's admin when it's first created. Unset = random, printed once to the backend log. Must be changed at first login either way |
+| `ADMIN_PASSWORD_RESET` | `false` | Lockout recovery: `true` resets the admin's password at boot (to `ADMIN_PASSWORD`, or a generated one). Remove it afterwards |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
 | `SNMP_PORT` | `1162` | SNMP UDP listen port |
 | `SNMP_COMMUNITY` | `public` | Accepted SNMP community string |
@@ -407,6 +414,8 @@ eventagg/
 ├── supervisord.conf              Manages postgres + backend + nginx
 ├── entrypoint.sh                 Container startup: init DB, run migrations, start supervisord
 ├── OPERATIONS.md                 WAL archiving, rate limiting, partition management, tuning
+├── DISASTER_RECOVERY.md          Backups, restore scenarios, post-restore checklist
+├── SECRETS_ROTATION.md           How to rotate each secret, with or without a window
 ├── CHANGELOG.md                  Notable changes, Keep a Changelog format
 ├── LICENSE                       MIT
 └── README.md
@@ -416,7 +425,7 @@ eventagg/
 
 ## Operations
 
-See [OPERATIONS.md](./OPERATIONS.md) for duplicate-detection internals, WAL archiving, rate limiting, partition management SQL, migration rollback procedure, and query timeout/cache TTL reference.
+See [DISASTER_RECOVERY.md](./DISASTER_RECOVERY.md) for backups and restores, [SECRETS_ROTATION.md](./SECRETS_ROTATION.md) for rotating secrets, and [OPERATIONS.md](./OPERATIONS.md) for duplicate-detection internals, WAL archiving, rate limiting, partition management SQL, migration rollback procedure, and query timeout/cache TTL reference.
 
 ---
 

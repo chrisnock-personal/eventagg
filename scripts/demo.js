@@ -5,7 +5,7 @@
 //
 // Usage:
 //   node scripts/demo.js
-//   node scripts/demo.js --host <host> --port 1162 --api http://<host>:3001
+//   node scripts/demo.js --host <host> --port 1162 --api http://<host>:8080
 //   node scripts/demo.js --api-key <ingest-api-key>
 
 const dgram    = require("dgram");
@@ -491,7 +491,7 @@ async function main() {
   } catch (err) {
     console.log(red("failed"));
     console.log(red(`  ${err.message}`));
-    console.log(red("  Is the API reachable? Try --api http://<host>:3001"));
+    console.log(red("  Is the API reachable? Try --api http://<host>:8080"));
     process.exit(1);
   }
 

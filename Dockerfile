@@ -57,9 +57,9 @@ ENV TZ=UTC \
     PGHOST=localhost \
     PGPORT=5432 \
     PGDATABASE=eventagg \
-    PGUSER=eventagg_user \
-    PGPASSWORD=eventagg_pass \
-    POSTGRES_PASSWORD=postgres_admin_pass
+    PGUSER=eventagg_user
+# No PGPASSWORD/POSTGRES_PASSWORD defaults: entrypoint.sh generates them into
+# the secrets volume unless they're set.
 
 # ── Install all system packages via the distro-aware script ───────────────────
 COPY install-packages.sh /tmp/install-packages.sh

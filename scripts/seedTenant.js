@@ -7,7 +7,7 @@
 //
 // Usage:
 //   node scripts/seedTenant.js --org-slug tenanta --days 7 --groups 500 | \
-//     podman exec -i eventagg psql -U eventagg_user eventagg
+//     podman exec -i -e PGOPTIONS='-c app.bypass_rls=true' eventagg psql -U eventagg_user eventagg
 //
 // Options:
 //   --org-slug  Organisation slug to stamp onto every row (required)

@@ -3,7 +3,7 @@ import { z } from "zod";
 import rateLimit from "express-rate-limit";
 import { verifyCredentials, listUsers, createUser, updateUser, deleteUser, changePassword } from "../services/userService";
 import { audit } from "../services/auditService";
-import { setSessionCookie, clearSessionCookie, requireAuth, requireRole } from "../middleware/session";
+import { setSessionCookie, clearSessionCookie, requireAuth, requireAuthAllowingPasswordChange, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
 import { orgContextMiddleware } from "../middleware/orgContext";
 import { runWithOrgContext } from "../db/pool";
@@ -68,7 +68,7 @@ router.post("/login", loginRateLimit, async (req: Request, res: Response, next: 
 });
 
 // ── POST /api/v1/auth/change-password ────────────────────────────────────────
-router.post("/change-password", requireAuth, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+router.post("/change-password", requireAuthAllowingPasswordChange, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { currentPassword, newPassword } = z.object({
       currentPassword: z.string().min(1),
@@ -78,12 +78,19 @@ router.post("/change-password", requireAuth, orgContextMiddleware, async (req: R
     const userId = req.user!.id;
     const result = await changePassword(userId, currentPassword, newPassword);
     if (!result.ok) return next(createError(result.error ?? "Password change failed", 400));
+    // Re-issue the session with passwordChanged: true. The claim lives in
+    // the JWT, so without this the old cookie would keep hitting
+    // requireAuth's PASSWORD_CHANGE_REQUIRED until the user logged in again.
+    // Explicit fields, not a spread: req.user is the decoded JWT and carries
+    // iat/exp, which jwt.sign rejects alongside expiresIn.
+    const { id, username, email, role, orgId, orgName } = req.user!;
+    setSessionCookie(res, { id, username, email, role, orgId, orgName, passwordChanged: true });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
 // ── POST /api/v1/auth/logout ──────────────────────────────────────────────────
-router.post("/logout", requireAuth, orgContextMiddleware, (req: Request, res: Response) => {
+router.post("/logout", requireAuthAllowingPasswordChange, orgContextMiddleware, (req: Request, res: Response) => {
   const user = req.user!;
   audit({ entityType: "user", entityId: user.id, action: "user.logout", actor: user.username, sourceIp: req.ip, orgId: user.orgId });
   clearSessionCookie(res);
@@ -91,7 +98,7 @@ router.post("/logout", requireAuth, orgContextMiddleware, (req: Request, res: Re
 });
 
 // ── GET /api/v1/auth/me ───────────────────────────────────────────────────────
-router.get("/me", requireAuth, (req: Request, res: Response) => {
+router.get("/me", requireAuthAllowingPasswordChange, (req: Request, res: Response) => {
   res.json(req.user);
 });
 

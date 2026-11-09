@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { config } from "./config";
 import { testConnection, closePool, query, withTransaction, runWithOrgContext } from "./db/pool";
 import { runMigrations } from "./db/migrate";
@@ -178,26 +179,34 @@ async function seedDefaultAdmin(): Promise<void> {
       const existing = await query<{ id: string }>(
         "SELECT id FROM users WHERE username = 'admin' LIMIT 1"
       );
-      const password = process.env.ADMIN_PASSWORD || "admin123";
+      // No fixed default: ADMIN_PASSWORD if set, otherwise a random bootstrap
+      // password printed once (only when generated, never an operator-chosen
+      // one). Either way password_changed = FALSE, and requireAuth refuses
+      // everything but change-password until it's changed.
+      const fromEnv = process.env.ADMIN_PASSWORD || "";
+      const password = fromEnv || crypto.randomBytes(12).toString("base64url");
+      const announce = (msg: string) => {
+        if (fromEnv) logger.info({ username: "admin" }, `${msg} (password from ADMIN_PASSWORD)`);
+        else logger.warn({ username: "admin", password }, `${msg} with a generated one-time password -it must be changed at first login`);
+      };
+
       if (existing.length === 0) {
-        await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
-        logger.info({ username: "admin", password, org: "Default Organisation" }, "👤  Default admin created");
-      } else {
-        // Direct update by id -not the org-scoped updateUser() service
-        // function, which requires WHERE id=$1 AND org_id=$2. The seeded
-        // admin may since have been promoted to superadmin (org_id set to
-        // NULL by that flow), in which case updateUser()'s org_id match
-        // would silently find zero rows: no error, no thrown exception,
-        // just a false "success" logged below while the password quietly
-        // never actually changed. Always reset the hash on startup so it
-        // matches the current bcryptjs implementation, and reset
-        // password_changed so the first-login change prompt re-appears.
+        const user = await createUser({ username: "admin", email: "admin@localhost", password, role: "admin", orgId });
+        // createUser leaves password_changed at its column default (TRUE).
+        await query(`UPDATE users SET password_changed = FALSE WHERE id = $1`, [user.id]);
+        announce("👤  Default admin created");
+      } else if (process.env.ADMIN_PASSWORD_RESET === "true") {
+        // Lockout recovery only. The password used to be reset on every boot,
+        // which silently undid any password set in the UI on each restart.
+        // Direct update by id -not the org-scoped updateUser(), which would
+        // match zero rows if the admin has been promoted to superadmin
+        // (org_id NULL).
         const hash = await bcrypt.hash(password, 10);
         await query(
           `UPDATE users SET password_hash = $1, password_changed = FALSE, updated_at = NOW() WHERE id = $2`,
           [hash, existing[0].id]
         );
-        logger.info({ username: "admin", password }, "👤  Admin password refreshed");
+        announce("👤  Admin password reset by ADMIN_PASSWORD_RESET=true -remove that setting now");
       }
     });
   } catch (err) {
@@ -214,10 +223,11 @@ async function start(): Promise<void> {
     // Seed default admin if no users exist yet
     await seedDefaultAdmin();
 
-    const server = app.listen(config.port, () => {
+    const server = app.listen(config.port, config.bindAddress, () => {
       logger.info(
         {
           port: config.port,
+          bindAddress: config.bindAddress,
           env: config.nodeEnv,
           healthUrl: `http://localhost:${config.port}/health`,
           policiesUrl: `http://localhost:${config.port}/api/v1/policies`,

@@ -97,10 +97,12 @@ jobs:
         run: docker build -t eventagg:ci .
       - name: Smoke test -boot and check /health
         run: |
-          docker run -d --name eventagg-ci -p 3001:3001 -p 8080:80 eventagg:ci
+          docker run -d --name eventagg-ci eventagg:ci
           echo "Waiting for the container to become healthy..."
+          # From inside the container: the backend binds to 127.0.0.1 by
+          # default (BIND_ADDRESS), so a published port can't reach it.
           for i in $(seq 1 30); do
-            if curl -sf http://localhost:3001/health > /dev/null; then
+            if docker exec eventagg-ci curl -sf http://127.0.0.1:3001/health > /dev/null; then
               echo "Backend /health is up."
               exit 0
             fi

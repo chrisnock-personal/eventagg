@@ -141,6 +141,11 @@ router.get('/backup/info', requireAuth, superadminOnly, async (_req: Request, re
   } catch (e) { next(e); }
 });
 
+// Environment for pg_dump/psql: the app's own RLS bypass flag
+// (current_setting('app.bypass_rls') in migrations 023/024), set for that
+// one connection only via libpq's PGOPTIONS.
+const RLS_BYPASS_ENV = { ...process.env, PGOPTIONS: "-c app.bypass_rls=true" };
+
 router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
   const tmpFile = path.join(os.tmpdir(), `eventagg-backup-${Date.now()}.sql`);
   try {
@@ -148,15 +153,19 @@ router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: R
     const port = process.env.PGPORT     || '5432';
     const db   = process.env.PGDATABASE || 'eventagg';
     const user = process.env.PGUSER     || 'eventagg_user';
-    // --clean --if-exists: without these, the dump is bare CREATE TABLE/
-    // CREATE FUNCTION/etc. statements with nothing dropping the old ones
-    // first. Restoring that into a database that already has the schema
-    // (always true here -migrations run at container boot, before the
-    // restore feature is even reachable) collides on every single object
-    // with "already exists" errors.
+    // No --clean: /restore empties the schema itself (see there). --clean's
+    // per-object DROPs can't restore a partitioned table: it drops each
+    // partition's primary key on its own, and Postgres refuses ("cannot drop
+    // inherited constraint completed_events_<q>_pkey").
+    // --enable-row-security + RLS_BYPASS_ENV: policies/users/audit_log are
+    // under FORCE ROW LEVEL SECURITY (migrations 023/024), which applies even
+    // to eventagg_user as table owner. pg_dump's default row_security=off
+    // makes it refuse any such table outright, and with row security on but
+    // no app.bypass_rls the fail-closed policies would hide every row. Setting
+    // the app's own bypass flag for this one connection dumps everything.
     await execAsync(
-      `pg_dump --clean --if-exists -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
-      { timeout: 120_000 }
+      `pg_dump --enable-row-security -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
+      { timeout: 120_000, env: RLS_BYPASS_ENV }
     );
     const stat = fs.statSync(tmpFile);
     res.setHeader('Content-Type', 'application/sql');
@@ -185,14 +194,19 @@ router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: R
     const port = process.env.PGPORT     || '5432';
     const db   = process.env.PGDATABASE || 'eventagg';
     const user = process.env.PGUSER     || 'eventagg_user';
-    // ON_ERROR_STOP=1 is essential here: without it, psql prints an error for
-    // a failing statement (e.g. a schema mismatch from a dump taken on an
-    // older version of this app) and just carries on to the next statement,
-    // exiting 0 regardless -silently leaving a partially-restored database
-    // while reporting success.
+    // Empty the schema, then load the dump, in ONE transaction (-1):
+    // - Starting empty means the dump needs no DROPs, so it works for
+    //   partitioned tables (see /backup) and for older --clean dumps too
+    //   (their DROP ... IF EXISTS lines are then no-ops).
+    // - ON_ERROR_STOP=1 + -1: any failing statement (e.g. a dump from an
+    //   older schema) rolls the whole thing back, leaving the database as it
+    //   was instead of half-restored.
     await execAsync(
-      `psql -v ON_ERROR_STOP=1 -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
-      { timeout: 1_800_000, maxBuffer: 1024 * 1024 * 100 }
+      `psql -1 -v ON_ERROR_STOP=1 -h ${host} -p ${port} -U ${user} -d ${db} ` +
+        `-c "DROP SCHEMA IF EXISTS public CASCADE" -c "CREATE SCHEMA public" -f ${tmpFile}`,
+      // Bypass RLS for this connection, or the RLS policies' WITH CHECK
+      // rejects every restored row of policies/users/audit_log (see /backup).
+      { timeout: 1_800_000, maxBuffer: 1024 * 1024 * 100, env: RLS_BYPASS_ENV }
     );
     res.json({ ok: true, message: 'Restore completed' });
   } catch (e) {
