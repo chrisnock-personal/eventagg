@@ -1670,7 +1670,9 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
   const [tab,        setTab]        = useState<"webhooks" | "deliveries">("webhooks");
   const [showAdd,    setShowAdd]    = useState(false);
   const [editing,    setEditing]    = useState<Webhook | null>(null);
-  const [form,       setForm]       = useState({ name: "", url: "", secret: "", events: ["group_completed", "group_timed_out"] as string[] });
+  // secret "" while editing means "keep the current one" (it's write-only);
+  // removeSecret clears it.
+  const [form,       setForm]       = useState({ name: "", url: "", secret: "", removeSecret: false, events: ["group_completed", "group_timed_out"] as string[] });
   const [saving,     setSaving]     = useState(false);
   const [err,        setErr]        = useState("");
 
@@ -1686,13 +1688,13 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
 
   function openAdd() {
     setEditing(null);
-    setForm({ name: "", url: "", secret: "", events: ["group_completed", "group_timed_out"] });
+    setForm({ name: "", url: "", secret: "", removeSecret: false, events: ["group_completed", "group_timed_out"] });
     setShowAdd(true); setErr("");
   }
 
   function openEdit(wh: Webhook) {
     setEditing(wh);
-    setForm({ name: wh.name, url: wh.url, secret: wh.secret, events: [...wh.events] });
+    setForm({ name: wh.name, url: wh.url, secret: "", removeSecret: false, events: [...wh.events] });
     setShowAdd(true); setErr("");
   }
 
@@ -1707,10 +1709,11 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
     if (!form.name.trim() || !form.url.trim()) { setErr("Name and URL are required"); return; }
     setSaving(true); setErr("");
     try {
+      const { removeSecret, secret, ...rest } = form;
       if (editing) {
-        await api.webhooks.update(editing.id, form);
+        await api.webhooks.update(editing.id, removeSecret ? { ...rest, secret: "" } : secret ? { ...rest, secret } : rest);
       } else {
-        await api.webhooks.create(form);
+        await api.webhooks.create(secret ? { ...rest, secret } : rest);
       }
       setShowAdd(false);
       await load();
@@ -1768,9 +1771,16 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
                   onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
                   style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: key === "url" ? "monospace" : "inherit", outline: "none", width: "100%", boxSizing: "border-box" as const }} />
               ))}
-              <input type="text" value={form.secret} placeholder="HMAC secret (optional)"
+              <input type="password" autoComplete="new-password" value={form.secret} disabled={form.removeSecret}
+                placeholder={editing?.hasSecret ? "HMAC secret: set (leave blank to keep it)" : "HMAC secret (optional)"}
                 onChange={e => setForm(f => ({ ...f, secret: e.target.value }))}
                 style={{ padding: "6px 8px", border: `1px solid ${C.border}`, borderRadius: 5, fontSize: 11, fontFamily: "monospace", outline: "none", width: "100%", boxSizing: "border-box" as const }} />
+              {editing?.hasSecret && (
+                <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: C.textMuted, cursor: "pointer" }}>
+                  <input type="checkbox" checked={form.removeSecret} onChange={e => setForm(f => ({ ...f, removeSecret: e.target.checked, secret: "" }))} />
+                  Remove the secret (stop signing deliveries)
+                </label>
+              )}
               <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: C.textMuted }}>Fire on:</span>
                 {ALL_EVENTS.map(ev => (
@@ -1810,7 +1820,7 @@ function WebhooksPanel({ onBack }: { onBack: () => void }) {
                           {ev === "group_completed" ? "completed" : "timed_out"}
                         </span>
                       ))}
-                      {wh.secret && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.purpleLight, color: C.purple }}>HMAC</span>}
+                      {wh.hasSecret && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.purpleLight, color: C.purple }}>HMAC</span>}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
@@ -1973,7 +1983,7 @@ function HealthPanel() {
           <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "10px 14px", borderBottom: `1px solid ${C.border}`, background: C.surfaceAlt, display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: C.textMid, textTransform: "uppercase" as const, letterSpacing: "0.07em", flex: 1 }}>Logs</span>
-              {[["backend","backend"],["backend-err","backend (error)"],["nginx","nginx (error)"],["nginx-access","nginx (access)"],["postgres","postgres"]].map(([svc, label]) => (
+              {[["backend","backend"],["backend-err","backend (error)"],["nginx","nginx (error)"],["nginx-access","nginx (access)"],["postgres","postgres"],["tls-watcher","TLS watcher"]].map(([svc, label]) => (
                 <button key={svc} onClick={() => setLogSvc(svc)} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${logSvc === svc ? C.accent : C.border}`, borderRadius: 5, background: logSvc === svc ? C.accentLight : "none", cursor: "pointer", fontFamily: "monospace", color: logSvc === svc ? C.accent : C.textMid, fontWeight: logSvc === svc ? 700 : 400 }}>{label}</button>
               ))}
               <button onClick={rotate} disabled={rotating} style={{ padding: "4px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 5, background: "none", cursor: rotating ? "default" : "pointer", fontFamily: "inherit", color: C.textMid }}>Rotate</button>
@@ -2160,10 +2170,10 @@ function BackupPanel() {
 
   function doBackup() {
     setBacking(true);
-    api.admin.backup().then(blob => {
+    api.admin.backup().then(({ blob, filename }) => {
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `eventagg-backup-${new Date().toISOString().slice(0,10)}.sql`;
+      a.download = filename;
       a.click();
     }).catch(e => alert(e.message ?? "Backup failed")).finally(() => setBacking(false));
   }
@@ -2197,9 +2207,20 @@ function BackupPanel() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 6 }}>Backup</div>
-          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 16 }}>Download a full <code>pg_dump</code> SQL backup of the database. Store it safely -it contains all data.</div>
+          <div style={{ fontSize: 12, color: C.textMuted, marginBottom: 10 }}>Download a full <code>pg_dump</code> SQL backup of the database. Store it safely -it contains all data.</div>
+          {info?.encryption && (info.encryption.recipients > 0 ? (
+            <div style={{ fontSize: 11, color: C.accent, background: C.accentLight, padding: "6px 10px", borderRadius: 5, marginBottom: 12 }}>
+              🔒 Encrypted with age to {info.encryption.recipients} recipient{info.encryption.recipients === 1 ? "" : "s"} (BACKUP_AGE_RECIPIENTS).
+              Restore needs it decrypted first: <code>age -d -i key.txt backup.sql.age &gt; backup.sql</code>
+              {!info.encryption.ageAvailable && <div style={{ color: C.danger, marginTop: 4 }}>The age binary is missing from this container: backups will fail.</div>}
+            </div>
+          ) : (
+            <div style={{ fontSize: 11, color: C.warn, background: C.warnLight, padding: "6px 10px", borderRadius: 5, marginBottom: 12 }}>
+              ⚠ Backups are not encrypted. Set <code>BACKUP_AGE_RECIPIENTS</code> to an age public key to encrypt them (see DISASTER_RECOVERY.md).
+            </div>
+          ))}
           <button onClick={doBackup} disabled={backing} style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: backing ? C.borderStrong : C.accent, color: "#fff", cursor: backing ? "default" : "pointer", fontFamily: "inherit" }}>
-            {backing ? "Creating backup…" : "⬇ Download backup.sql"}
+            {backing ? "Creating backup…" : "⬇ Download backup"}
           </button>
         </div>
         <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20 }}>
@@ -2341,10 +2362,159 @@ function DataRetentionPanel() {
   );
 }
 
-// ─── Admin panel: Settings (SMTP) ─────────────────────────────────────────────
+// ─── Admin panel: Settings -> TLS certificate ─────────────────────────────────
+// Upload a certificate, key and chain (PEM files), or go back to the
+// self-signed one. The backend stages it; a root watcher (tls.sh) installs
+// it, checks it with nginx -t and reloads nginx, rolling back on failure.
+// This polls until that has happened.
+function TlsSettings() {
+  const [status,   setStatus]   = useState<import("./api").TlsStatus | null>(null);
+  const [files,    setFiles]    = useState<{ cert: string; key: string; chain: string }>({ cert: "", key: "", chain: "" });
+  const [names,    setNames]    = useState<{ cert: string; key: string; chain: string }>({ cert: "", key: "", chain: "" });
+  const [busy,     setBusy]     = useState(false);
+  const [msg,      setMsg]      = useState<{ ok: boolean; text: string } | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
-function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api").SessionUser) => void }) {
+  function load() { return api.system.tlsStatus().then(s => { setStatus(s); return s; }); }
+  useEffect(() => { load().catch(() => {}); }, []);
+
+  function pick(which: "cert" | "key" | "chain", f: File | undefined) {
+    if (!f) return;
+    f.text().then(t => { setFiles(x => ({ ...x, [which]: t })); setNames(x => ({ ...x, [which]: f.name })); });
+  }
+
+  // Wait for the watcher to report a change newer than `since`.
+  async function waitForApply(since: string | undefined) {
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 1500));
+      const s = await load().catch(() => null);
+      if (s && !s.pending && s.lastChange && s.lastChange.at !== since) return s.lastChange;
+    }
+    return null;
+  }
+
+  async function upload() {
+    if (!files.cert || !files.key) { setMsg({ ok: false, text: "Choose a certificate and its private key" }); return; }
+    setBusy(true); setMsg(null);
+    try {
+      const since = status?.lastChange?.at;
+      await api.system.tlsUpload({ cert: files.cert, key: files.key, chain: files.chain || undefined });
+      const r = await waitForApply(since);
+      if (!r) setMsg({ ok: false, text: "Uploaded, but nginx hasn't confirmed it yet. Check System Health -> tls-watcher log." });
+      else setMsg({ ok: r.ok, text: r.ok ? `${r.message}. Reload the page: the browser picks it up on its next connection.` : r.message });
+      if (r?.ok) { setFiles({ cert: "", key: "", chain: "" }); setNames({ cert: "", key: "", chain: "" }); }
+    } catch (e: any) { setMsg({ ok: false, text: e.message ?? "Upload failed" }); }
+    finally { setBusy(false); }
+  }
+
+  async function reset() {
+    setBusy(true); setMsg(null); setConfirmReset(false);
+    try {
+      const since = status?.lastChange?.at;
+      await api.system.tlsReset();
+      const r = await waitForApply(since);
+      setMsg(r ? { ok: r.ok, text: r.message } : { ok: false, text: "Requested, but nginx hasn't confirmed it yet." });
+    } catch (e: any) { setMsg({ ok: false, text: e.message ?? "Reset failed" }); }
+    finally { setBusy(false); }
+  }
+
+  const cur = status?.current;
+  const row = (label: string, value: React.ReactNode) => (
+    <div style={{ display: "flex", gap: 10, fontSize: 12, padding: "3px 0" }}>
+      <div style={{ width: 120, flexShrink: 0, color: C.textMuted, fontWeight: 700, fontSize: 11 }}>{label}</div>
+      <div style={{ color: C.text, minWidth: 0, overflowWrap: "anywhere" as const }}>{value}</div>
+    </div>
+  );
+  const fileBtn = (which: "cert" | "key" | "chain", label: string) => (
+    <label style={{ display: "flex", flexDirection: "column", gap: 5, fontSize: 11, fontWeight: 700, color: C.textMid }}>
+      {label}
+      <input type="file" accept=".pem,.crt,.cer,.key,.txt" onChange={e => pick(which, e.target.files?.[0])}
+        style={{ fontSize: 11, fontWeight: 400, color: C.textMid }} />
+      {names[which] && <span style={{ fontWeight: 400, color: C.textMuted, fontFamily: "monospace" }}>{names[which]}</span>}
+    </label>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>HTTPS certificate</div>
+      <div style={{ background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8, padding: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+        {!status ? <div style={{ fontSize: 12, color: C.textMuted }}>Loading…</div> : !cur ? (
+          <div style={{ fontSize: 12, color: C.textMuted }}>No certificate found (is this running outside the container?).</div>
+        ) : (
+          <div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>In use now</span>
+              <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3,
+                background: cur.selfSigned ? C.warnLight : C.accentLight, color: cur.selfSigned ? C.warn : C.accent }}>
+                {cur.selfSigned ? "SELF-SIGNED" : "UPLOADED"}
+              </span>
+              {cur.expired && <span style={{ fontSize: 9, fontWeight: 700, padding: "1px 6px", borderRadius: 3, background: C.dangerLight, color: C.danger }}>EXPIRED</span>}
+            </div>
+            {row("Subject", cur.subject)}
+            {row("Issuer", cur.issuer)}
+            {row("Names", cur.subjectAltNames.join(", ") || "-")}
+            {row("Valid", `${new Date(cur.validFrom).toLocaleDateString()} – ${new Date(cur.validTo).toLocaleDateString()}`)}
+            {row("SHA-256", <code style={{ fontFamily: "monospace", fontSize: 11 }}>{cur.fingerprint256}</code>)}
+            {cur.selfSigned && (
+              <div style={{ marginTop: 8, fontSize: 11, color: C.textMuted }}>
+                Browsers warn about a self-signed certificate. To trust it without a warning, compare the SHA-256
+                fingerprint above with the one your browser shows, or upload a certificate from your own CA.
+              </div>
+            )}
+          </div>
+        )}
+        {status?.lastChange && !status.lastChange.ok && (
+          <div style={{ fontSize: 11, padding: "6px 10px", borderRadius: 5, background: C.dangerLight, color: C.danger }}>
+            Last change failed: {status.lastChange.message}
+          </div>
+        )}
+
+        <div style={{ borderTop: `1px solid ${C.border}`, paddingTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 4 }}>Upload your own</div>
+          <div style={{ fontSize: 11, color: C.textMuted, marginBottom: 10 }}>
+            PEM files. The key must not have a passphrase. The chain (intermediate certificates) can be in the certificate file or separate.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 12 }}>
+            {fileBtn("cert", "Certificate")}
+            {fileBtn("key", "Private key")}
+            {fileBtn("chain", "Chain (optional)")}
+          </div>
+          {msg && (
+            <div style={{ marginBottom: 12, fontSize: 11, padding: "6px 10px", borderRadius: 5, background: msg.ok ? C.accentLight : C.dangerLight, color: msg.ok ? C.accent : C.danger }}>
+              {msg.text}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" as const, alignItems: "center" }}>
+            <button onClick={upload} disabled={busy || !files.cert || !files.key}
+              style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: busy || !files.cert || !files.key ? C.borderStrong : C.accent, color: "#fff", cursor: busy ? "default" : "pointer", fontFamily: "inherit" }}>
+              {busy ? "Applying…" : "Upload and apply"}
+            </button>
+            {cur && !cur.selfSigned && (confirmReset ? (
+              <>
+                <span style={{ fontSize: 11, color: C.textMid }}>Replace it with a new self-signed certificate?</span>
+                <button onClick={reset} disabled={busy} style={{ padding: "8px 14px", fontSize: 12, fontWeight: 700, border: "none", borderRadius: 6, background: C.danger, color: "#fff", cursor: "pointer", fontFamily: "inherit" }}>Yes, reset</button>
+                <button onClick={() => setConfirmReset(false)} style={{ padding: "8px 14px", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", color: C.textMid, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+              </>
+            ) : (
+              <button onClick={() => setConfirmReset(true)} disabled={busy}
+                style={{ padding: "8px 18px", fontSize: 12, fontWeight: 700, border: `1px solid ${C.border}`, borderRadius: 6, background: "none", color: C.textMid, cursor: "pointer", fontFamily: "inherit" }}>
+                Back to self-signed
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Admin panel: Settings (TLS, SMTP, multi-tenancy) ─────────────────────────
+
+function SettingsPanel({ role, onSessionUpdate }: { role: string; onSessionUpdate: (u: import("./api").SessionUser) => void }) {
+  // password is write-only: "" means "keep the stored one" (hasPassword says
+  // whether there is one).
   const [cfg,     setCfg]     = useState({ host: "", port: 587, secure: false, user: "", password: "", from: "" });
+  const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState(false);
   const [testing, setTesting] = useState(false);
@@ -2372,13 +2542,18 @@ function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api
 
   useEffect(() => {
     api.system.getConfig("smtp").then((v: any) => {
-      if (v) setCfg({ host: v.host ?? "", port: v.port ?? 587, secure: v.secure ?? false, user: v.user ?? "", password: v.password ?? "", from: v.from ?? "" });
+      if (v) {
+        setCfg({ host: v.host ?? "", port: v.port ?? 587, secure: v.secure ?? false, user: v.user ?? "", password: "", from: v.from ?? "" });
+        setHasPassword(!!v.hasPassword);
+      }
     }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   function save() {
     setSaving(true); setSaveMsg("");
-    api.system.setConfig("smtp", cfg).then(() => setSaveMsg("Saved.")).catch(e => setSaveMsg(e.message ?? "Error")).finally(() => setSaving(false));
+    api.system.setConfig("smtp", cfg)
+      .then(() => { setSaveMsg("Saved."); if (cfg.password) setHasPassword(true); setCfg(c => ({ ...c, password: "" })); })
+      .catch(e => setSaveMsg(e.message ?? "Error")).finally(() => setSaving(false));
   }
 
   function testConn() {
@@ -2389,7 +2564,11 @@ function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api
       .finally(() => setTesting(false));
   }
 
-  const inp = (label: string, key: keyof typeof cfg, type: string = "text") => (
+  // Instance-wide settings (SMTP, TLS): the superadmin, or the admin before
+  // multi-tenancy is on (backend: middleware/instanceAdmin.ts).
+  const instanceAdmin = role === "superadmin" || (role === "admin" && tenancy !== null && !tenancy.enabled);
+
+  const inp = (label: string, key: keyof typeof cfg, type: string = "text", placeholder: string = "") => (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       <label style={{ fontSize: 11, fontWeight: 700, color: C.textMid }}>{label}</label>
       {type === "checkbox" ? (
@@ -2398,7 +2577,7 @@ function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api
           <span style={{ fontSize: 12, color: C.textMid }}>Use TLS/SSL</span>
         </label>
       ) : (
-        <input type={type} value={String(cfg[key])} onChange={e => setCfg(c => ({ ...c, [key]: type === "number" ? parseInt(e.target.value) || 0 : e.target.value }))}
+        <input type={type} value={String(cfg[key])} placeholder={placeholder} autoComplete={type === "password" ? "new-password" : undefined} onChange={e => setCfg(c => ({ ...c, [key]: type === "number" ? parseInt(e.target.value) || 0 : e.target.value }))}
           style={{ padding: "7px 10px", border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 12, fontFamily: type === "password" ? "monospace" : "inherit", color: C.text, background: C.surface, outline: "none", width: "100%" }} />
       )}
     </div>
@@ -2443,6 +2622,11 @@ function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api
         )}
       </div>
 
+      {!instanceAdmin && tenancy?.enabled && (
+        <div style={{ fontSize: 12, color: C.textMuted }}>Email (SMTP) and TLS certificate settings are managed by the platform superadmin.</div>
+      )}
+      {instanceAdmin && <TlsSettings />}
+      {instanceAdmin && <>
       <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>Email Notifications</div>
       <div style={{ fontSize: 12, color: C.textMuted, background: C.accentLight, border: `1px solid ${C.accentSoft}`, borderRadius: 7, padding: "10px 14px" }}>
         Email notifications are sent to all admin users when an event group <strong>times out</strong> (no grave event received within the policy timeout window).
@@ -2454,7 +2638,7 @@ function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api
             {inp("SMTP Host", "host")}
             {inp("Port", "port", "number")}
             {inp("Username", "user")}
-            {inp("Password", "password", "password")}
+            {inp("Password", "password", "password", hasPassword ? "saved (leave blank to keep)" : "")}
             {inp("From Address", "from")}
             {inp("TLS / SSL", "secure", "checkbox")}
           </div>
@@ -2473,6 +2657,7 @@ function SettingsPanel({ onSessionUpdate }: { onSessionUpdate: (u: import("./api
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -2677,6 +2862,11 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
 }) {
   const [open,    setOpen]    = useState(false);
   const [section, setSection] = useState<null | "policies" | "accounts" | "snmp" | "webhooks">(null);
+  // Before multi-tenancy, the org admin is also the instance admin (health,
+  // backups, DB maintenance, SMTP/TLS settings); after, only the superadmin.
+  const [tenancyOn, setTenancyOn] = useState<boolean | null>(null);
+  useEffect(() => { api.tenancy.get().then(t => setTenancyOn(!!t.enabled)).catch(() => setTenancyOn(null)); }, []);
+  const instanceAdminViaOrg = user.role === "admin" && tenancyOn === false;
   const [showAdd, setShowAdd] = useState(false);
   const [newU,    setNewU]    = useState({ username: "", email: "", password: "", role: "viewer" });
   const [saving,  setSaving]  = useState(false);
@@ -2764,8 +2954,10 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                     <span style={{ color: C.textMuted }}>›</span>
                   </button>
                   {([
+                    { icon: "🖥", label: "System Health",  desc: "CPU, memory, disk & logs", v: "health" as AdminView },
                     { icon: "💾", label: "Backup",         desc: "pg_dump & restore -whole instance", v: "backup" as AdminView },
                     { icon: "🗄", label: "DB Maintenance", desc: "VACUUM, table stats -whole instance", v: "db" as AdminView },
+                    { icon: "⚙", label: "Settings",       desc: "TLS certificate, SMTP", v: "settings" as AdminView },
                   ] as { icon: string; label: string; desc: string; v: AdminView }[]).map(item => (
                     <button key={item.v} onClick={() => { setOpen(false); setSection(null); onAdminNav(item.v); }}
                       style={{ width: "100%", padding: "11px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
@@ -2818,11 +3010,15 @@ function BurgerMenu({ user, policies, appUsers, onSignOut, onUsersChanged, onOpe
                 <>
                   <div style={{ padding: "6px 14px 3px", fontSize: 9, fontWeight: 700, color: C.textMuted, textTransform: "uppercase" as const, letterSpacing: "0.1em", borderTop: `1px solid ${C.border}` }}>Administration</div>
                   {([
-                    { icon: "🖥", label: "System Health", desc: "CPU, memory, disk & logs",     v: "health" as AdminView },
+                    ...(instanceAdminViaOrg ? [{ icon: "🖥", label: "System Health", desc: "CPU, memory, disk & logs", v: "health" as AdminView }] : []),
                     { icon: "📋", label: "Audit Log",     desc: "Full paginated audit history",  v: "audit-admin" as AdminView },
                     { icon: "📦", label: "Import/Export", desc: "Policy bundles",                v: "import-export" as AdminView },
                     { icon: "🗄", label: "Data Retention",desc: "Purge old data for your org",   v: "data-retention" as AdminView },
-                    { icon: "✉",  label: "Settings",      desc: "SMTP email notifications",      v: "settings" as AdminView },
+                    ...(instanceAdminViaOrg ? [
+                      { icon: "💾", label: "Backup",         desc: "pg_dump & restore",        v: "backup" as AdminView },
+                      { icon: "🗄", label: "DB Maintenance", desc: "VACUUM, table stats",      v: "db" as AdminView },
+                    ] : []),
+                    { icon: "✉",  label: "Settings",      desc: instanceAdminViaOrg ? "TLS certificate, SMTP, multi-tenancy" : "Multi-tenancy", v: "settings" as AdminView },
                   ] as { icon: string; label: string; desc: string; v: AdminView }[]).map(item => (
                     <button key={item.v} onClick={() => { setOpen(false); setSection(null); onAdminNav(item.v); }}
                       style={{ width: "100%", padding: "9px 14px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", fontFamily: "inherit", textAlign: "left" as const, display: "flex", gap: 10, alignItems: "center" }}
@@ -4334,7 +4530,7 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
             {adminView === "backup"         && <BackupPanel />}
             {adminView === "db"             && <DbMaintenancePanel />}
             {adminView === "data-retention" && <DataRetentionPanel />}
-            {adminView === "settings"       && <SettingsPanel onSessionUpdate={onSessionUpdate} />}
+            {adminView === "settings"       && <SettingsPanel role={sessionUser.role} onSessionUpdate={onSessionUpdate} />}
             {adminView === "organizations"  && <OrganizationsPanel />}
           </div>
         )}

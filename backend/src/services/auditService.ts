@@ -15,7 +15,13 @@ export type AuditAction =
   | "event.ingested"
   | "event.timed_out"
   | "event.group_opened"
-  | "event.group_completed";
+  | "event.group_completed"
+  | "tls.certificate_uploaded"
+  | "tls.certificate_reset";
+
+// entity_id is a UUID column: system-level entries (no row of their own,
+// e.g. the TLS certificate) use the nil UUID.
+export const SYSTEM_ENTITY_ID = "00000000-0000-0000-0000-000000000000";
 
 export interface AuditEntry {
   // Nullable to allow superadmin actions (e.g. login) to still be logged even

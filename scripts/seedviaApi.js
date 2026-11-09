@@ -23,6 +23,12 @@ const get     = (f, def) => { const i = args.indexOf(f); return i >= 0 ? args[i+
 const has     = (f) => args.includes(f);
 
 const BASE_URL  = get("--api", "http://localhost:3001");
+
+// --insecure: accept Aggre/Gator's self-signed HTTPS certificate (its default
+// until you upload your own in Settings -> TLS). Better: trust that one
+// certificate with NODE_EXTRA_CA_CERTS=<server.crt> and leave this off.
+if (process.argv.includes("--insecure")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const N_GROUPS  = parseInt(get("--groups", has("--load-test") ? "5000" : "200"));
 const SEGS_MIN  = parseInt(get("--segs-min", "2"));
 const SEGS_MAX  = parseInt(get("--segs-max", "6"));

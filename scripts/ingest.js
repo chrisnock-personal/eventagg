@@ -27,6 +27,12 @@ const get  = (flag) => { const i = args.indexOf(flag); return i >= 0 ? args[i + 
 const has  = (flag) => args.includes(flag);
 
 const BASE_URL   = get("--api")    || process.env.AGGREGATOR_URL || "http://localhost:3001";
+
+// --insecure: accept Aggre/Gator's self-signed HTTPS certificate (its default
+// until you upload your own in Settings -> TLS). Better: trust that one
+// certificate with NODE_EXTRA_CA_CERTS=<server.crt> and leave this off.
+if (process.argv.includes("--insecure")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const POLICY_ID  = get("--policy") || process.env.AGGREGATOR_POLICY;
 const BODY_STR   = get("--body");
 const FILE_PATH  = get("--file");

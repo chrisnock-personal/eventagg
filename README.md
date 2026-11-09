@@ -34,14 +34,16 @@ podman-compose up -d
 podman exec eventagg grep "Default admin created" /var/log/supervisor/backend.log
 
 # UI (login: admin / the password above)
-open http://localhost:8080
+# HTTPS with a self-signed certificate (your browser warns until you upload
+# your own in Settings -> TLS); http://localhost:8080 redirects here.
+open https://localhost:8443
 
 # API docs -Swagger UI (the API is reached through nginx; the backend itself
 # listens on 127.0.0.1:3001 only)
-open http://localhost:8080/api/v1/docs
+open https://localhost:8443/api/v1/docs
 
 # Health check
-curl http://localhost:8080/health
+curl http://localhost:8080/health      # plain HTTP is kept for this probe only
 ```
 
 Runs as a single container -PostgreSQL 16 + Node.js backend + nginx frontend, managed by supervisord. `docker-compose.yml` uses `network_mode: host` (required so the SNMP UDP receiver can see external traffic under rootless Podman), so services bind directly to host ports rather than going through a port mapping.
@@ -192,7 +194,7 @@ per-org; there is no global/env-var key anymore).
 ### Ingest example
 
 ```bash
-curl -X POST http://localhost:8080/api/v1/events/ingest \
+curl -X POST https://localhost:8443/api/v1/events/ingest \
   -H "Content-Type: application/json" \
   -d '{
     "policyId": "<policy-uuid>",
@@ -331,7 +333,12 @@ node scripts/demo.js --host <host> --api-key <key>
 | `PG_POOL_CONNECTION_TIMEOUT_MS` | `5000` | Pool connection acquire timeout |
 | `CORS_ORIGIN` | *(empty -same-origin only)* | Set only if a separately-hosted frontend calls this API directly (see below) |
 | `JWT_SECRET` | *(auto-generated)* | Session signing secret. Leave unset and one is generated on first boot and persisted in the `secrets` volume (`/app/secrets/jwt.key`), so sessions survive restarts. Set it to manage the secret yourself; `<new>,<old>` keeps old sessions valid during a rotation (see [SECRETS_ROTATION.md](./SECRETS_ROTATION.md)). There is no hardcoded fallback. |
-| `COOKIE_SECURE` | `false` | Marks the session cookie `Secure` (HTTPS-only). Only enable once you've put TLS in front of this app (see below) -this app's own nginx.conf serves plain HTTP, and browsers silently drop `Secure` cookies over HTTP, breaking every login. |
+| `COOKIE_SECURE` | `true` | Marks the session cookie `Secure` (HTTPS-only). Only turn off if something in front serves the UI over plain HTTP |
+| `HTTP_PORT` | `8080` | nginx's plain-HTTP port: redirects to HTTPS (except `/health`) |
+| `HTTPS_PORT` | `8443` | nginx's HTTPS port (UI and API) |
+| `TLS_SANS` | *(empty)* | Extra DNS names/IPs (comma-separated) for the self-signed certificate, besides the host's own |
+| `DATA_ENCRYPTION_KEY` | *(auto-generated)* | AES-256 key for stored credentials (webhook secrets, SMTP password). Unset = generated into `/app/secrets/data.key`. 64 hex chars; `<new>,<old>` during a rotation |
+| `BACKUP_AGE_RECIPIENTS` | *(empty)* | Comma-separated [age](https://age-encryption.org) public keys. Set = every backup is encrypted to them (`.sql.age`) |
 | `ADMIN_PASSWORD` | *(generated)* | Password for the default org's admin when it's first created. Unset = random, printed once to the backend log. Must be changed at first login either way |
 | `ADMIN_PASSWORD_RESET` | `false` | Lockout recovery: `true` resets the admin's password at boot (to `ADMIN_PASSWORD`, or a generated one). Remove it afterwards |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
@@ -341,16 +348,30 @@ node scripts/demo.js --host <host> --api-key <key>
 
 ### TLS
 
-This app's bundled nginx (`nginx.conf`) serves plain HTTP on port 8080 —
-there's no TLS termination built in. For a production deployment, put a
-TLS-terminating reverse proxy (e.g. nginx, Caddy, or a cloud load balancer)
-in front of it, forwarding to port 8080, and set `COOKIE_SECURE=true` once
-that's in place so session cookies are marked HTTPS-only.
+The bundled nginx serves the UI and API over HTTPS on `HTTPS_PORT` (8443),
+TLS 1.2/1.3 only, with HSTS. `HTTP_PORT` (8080) redirects there with a 308,
+so an HTTP POST is redirected rather than turned into a GET; `/health` stays
+on HTTP for simple monitors.
+
+- **First start:** a self-signed certificate (ECDSA P-256) is generated into
+  the `certs` volume for the host's name and addresses (plus `TLS_SANS`). It's
+  regenerated if those change, e.g. after the host gets a new DHCP address.
+- **Your own certificate:** Settings -> TLS (the superadmin, or the admin
+  before multi-tenancy is on). Upload the certificate, unencrypted private
+  key and optional chain as PEM. The backend checks that the key matches,
+  the dates are valid and the chain links up, then stages it; a root
+  watcher (`tls.sh`, under supervisord) installs it, runs `nginx -t`,
+  reloads nginx and puts the previous certificate back if anything fails.
+  The page shows the SHA-256 fingerprint of what's being served, and can go
+  back to self-signed.
+- **Scripts and API clients** against the self-signed certificate: trust it
+  with `NODE_EXTRA_CA_CERTS=server.crt` (or `curl --cacert`), or pass
+  `--insecure` to the `scripts/*.js` tools.
 
 ### CORS
 
 The bundled `nginx.conf` proxies both the frontend and the API on the same
-origin (port 8080) -the browser never makes a cross-origin request in the
+origin (port 8443) -the browser never makes a cross-origin request in the
 standard deployment, so `CORS_ORIGIN` defaults to empty (same-origin only,
 no `Access-Control-Allow-Origin` header sent at all). Only set it if you're
 serving the frontend from a different origin than this API -a specific
@@ -417,7 +438,8 @@ eventagg/
 ├── AGGRE-GATOR-MIB.txt          SMIv2 MIB, enterprise OID 1.3.6.1.4.1.99999
 ├── sync.sh                      rsync deploy: desktop → remote server + rebuild
 ├── docker-compose.yml           network_mode: host (required for SNMP UDP)
-├── nginx.conf                   Serves frontend on port 8080
+├── nginx.conf                   HTTPS (8443) + HTTP redirect (8080) template; ports filled in by entrypoint.sh
+├── tls.sh                       Self-signed certificate + watcher that applies uploaded ones
 ├── supervisord.conf              Manages postgres + backend + nginx
 ├── entrypoint.sh                 Container startup: init DB, run migrations, start supervisord
 ├── OPERATIONS.md                 WAL archiving, rate limiting, partition management, tuning

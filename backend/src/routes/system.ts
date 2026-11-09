@@ -6,6 +6,9 @@ import * as os from 'os';
 import { requireAuth, requireRole, setSessionCookie } from '../middleware/session';
 import { query, runWithOrgContext } from '../db/pool';
 import { getMultiTenancyConfig, enableMultiTenancy } from '../services/tenancyService';
+import { requireInstanceAdmin } from '../middleware/instanceAdmin';
+import { encryptSecret } from '../services/secretBox';
+import { getSmtpConfig } from '../services/smtpService';
 
 const router = Router();
 const adminOnly = requireRole('admin');
@@ -16,13 +19,18 @@ const adminOnly = requireRole('admin');
 // the superadmin promotion in the same transaction. Allowing it through here
 // too would let any admin flip the flag without actually promoting anyone.
 
-// Shared with POST /config/smtp/test below -both need the same shape.
+// Health and logs are host-wide (and the backend log carries every org's
+// activity), so they're instance-admin only too.
+
+// Shared with POST /config/smtp/test below -both need the same shape. The
+// password is write-only: omitted or "" means "keep the stored one". It's
+// stored encrypted (services/secretBox.ts) and never returned.
 const smtpConfigSchema = z.object({
   host:     z.string().min(1),
   port:     z.number().int().min(1).max(65535),
   secure:   z.boolean(),
   user:     z.string().min(1),
-  password: z.string().min(1),
+  password: z.string().optional().default(''),
   from:     z.string().optional().default(''),
 });
 
@@ -34,22 +42,37 @@ const CONFIG_SCHEMAS: Record<string, z.ZodType> = {
   smtp: smtpConfigSchema,
 };
 
-router.get('/config/:key', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+// system_config is one row per key for the whole platform, so only an
+// instance admin may read or change it (an org admin could otherwise read
+// and overwrite the platform's SMTP credentials).
+router.get('/config/:key', requireAuth, requireInstanceAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const rows = await query<{ value: unknown }>(
+    const rows = await query<{ value: Record<string, unknown> }>(
       `SELECT value FROM system_config WHERE key = $1`, [req.params.key]
     );
-    if (rows.length) { res.json(rows[0].value); } else { res.status(404).json({ error: 'Not found' }); }
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    const value = rows[0].value;
+    if (req.params.key === 'smtp') {
+      const { password, ...rest } = value;
+      return res.json({ ...rest, hasPassword: typeof password === 'string' && password !== '' });
+    }
+    res.json(value);
   } catch (e) { next(e); }
 });
 
-router.put('/config/:key', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.put('/config/:key', requireAuth, requireInstanceAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     if (req.params.key === 'multi_tenancy') {
       return res.status(403).json({ error: 'Use POST /system/tenancy/enable to enable multi-tenancy' });
     }
     const schema = CONFIG_SCHEMAS[req.params.key] ?? z.record(z.string(), z.unknown());
-    const value = schema.parse(req.body);
+    let value = schema.parse(req.body) as Record<string, unknown>;
+    if (req.params.key === 'smtp') {
+      // Keep the stored (already encrypted) password unless a new one is given.
+      const stored = await query<{ value: { password?: string } }>(`SELECT value FROM system_config WHERE key = 'smtp'`);
+      const newPassword = value.password as string;
+      value = { ...value, password: newPassword ? encryptSecret(newPassword) : (stored[0]?.value.password ?? '') };
+    }
     await query(
       `INSERT INTO system_config (key, value, updated_at, updated_by)
        VALUES ($1, $2, now(), $3)
@@ -100,13 +123,15 @@ router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Re
 
 // ── SMTP test ─────────────────────────────────────────────────────────────────
 
-router.post('/config/smtp/test', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/config/smtp/test', requireAuth, requireInstanceAdmin, async (req: Request, res: Response, next: NextFunction) => {
   // Shape errors (missing host, bad port, etc.) go through the standard
   // validation-error path; only an actual connection/auth failure gets the
   // friendlier inline 400 below, since that's the whole point of "test".
   let cfg: z.infer<typeof smtpConfigSchema>;
   try {
     cfg = smtpConfigSchema.parse(req.body);
+    // No password typed: test with the stored one.
+    if (!cfg.password) cfg.password = (await getSmtpConfig())?.password ?? '';
   } catch (e) { return next(e); }
 
   try {
@@ -188,7 +213,7 @@ async function getCpuUsage(): Promise<number> {
   }
 }
 
-router.get('/health', requireAuth, adminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/health', requireAuth, requireInstanceAdmin, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const [dbStats] = await query<{
       db_size: string; active_queries: string;
@@ -268,7 +293,7 @@ function formatBytes(bytes: number): string {
   return `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
-router.get('/logs/sizes', requireAuth, adminOnly, (_req: Request, res: Response, next: NextFunction) => {
+router.get('/logs/sizes', requireAuth, requireInstanceAdmin, (_req: Request, res: Response, next: NextFunction) => {
   try {
     const collect = (dir: string, prefix = '') => {
       try {
@@ -296,7 +321,7 @@ const ALL_LOG_FILES = [
   '/var/log/nginx/error.log',
 ];
 
-router.post('/logs/rotate', requireAuth, adminOnly, (_req: Request, res: Response, next: NextFunction) => {
+router.post('/logs/rotate', requireAuth, requireInstanceAdmin, (_req: Request, res: Response, next: NextFunction) => {
   try {
     let truncated = 0;
     for (const f of ALL_LOG_FILES) {
@@ -315,9 +340,10 @@ const SERVICE_LOGS: Record<string, string> = {
   nginx:           `${LOG_DIR}/nginx-err.log`,
   'nginx-access':  '/var/log/nginx/access.log',
   postgres:        `${LOG_DIR}/postgres-err.log`,
+  'tls-watcher':   `${LOG_DIR}/tls-watcher.log`,
 };
 
-router.get('/logs/:service', requireAuth, adminOnly, (req: Request, res: Response, next: NextFunction) => {
+router.get('/logs/:service', requireAuth, requireInstanceAdmin, (req: Request, res: Response, next: NextFunction) => {
   const service = req.params.service;
   const logFile = SERVICE_LOGS[service];
   if (!logFile) return res.status(404).json({ error: 'Unknown service' });

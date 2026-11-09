@@ -5,7 +5,7 @@
 //
 // Usage:
 //   node scripts/demo.js
-//   node scripts/demo.js --host <host> --port 1162 --api http://<host>:8080
+//   node scripts/demo.js --host <host> --port 1162 --api https://<host>:8443 --insecure --community <c>
 //   node scripts/demo.js --api-key <ingest-api-key>
 
 const dgram    = require("dgram");
@@ -22,6 +22,12 @@ const SNMP_HOST = get("--host",      "127.0.0.1");
 const SNMP_PORT = parseInt(get("--port", "1162"));
 const COMMUNITY = get("--community", process.env.AGGRE_SNMP_COMMUNITY || "");
 const API_BASE  = get("--api",       "http://localhost:3001");
+
+// --insecure: accept Aggre/Gator's self-signed HTTPS certificate (its default
+// until you upload your own in Settings -> TLS). Better: trust that one
+// certificate with NODE_EXTRA_CA_CERTS=<server.crt> and leave this off.
+if (process.argv.includes("--insecure")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const API_KEY   = get("--api-key",   null);
 
 if (has("--help") || has("-h")) {
@@ -34,6 +40,7 @@ Options:
   --community <str> Your org's SNMP community (SNMP panel; or AGGRE_SNMP_COMMUNITY). Required for the SNMP scenarios
   --api <url>       API base URL              (default: http://localhost:3001)
   --api-key <key>   X-API-Key for HTTP ingest (optional if INGEST_API_KEY unset)
+  --insecure        Accept the self-signed HTTPS certificate
 
 Scenarios:
   1  Trade Lifecycle   -4 steps via SNMP
@@ -495,7 +502,7 @@ async function main() {
   } catch (err) {
     console.log(red("failed"));
     console.log(red(`  ${err.message}`));
-    console.log(red("  Is the API reachable? Try --api http://<host>:8080"));
+    console.log(red("  Is the API reachable? Try --api https://<host>:8443 --insecure"));
     process.exit(1);
   }
 

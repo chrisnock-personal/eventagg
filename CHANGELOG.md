@@ -45,7 +45,33 @@ tagging, but versions are noted where meaningful.
   must now be 12+ characters and not `public`/`private`. The SNMP panel shows
   admins their org's real community and a *Rejected* count.
 
-**Upgrading:** devices sending traps with `public` must be given the org's
+- HTTPS by default: nginx serves the UI and API on `HTTPS_PORT` (8443, TLS
+  1.2/1.3, HSTS) and `HTTP_PORT` (8080) redirects there (308; `/health`
+  stays on HTTP). A self-signed certificate is generated on first start (and
+  again if the host's addresses change); Settings -> TLS uploads your own,
+  applied by a root watcher (`tls.sh`) that runs `nginx -t`, reloads, and
+  rolls back on failure.
+- `COOKIE_SECURE` defaults to `true`. `trust proxy` is set for the local
+  nginx, so the audit log and the login/ingest rate limits see the real
+  client IP instead of `127.0.0.1` (backlog #16).
+- Webhook signing secrets and the SMTP password are encrypted at rest
+  (AES-256-GCM, key in the `secrets` volume or `DATA_ENCRYPTION_KEY`, with a
+  rotation window) and write-only in the API (`hasSecret`/`hasPassword`).
+  Existing plaintext values are encrypted at the next boot.
+- Instance-wide settings (SMTP, TLS, backups, DB maintenance, System Health
+  and logs) are for the instance admin: the superadmin, or the admin before
+  multi-tenancy is on. Org admins could read and overwrite the platform's
+  SMTP credentials (backlog #5) and read every org's activity in the backend
+  log; single-tenant admins couldn't take backups at all.
+- Backups can be encrypted with age (`BACKUP_AGE_RECIPIENTS`); the Backup
+  panel warns while they aren't. With recipients set but no `age` binary,
+  backup refuses instead of writing plaintext.
+
+**Upgrading:** the UI is now `https://<host>:8443` (8080 redirects). API
+clients and scripts must use HTTPS: trust the self-signed certificate
+(`NODE_EXTRA_CA_CERTS`, `curl --cacert`), upload a real one, or pass
+`--insecure` to `scripts/*.js`. New volume `certs`. Back up
+`/app/secrets/data.key` (DISASTER_RECOVERY.md). Devices sending traps with `public` must be given the org's
 new community string (SNMP panel), or set `SNMP_COMMUNITY` to keep a
 specific value for the Default Organisation. `send-trap.js`/`demo.js` now
 need `--community`. Clients that called `http://<host>:3001` directly must use

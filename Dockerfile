@@ -87,10 +87,12 @@ COPY --from=backend-builder  /build/backend/dist/migrations /app/backend/dist/mi
 COPY --from=backend-builder  /build/backend/node_modules  /app/backend/node_modules
 
 # ── Copy configuration ────────────────────────────────────────────────────────
-COPY nginx.conf       /etc/nginx/sites-available/eventagg
+# nginx.conf is a template: entrypoint.sh fills in the ports at every start.
+COPY nginx.conf       /etc/nginx/eventagg.conf.template
 COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY entrypoint.sh    /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY tls.sh           /usr/local/bin/eventagg-tls
+RUN chmod +x /entrypoint.sh /usr/local/bin/eventagg-tls
 
 # ── Wire up nginx site ────────────────────────────────────────────────────────
 RUN mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled \
@@ -102,7 +104,10 @@ RUN mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled \
     && grep -q "sites-enabled" "$NGINX_CONF" \
        || sed -i '/http {/a\    include /etc/nginx/sites-enabled/*;' "$NGINX_CONF"
 
-EXPOSE 80 3001 5432
+# HTTP (redirects to HTTPS) and HTTPS. With network_mode: host these are
+# HTTP_PORT/HTTPS_PORT on the host; the API (3001) and Postgres (5432) are
+# loopback-only.
+EXPOSE 8080 8443
 
 VOLUME ["/var/lib/postgresql/data"]
 

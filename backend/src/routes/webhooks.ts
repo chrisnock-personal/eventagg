@@ -30,6 +30,7 @@ router.post("/", requireRole("editor", "admin"), async (req: Request, res: Respo
     const orgId = req.user!.orgId as string;
     const { name, url, secret, events } = req.body;
     if (!name || !url) return void res.status(400).json({ error: "name and url are required" });
+    if (secret !== undefined && typeof secret !== "string") return void res.status(400).json({ error: "secret must be a string" });
     res.status(201).json(await webhookService.createWebhook(orgId, { name, url, secret, events }));
   } catch (err) { next(err); }
 });
@@ -50,6 +51,9 @@ router.get("/deliveries", async (req: Request, res: Response, next: NextFunction
 router.put("/:id", requireRole("editor", "admin"), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;
+    if (req.body?.secret !== undefined && typeof req.body.secret !== "string") {
+      return void res.status(400).json({ error: "secret must be a string" });
+    }
     const result = await webhookService.updateWebhook(orgId, req.params.id, req.body);
     if (!result) return void res.status(404).json({ error: "Webhook not found" });
     res.json(result);

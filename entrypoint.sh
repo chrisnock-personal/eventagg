@@ -282,6 +282,34 @@ fi
 [ -f "$JWT_KEY_FILE" ] && chown eventagg "$JWT_KEY_FILE" && chmod 600 "$JWT_KEY_FILE"
 
 # =============================================================================
+# 7c. Data encryption key (stored credentials: webhook secrets, SMTP password)
+# =============================================================================
+# Same pattern as jwt.key: generated once, kept in the `secrets` volume (not
+# in Postgres, so a database backup alone doesn't reveal those values), and
+# DATA_ENCRYPTION_KEY wins if set. See services/secretBox.ts. Losing this
+# file loses the stored credentials (they must be re-entered), so back up the
+# secrets volume along with the database (DISASTER_RECOVERY.md).
+DATA_KEY_FILE=/app/secrets/data.key
+if [ -z "${DATA_ENCRYPTION_KEY:-}" ] && [ ! -s "$DATA_KEY_FILE" ]; then
+  log "No DATA_ENCRYPTION_KEY set and no persisted key -generating one in $DATA_KEY_FILE (persisted from now on)..."
+  node -e 'process.stdout.write(require("crypto").randomBytes(32).toString("hex"))' > "$DATA_KEY_FILE"
+fi
+[ -f "$DATA_KEY_FILE" ] && chown eventagg "$DATA_KEY_FILE" && chmod 600 "$DATA_KEY_FILE"
+
+# =============================================================================
+# 7d. HTTPS: certificate and nginx site
+# =============================================================================
+# A self-signed certificate on first start (and again if the host's names or
+# addresses change), unless one was uploaded in Settings -> TLS. See tls.sh.
+HTTP_PORT="${HTTP_PORT:-8080}"
+HTTPS_PORT="${HTTPS_PORT:-8443}"
+/usr/local/bin/eventagg-tls ensure
+sed -e "s/__HTTP_PORT__/${HTTP_PORT}/g" -e "s/__HTTPS_PORT__/${HTTPS_PORT}/g" \
+  /etc/nginx/eventagg.conf.template > /etc/nginx/sites-available/eventagg
+nginx -t 2>&1 | grep -v "syntax is ok\|test is successful" || true
+nginx -t >/dev/null 2>&1 || err "nginx configuration test failed (see above)"
+
+# =============================================================================
 # 8. Patch supervisord.conf with correct PG_BIN
 # =============================================================================
 sed -i "s|__PG_BIN__|${PG_BIN}|g" "$SUPERVISORD_CONF"
@@ -293,7 +321,7 @@ log "supervisord.conf updated (PG_BIN=${PG_BIN})"
 log "Starting all services..."
 log "  → PostgreSQL     127.0.0.1:${PGPORT} (loopback only)"
 log "  → Backend API    ${BIND_ADDRESS:-127.0.0.1}:${PORT:-3001} (proxied by nginx at /api/)"
-log "  → Frontend       :8080"
+log "  → Frontend       https://<host>:${HTTPS_PORT} (http://<host>:${HTTP_PORT} redirects)"
 log ""
 log "  Postgres: postgresql://${APP_PGUSER}:***@127.0.0.1:${PGPORT}/${APP_PGDATABASE}"
 log ""

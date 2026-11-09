@@ -5,6 +5,7 @@ import { testConnection, closePool, query, withTransaction, runWithOrgContext } 
 import { runMigrations } from "./db/migrate";
 import { statsCache, performanceCache } from "./cache";
 import { createUser } from "./services/userService";
+import { initSecretBox, encryptSecret, decryptSecret, needsReencrypt } from "./services/secretBox";
 import { startSnmpReceiver, stopSnmpReceiver } from "./snmp/trapReceiver";
 import { triggerWebhooks } from "./services/webhookService";
 import { sendGroupTimedOutAlert } from "./services/smtpService";
@@ -214,6 +215,34 @@ async function seedDefaultAdmin(): Promise<void> {
   }
 }
 
+// ─── Encrypt stored credentials ───────────────────────────────────────────────
+// Rewrites webhook secrets and the SMTP password that are still plaintext
+// (written before encryption at rest) or encrypted under a previous data
+// key (after a DATA_ENCRYPTION_KEY rotation), so a rotation finishes on the
+// first boot with the new key first. Idempotent.
+async function reencryptStoredSecrets(): Promise<void> {
+  initSecretBox();
+  await runWithOrgContext({ orgId: null, bypass: true }, async () => {
+    let rewritten = 0;
+    const hooks = await query<{ id: string; secret: string }>(`SELECT id, secret FROM webhooks WHERE secret <> ''`);
+    for (const h of hooks) {
+      if (!needsReencrypt(h.secret)) continue;
+      await query(`UPDATE webhooks SET secret = $1 WHERE id = $2`, [encryptSecret(decryptSecret(h.secret)), h.id]);
+      rewritten++;
+    }
+    const smtp = await query<{ value: { password?: string } }>(`SELECT value FROM system_config WHERE key = 'smtp'`);
+    const pw = smtp[0]?.value.password ?? "";
+    if (needsReencrypt(pw)) {
+      await query(
+        `UPDATE system_config SET value = jsonb_set(value, '{password}', to_jsonb($1::text)) WHERE key = 'smtp'`,
+        [encryptSecret(decryptSecret(pw))]
+      );
+      rewritten++;
+    }
+    if (rewritten) logger.info({ rewritten }, "🔐  Stored credentials encrypted with the current data key");
+  });
+}
+
 // ─── Default org's SNMP community ─────────────────────────────────────────────
 // SNMP_COMMUNITY, when set, is the Default Organisation's community string
 // (it wins over an edit in the Organizations panel, on every boot). Unset,
@@ -243,6 +272,7 @@ async function start(): Promise<void> {
 
     // Seed default admin if no users exist yet
     await seedDefaultAdmin();
+    await reencryptStoredSecrets();
 
     const server = app.listen(config.port, config.bindAddress, () => {
       logger.info(

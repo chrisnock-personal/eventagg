@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { randomUUID } from "crypto";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import request from "supertest";
 import app from "../app";
 import { queryOne, runWithOrgContext } from "../db/pool";
@@ -99,6 +102,45 @@ describe("Backup and restore with RLS-protected tables", () => {
 
     expect(await policyExists(before)).toBe(true);
     expect(await policyExists(after)).toBe(true);
+  }, 120_000);
+
+  const hasAge = (() => { try { execFileSync("age", ["--version"], { stdio: "ignore" }); return true; } catch { return false; } })();
+
+  it.skipIf(!hasAge)("encrypts the backup to BACKUP_AGE_RECIPIENTS, and restore refuses the encrypted file with a hint", async () => {
+    const name = await seedPolicy();
+    const superadmin = await createTestUser(null, "superadmin");
+    const cookie = await loginAs(app, superadmin.username, superadmin.password);
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "eventagg-age-"));
+    const identity = path.join(dir, "key.txt");
+    execFileSync("age-keygen", ["-o", identity], { stdio: "pipe" });
+    const recipient = execFileSync("age-keygen", ["-y", identity]).toString().trim();
+    process.env.BACKUP_AGE_RECIPIENTS = recipient;
+    try {
+      const backup = await request(app).post("/api/v1/admin/backup").set("Cookie", cookie).buffer(true).parse(collectText);
+      expect(backup.status).toBe(200);
+      expect(backup.headers["content-disposition"]).toMatch(/\.sql\.age"/);
+      const body = backup.body as string;
+      expect(body.startsWith("age-encryption.org/v1")).toBe(true);
+      expect(body).not.toContain(name);
+
+      // Only the private key opens it. (Fetched again as raw bytes: the text
+      // parser above decodes as UTF-8, which isn't byte-exact.)
+      const encFile = path.join(dir, "b.sql.age");
+      const raw = await request(app).post("/api/v1/admin/backup").set("Cookie", cookie).buffer(true)
+        .parse((res, cb) => { const chunks: Buffer[] = []; res.on("data", (c: Buffer) => chunks.push(c)); res.on("end", () => cb(null, Buffer.concat(chunks))); });
+      fs.writeFileSync(encFile, raw.body as Buffer);
+      const plain = execFileSync("age", ["-d", "-i", identity, encFile]).toString();
+      expect(plain).toContain(name);
+
+      const restore = await request(app).post("/api/v1/admin/restore").set("Cookie", cookie)
+        .set("Content-Type", "application/sql").send(body);
+      expect(restore.status).toBe(400);
+      expect(restore.body.error).toMatch(/age -d/);
+    } finally {
+      delete process.env.BACKUP_AGE_RECIPIENTS;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   }, 120_000);
 
   it("still restores an older --clean backup, partitions included", async () => {

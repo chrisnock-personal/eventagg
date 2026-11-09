@@ -108,8 +108,8 @@ if [ "$SYNC_ONLY" = false ]; then
     echo "─────────────────────────────────────────────────────────────────"
     echo ""
     echo "✅  Deploy complete"
-    echo "    UI:   http://\$(hostname -I | awk '{print \$1}'):8080"
-    echo "    API:  http://\$(hostname -I | awk '{print \$1}'):8080/api/v1  (backend is loopback-only)"
+    echo "    UI:   https://\$(hostname -I | awk '{print \$1}'):\${HTTPS_PORT:-8443}"
+    echo "    API:  https://\$(hostname -I | awk '{print \$1}'):\${HTTPS_PORT:-8443}/api/v1  (backend is loopback-only)"
     echo "    SNMP: \$(hostname -I | awk '{print \$1}'):1162/udp"
 EOF
 

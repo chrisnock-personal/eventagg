@@ -1,5 +1,6 @@
 import { query } from '../db/pool';
 import { logger } from '../logger';
+import { decryptSecret } from './secretBox';
 
 export interface SmtpConfig {
   host:     string;
@@ -15,7 +16,9 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
     const rows = await query<{ value: SmtpConfig }>(
       `SELECT value FROM system_config WHERE key = 'smtp'`
     );
-    return rows.length ? rows[0].value : null;
+    if (!rows.length) return null;
+    const cfg = rows[0].value;
+    return { ...cfg, password: decryptSecret(cfg.password ?? '') };
   } catch {
     return null;
   }

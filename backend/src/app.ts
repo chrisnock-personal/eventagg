@@ -18,6 +18,7 @@ import snmpRouter     from "./routes/snmp";
 import auditRouter    from "./routes/audit";
 import webhooksRouter from "./routes/webhooks";
 import systemRouter   from "./routes/system";
+import tlsRouter      from "./routes/tls";
 import adminRouter    from "./routes/admin";
 import orgsRouter     from "./routes/orgs";
 import { getSnmpStats } from "./snmp/trapReceiver";
@@ -25,6 +26,12 @@ import { getSnmpStats } from "./snmp/trapReceiver";
 const app = express();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
+// nginx (same container) is the only proxy and connects from loopback:
+// trust its X-Forwarded-For/-Proto from there, and only from there, so
+// req.ip is the real client (audit log, login/ingest rate limits) and
+// req.secure reflects HTTPS. A client can't spoof it by connecting
+// directly: the backend listens on loopback only (BIND_ADDRESS).
+app.set("trust proxy", "loopback");
 // First, so every subsequent middleware/route/error handler logs under the
 // same requestId (see middleware/requestLogging.ts + logger.ts's mixin).
 app.use(requestLogging);
@@ -83,6 +90,7 @@ app.use("/api/v1/events",           eventsRouter);
 app.use("/api/v1/snmp",             snmpRouter);
 app.use("/api/v1/audit",            auditRouter);
 app.use("/api/v1/webhooks",         webhooksRouter);
+app.use("/api/v1/system/tls",       express.json({ limit: "1mb" }), tlsRouter);
 app.use("/api/v1/system",           systemRouter);
 // Restore route needs raw SQL body -must be registered before adminRouter
 app.use("/api/v1/admin/restore",    express.text({ type: "application/sql", limit: "1gb" }));

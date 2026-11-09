@@ -4,11 +4,11 @@
 // SQL goes to stdout; pipe it into psql inside the container.
 //
 // Usage:
-//   node scripts/seedviasql.js --days 30 --groups 500 --api http://<host>:8080 | \
+//   node scripts/seedviasql.js --days 30 --groups 500 --api https://<host>:8443 --insecure | \
 //     ssh <user>@<host> "podman exec -i -e PGOPTIONS='-c app.bypass_rls=true' eventagg psql -U eventagg_user eventagg"
 //
 //   # Save to file first if you want to inspect before running:
-//   node scripts/seedviasql.js --days 90 --groups 1000 --api http://<host>:8080 > /tmp/seed.sql
+//   node scripts/seedviasql.js --days 90 --groups 1000 --api https://<host>:8443 --insecure > /tmp/seed.sql
 //   ssh <user>@<host> "podman exec -i -e PGOPTIONS='-c app.bypass_rls=true' eventagg psql -U eventagg_user eventagg" < /tmp/seed.sql
 //
 // Options:
@@ -25,6 +25,12 @@ const args = process.argv.slice(2);
 const get  = (f, def) => { const i = args.indexOf(f); return i >= 0 ? args[i+1] : def; };
 
 const BASE_URL = get("--api",      "http://localhost:3001");
+
+// --insecure: accept Aggre/Gator's self-signed HTTPS certificate (its default
+// until you upload your own in Settings -> TLS). Better: trust that one
+// certificate with NODE_EXTRA_CA_CERTS=<server.crt> and leave this off.
+if (process.argv.includes("--insecure")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const N_DAYS   = parseInt(get("--days",   "30"));
 const N_GROUPS = parseInt(get("--groups", "200"));
 const SEGS_MIN = parseInt(get("--segs-min", "2"));

@@ -1,12 +1,15 @@
 import crypto from "crypto";
 import { query, queryOne } from "../db/pool";
 import { logger } from "../logger";
+import { encryptSecret, decryptSecret } from "./secretBox";
 
+// What the API returns: the signing secret is write-only (encrypted at rest,
+// never sent back), so clients only learn whether one is set.
 export interface Webhook {
   id: string;
   name: string;
   url: string;
-  secret: string;
+  hasSecret: boolean;
   events: string[];
   isActive: boolean;
   createdAt: string;
@@ -53,8 +56,14 @@ interface DeliveryRow {
 }
 
 function toWebhook(r: WebhookRow): Webhook {
-  return { id: r.id, name: r.name, url: r.url, secret: r.secret,
+  return { id: r.id, name: r.name, url: r.url, hasSecret: r.secret !== "",
     events: r.events, isActive: r.is_active, createdAt: r.created_at, updatedAt: r.updated_at };
+}
+
+// Delivery-side only: the decrypted secret, for signing.
+interface DeliverableWebhook extends Webhook { secret: string }
+function toDeliverable(r: WebhookRow): DeliverableWebhook {
+  return { ...toWebhook(r), secret: decryptSecret(r.secret) };
 }
 
 function toDelivery(r: DeliveryRow): WebhookDelivery {
@@ -77,12 +86,14 @@ export async function createWebhook(orgId: string, input: {
   const row = await queryOne<WebhookRow>(
     `INSERT INTO webhooks (org_id, name, url, secret, events)
      VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-    [orgId, input.name, input.url, input.secret ?? "", input.events ?? ["group_completed", "group_timed_out"]]
+    [orgId, input.name, input.url, encryptSecret(input.secret ?? ""), input.events ?? ["group_completed", "group_timed_out"]]
   );
   if (!row) throw new Error("Failed to create webhook");
   return toWebhook(row);
 }
 
+// secret: undefined keeps the current one, "" removes it, anything else
+// replaces it.
 export async function updateWebhook(orgId: string, id: string, input: {
   name?: string; url?: string; secret?: string; events?: string[]; isActive?: boolean;
 }): Promise<Webhook | null> {
@@ -95,7 +106,7 @@ export async function updateWebhook(orgId: string, id: string, input: {
        is_active  = COALESCE($5, is_active),
        updated_at = NOW()
      WHERE id = $6 AND org_id = $7 RETURNING *`,
-    [input.name ?? null, input.url ?? null, input.secret ?? null,
+    [input.name ?? null, input.url ?? null, input.secret === undefined ? null : encryptSecret(input.secret),
      input.events ?? null, input.isActive ?? null, id, orgId]
   );
   return row ? toWebhook(row) : null;
@@ -130,7 +141,7 @@ export async function listDeliveries(orgId: string, params: {
 // ── Delivery ──────────────────────────────────────────────────────────────────
 
 async function attemptDelivery(
-  webhook: Webhook,
+  webhook: DeliverableWebhook,
   eventType: string,
   group: WebhookGroupPayload,
   deliveryId: string,
@@ -206,7 +217,17 @@ export async function triggerWebhooks(
       );
       if (!delivery) continue;
 
-      const webhook = toWebhook(row);
+      let webhook: DeliverableWebhook;
+      try {
+        webhook = toDeliverable(row);
+      } catch (err) {
+        // Wrong/missing data key: fail this delivery visibly rather than
+        // sending it unsigned.
+        await query(`UPDATE webhook_deliveries SET status = 'failed', error_message = $1 WHERE id = $2`,
+          [String((err as Error).message).slice(0, 500), delivery.id]);
+        logger.error({ err, webhookId: row.id }, "Webhook secret could not be decrypted");
+        continue;
+      }
       setImmediate(() => {
         attemptDelivery(webhook, eventType, group, delivery.id, 1).catch(err =>
           logger.error({ err, webhookId: row.id }, "Webhook delivery error")

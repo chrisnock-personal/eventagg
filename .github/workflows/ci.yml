@@ -54,6 +54,10 @@ jobs:
             ALTER DATABASE eventagg OWNER TO eventagg_user;
             GRANT ALL PRIVILEGES ON DATABASE eventagg TO eventagg_user;
           "
+      # age: the encrypted-backup test (it's skipped without it). pg_dump/psql
+      # for the backup tests come with the runner image (PostgreSQL 16).
+      - name: Install age
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck

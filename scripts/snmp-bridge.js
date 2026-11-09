@@ -21,6 +21,12 @@ const get     = (f, d) => { const i = args.indexOf(f); return i >= 0 ? args[i+1]
 
 const UDP_PORT  = parseInt(get("--port",      "1162"));
 const API_BASE  = get("--api",                "http://localhost:3001");
+
+// --insecure: accept Aggre/Gator's self-signed HTTPS certificate (its default
+// until you upload your own in Settings -> TLS). Better: trust that one
+// certificate with NODE_EXTRA_CA_CERTS=<server.crt> and leave this off.
+if (process.argv.includes("--insecure")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
 const COMMUNITY = get("--community",          "public");
 const VERBOSE   = args.includes("--verbose");
 

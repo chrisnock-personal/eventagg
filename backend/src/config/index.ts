@@ -49,11 +49,11 @@ const envSchema = z.object({
   // doesn't set it -normalize "" to undefined here so config.jwtSecret is
   // never a falsy-but-truthy-looking empty string downstream.
   JWT_SECRET: z.string().optional().transform((v) => v || undefined),
-  // Only enable Secure cookies once you've actually put TLS in front (a
-  // reverse proxy, etc.) -this app's own nginx.conf serves plain HTTP, and
-  // a Secure cookie is silently dropped by the browser over HTTP, which
-  // would break every login. Defaults to false to match today's deployments.
-  COOKIE_SECURE: z.enum(["true", "false"]).default("false"),
+  // Secure (HTTPS-only) session cookie. On by default: nginx serves the app
+  // over HTTPS and redirects HTTP. Only turn it off if something in front
+  // serves the UI over plain HTTP (browsers drop Secure cookies there).
+  // "" (docker-compose's unset) counts as the default.
+  COOKIE_SECURE: z.enum(["true", "false", ""]).default("true").transform((v) => v || "true"),
 });
 
 const parsed = envSchema.safeParse(process.env);

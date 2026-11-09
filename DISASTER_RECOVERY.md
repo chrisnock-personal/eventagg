@@ -10,20 +10,46 @@ That's the same restore, done deliberately.
 | What | Where | Backed up by |
 |---|---|---|
 | Everything in Postgres: orgs, users, policies, event groups, audit log, webhooks, SNMP config, system config (SMTP) | `pgdata` volume | A `pg_dump` backup (below) |
-| Session signing key (`jwt.key`) | `secrets` volume | Nothing. Losing it signs everyone out, nothing more |
+| Data encryption key (`data.key`) | `secrets` volume | **You** (copy it once, below). Without it, the webhook secrets and SMTP password in a restored database can't be decrypted and must be re-entered |
+| Session signing key (`jwt.key`), generated DB passwords | `secrets` volume | Nothing needed. Losing them signs everyone out; the DB passwords are regenerated and re-applied at boot |
+| HTTPS certificate | `certs` volume | You, if it's an uploaded one (you have the files). A self-signed one is just regenerated |
 | `.env` (passwords, explicit secrets) | Host, next to `docker-compose.yml` | **You.** Keep a copy somewhere safe |
 
 ## Taking a backup
 
-**From the UI:** superadmin → Backup → Download.
+**From the UI:** Backup → Download (the superadmin, or the admin before
+multi-tenancy is on).
+
+**Encrypt it.** Set `BACKUP_AGE_RECIPIENTS` to one or more
+[age](https://age-encryption.org) public keys and every backup comes out as
+`eventagg-<date>.sql.age`, readable only with the matching private key.
+Generate that key on a machine that is *not* this server and keep it there
+(and in your password manager):
+
+```bash
+age-keygen -o eventagg-backup.key      # prints "Public key: age1..."
+# .env on the server:  BACKUP_AGE_RECIPIENTS=age1...
+# To restore: decrypt first, then restore the .sql as below
+age -d -i eventagg-backup.key eventagg-2026-11-09.sql.age > eventagg-2026-11-09.sql
+```
+
+**Copy `data.key` once** (it doesn't change unless you rotate it), and keep
+it apart from the backups:
+
+```bash
+podman exec eventagg cat /app/secrets/data.key
+```
+
+On a new host, put it back before restoring (or set `DATA_ENCRYPTION_KEY`
+to it in `.env`): `podman exec -i eventagg sh -c 'cat > /app/secrets/data.key' < data.key`, then restart.
 
 **From the host (scriptable, e.g. a nightly cron):**
 
 ```bash
 podman exec -e PGOPTIONS='-c app.bypass_rls=true' eventagg \
-  pg_dump --clean --if-exists --enable-row-security \
+  pg_dump --enable-row-security \
           -h 127.0.0.1 -U eventagg_user -d eventagg \
-  > eventagg-$(date +%F).sql
+  | age -r age1... > eventagg-$(date +%F).sql.age     # or "> ....sql" unencrypted
 ```
 
 `PGOPTIONS` and `--enable-row-security` matter. `policies`, `users` and
@@ -96,6 +122,10 @@ Postgres PITR; follow the
 ## Post-restore checklist
 
 - [ ] `curl -s http://<host>:8080/health` returns ok (the backend's own `:3001` is loopback-only).
+- [ ] Webhooks still sign deliveries and the SMTP test passes. If they fail
+      with "unknown data key", this host doesn't have the `data.key` the
+      database was written with: restore it (below) or re-enter the
+      secrets.
 - [ ] You can log in, and the Organizations panel lists every org.
 - [ ] Policies list per org looks right (spot-check one org as its own admin,
       not just as superadmin: that exercises row-level security).

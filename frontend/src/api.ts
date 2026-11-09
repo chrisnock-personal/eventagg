@@ -219,8 +219,9 @@ function deletePolicy(id: string): Promise<void> {
 
 // ─── Webhooks ─────────────────────────────────────────────────────────────────
 
+// The signing secret is write-only: the API only says whether one is set.
 export interface Webhook {
-  id: string; name: string; url: string; secret: string;
+  id: string; name: string; url: string; hasSecret: boolean;
   events: string[]; isActive: boolean; createdAt: string; updatedAt: string;
 }
 
@@ -284,6 +285,26 @@ function testSmtp(cfg: { host: string; port: number; secure: boolean; user: stri
   return request<any>("/system/config/smtp/test", { method: "POST", body: JSON.stringify(cfg) });
 }
 
+// ─── TLS certificate (Settings -> TLS) ────────────────────────────────────────
+
+export interface TlsCertInfo {
+  subject: string; issuer: string; subjectAltNames: string[];
+  validFrom: string; validTo: string; fingerprint256: string;
+  selfSigned: boolean; expired: boolean;
+}
+export interface TlsStatus {
+  current: TlsCertInfo | null;
+  lastChange: { ok: boolean; message: string; fingerprint: string; at: string } | null;
+  pending: boolean;
+}
+function getTlsStatus(): Promise<TlsStatus> { return request<TlsStatus>("/system/tls"); }
+function uploadTlsCert(body: { cert: string; key: string; chain?: string }): Promise<{ pending: boolean; uploaded: TlsCertInfo }> {
+  return request<{ pending: boolean; uploaded: TlsCertInfo }>("/system/tls", { method: "POST", body: JSON.stringify(body) });
+}
+function resetTlsCert(): Promise<{ pending: boolean }> {
+  return request<{ pending: boolean }>("/system/tls", { method: "DELETE" });
+}
+
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
 function exportPolicies(): Promise<Blob> {
@@ -299,10 +320,13 @@ function importPolicies(bundle: unknown): Promise<any> {
 
 function getBackupInfo(): Promise<any> { return request<any>("/admin/backup/info"); }
 
-function downloadBackup(): Promise<Blob> {
-  return fetch(`${BASE}/admin/backup`, { credentials: "include", method: "POST" }).then(r => {
-    if (!r.ok) throw new Error(`Backup failed: ${r.status}`);
-    return r.blob();
+// The server names the file: ".sql.age" when it's encrypted
+// (BACKUP_AGE_RECIPIENTS), ".sql" otherwise.
+function downloadBackup(): Promise<{ blob: Blob; filename: string }> {
+  return fetch(`${BASE}/admin/backup`, { credentials: "include", method: "POST" }).then(async r => {
+    if (!r.ok) { const b = await r.json().catch(() => ({})); throw new Error(b.error ?? `Backup failed: ${r.status}`); }
+    const m = /filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") ?? "");
+    return { blob: await r.blob(), filename: m?.[1] ?? "eventagg-backup.sql" };
   });
 }
 
@@ -434,6 +458,9 @@ export const api = {
     getConfig: getSystemConfig,
     setConfig: setSystemConfig,
     testSmtp,
+    tlsStatus: getTlsStatus,
+    tlsUpload: uploadTlsCert,
+    tlsReset:  resetTlsCert,
   },
   admin: {
     exportPolicies,

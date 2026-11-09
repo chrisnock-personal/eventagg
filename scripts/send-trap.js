@@ -23,6 +23,12 @@ const PORT      = parseInt(get("--port",  "1162"));
 const COMMUNITY = get("--community", process.env.AGGRE_SNMP_COMMUNITY || "");
 const API_BASE  = get("--api",       "http://localhost:3001");
 
+// --insecure: accept Aggre/Gator's self-signed HTTPS certificate (its default
+// until you upload your own in Settings -> TLS). Better: trust that one
+// certificate with NODE_EXTRA_CA_CERTS=<server.crt> and leave this off.
+if (process.argv.includes("--insecure")) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+
+
 // ─── AggreGator MIB OIDs ─────────────────────────────────────────────────────
 const AG_INGEST_TRAP     = "1.3.6.1.4.1.99999.2.1";
 const AG_POLICY_ID       = "1.3.6.1.4.1.99999.4.1";
@@ -136,7 +142,7 @@ function apiGet(path) {
   return new Promise((resolve, reject) => {
     const url = new URL(`${API_BASE}/api/v1${path}`);
     const lib = url.protocol === "https:" ? https : http;
-    http.get(`${API_BASE}/api/v1${path}`, res => {
+    lib.get(`${API_BASE}/api/v1${path}`, res => {
       let d = "";
       res.on("data", c => d += c);
       res.on("end", () => { try { resolve(JSON.parse(d)); } catch { resolve(d); } });

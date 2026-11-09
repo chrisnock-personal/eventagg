@@ -44,9 +44,22 @@ services:
       # comma-separated "<new>,<old>" keeps old sessions valid during a
       # rotation (SECRETS_ROTATION.md).
       JWT_SECRET: "${JWT_SECRET:-}"
-      # Only set to "true" once TLS is actually terminated in front of this
-      # app (e.g. a reverse proxy) -nginx.conf itself serves plain HTTP.
-      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      # Encrypt database backups to these age public keys (comma-separated:
+      # age1..., or SSH public keys). Unset = plain SQL backups. The matching
+      # private key belongs off this server (DISASTER_RECOVERY.md).
+      BACKUP_AGE_RECIPIENTS: "${BACKUP_AGE_RECIPIENTS:-}"
+      # Key for stored credentials (webhook secrets, SMTP password). Leave
+      # unset and entrypoint.sh generates /app/secrets/data.key. 64 hex chars;
+      # "<new>,<old>" during a rotation (SECRETS_ROTATION.md).
+      DATA_ENCRYPTION_KEY: "${DATA_ENCRYPTION_KEY:-}"
+      # HTTPS-only session cookie (nginx serves HTTPS and redirects HTTP).
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      # nginx: HTTP (redirects to HTTPS) and HTTPS ports on the host.
+      HTTP_PORT: "${HTTP_PORT:-8080}"
+      HTTPS_PORT: "${HTTPS_PORT:-8443}"
+      # Extra names/IPs for the self-signed certificate (comma-separated),
+      # besides the host's own; e.g. a DNS name pointing at this host.
+      TLS_SANS: "${TLS_SANS:-}"
       # Password for the default org's admin when it's first created. Unset =
       # a random one-time password printed to the backend log. Either way it
       # must be changed at first login (enforced by the API).
@@ -62,6 +75,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - secrets:/app/secrets
+      - certs:/app/certs
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:3001/health"]
@@ -74,4 +88,6 @@ volumes:
   pgdata:
     driver: local
   secrets:
+    driver: local
+  certs:
     driver: local

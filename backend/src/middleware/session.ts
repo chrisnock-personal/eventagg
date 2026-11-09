@@ -79,7 +79,7 @@ export function setSessionCookie(res: Response, user: SessionUser): void {
     httpOnly: true,
     sameSite: "strict",
     maxAge: TTL_S * 1000,
-    secure: config.cookieSecure, // only safe once TLS is actually in front -see COOKIE_SECURE
+    secure: config.cookieSecure, // HTTPS-only by default (COOKIE_SECURE)
   });
 }
 

@@ -156,12 +156,12 @@ export const openApiSpec = {
 
       Webhook: {
         type: "object",
-        required: ["id","name","url","secret","events","isActive","createdAt","updatedAt"],
+        required: ["id","name","url","hasSecret","events","isActive","createdAt","updatedAt"],
         properties: {
           id:        { type: "string", format: "uuid" },
           name:      { type: "string", example: "Slack alerts" },
           url:       { type: "string", format: "uri", example: "https://hooks.slack.com/services/xxx" },
-          secret:    { type: "string", description: "HMAC-SHA256 signing secret. Empty string means no signature.", example: "" },
+          hasSecret: { type: "boolean", description: "Whether an HMAC-SHA256 signing secret is set. The secret itself is write-only: encrypted at rest and never returned." },
           events:    { type: "array", items: { type: "string", enum: ["group_completed","group_timed_out"] }, example: ["group_completed","group_timed_out"] },
           isActive:  { type: "boolean" },
           createdAt: { type: "string", format: "date-time" },
@@ -574,7 +574,7 @@ export const openApiSpec = {
                 properties: {
                   name:     { type: "string" },
                   url:      { type: "string", format: "uri" },
-                  secret:   { type: "string" },
+                  secret:   { type: "string", description: "Omit to keep the current secret, empty string to remove it." },
                   events:   { type: "array", items: { type: "string", enum: ["group_completed","group_timed_out"] } },
                   isActive: { type: "boolean" },
                 },

@@ -105,7 +105,14 @@ install_apt() {
   apt-get install -y --no-install-recommends \
     nginx \
     supervisor \
-    gosu
+    gosu \
+    openssl
+
+  # age: encrypts database backups to an operator's public key
+  # (BACKUP_AGE_RECIPIENTS). Optional: without it, encrypted backups refuse
+  # to run rather than fall back to plaintext.
+  apt-get install -y --no-install-recommends age \
+    || warn "age not available from apt -encrypted backups will be unavailable."
 
   # ── Clean up ─────────────────────────────────────────────────────────────
   apt-get clean
@@ -183,7 +190,11 @@ install_dnf() {
 
   # ── nginx ────────────────────────────────────────────────────────────────
   log "Installing nginx..."
-  dnf -y -q install nginx
+  dnf -y -q install nginx openssl
+
+  # age: see the apt section. In EPEL on RHEL-family.
+  dnf -y -q install age \
+    || warn "age not available from dnf -encrypted backups will be unavailable."
 
   # ── supervisor ───────────────────────────────────────────────────────────
   log "Installing supervisor..."

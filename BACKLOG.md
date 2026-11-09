@@ -17,7 +17,7 @@ the committed code plus the current working tree.
    still needs a route-level regression test (the existing tests insert
    rules by SQL, which is why this was missed). Check the other routers
    (`webhooks.ts`, `system.ts`) for the same gap.
-2. **Restore destroys the database.** Restoring a fresh backup of a
+2. ~~**Restore destroys the database.**~~ *Fixed 2026-11-09 (security-hardening).* Restoring a fresh backup of a
    database with `completed_events` partitions failed at
    `cannot drop inherited constraint "completed_events_2028_q2_pkey"`,
    after psql had already dropped the RLS policies, indexes and
@@ -34,7 +34,7 @@ the committed code plus the current working tree.
    group's `org_id`.
 4. **Timeout emails say "Timeout: 0 minutes".** `index.ts`'s sweep passes
    `timeoutMs: 0` to `sendGroupTimedOutAlert()`; pass the policy's value.
-5. **SMTP config is global but org admins can edit it.** `system_config`
+5. ~~**SMTP config is global but org admins can edit it.**~~ *Fixed 2026-11-09 (security-hardening).* `system_config`
    key `smtp` is one row for the platform, and any org admin can
    overwrite it from Settings. Make it per-org or superadmin-only.
 6. **Nested body search matches every group.** `fix.symbol=VOD.L` uses
@@ -44,7 +44,7 @@ the committed code plus the current working tree.
    value is also interpolated into the jsonpath string unescaped.
 7. **Quoted phrase body search returns nothing** (`"Northgate Cafe"`),
    although the search box's placeholder suggests quoting.
-8. **Admin password in the log.** `seedDefaultAdmin()` logs
+8. ~~**Admin password in the log.**~~ *Fixed 2026-11-09 (security-hardening).* `seedDefaultAdmin()` logs
    `{ username, password }` on every boot, and admins can read the backend
    log from System Health. Don't log the password.
 9. **Date range says "Last 24h" but shows all time on first load.**
@@ -62,7 +62,7 @@ the committed code plus the current working tree.
     not in `openapi.ts`.
 15. **Health "Timed out (24h)" showed 0** while groups had timed out in the
     last hour; check the query.
-16. **Client IP is the proxy's, so rate limits are shared.** The audit log
+16. ~~**Client IP is the proxy's, so rate limits are shared.**~~ *Fixed 2026-11-09 (security-hardening).* The audit log
     records every source IP as `127.0.0.1` (through nginx) or the
     container's own address (direct to :3001); `trust proxy` isn't set and
     nginx's `X-Forwarded-For` isn't used. The login and ingest rate
@@ -86,6 +86,38 @@ the committed code plus the current working tree.
     busy org, nearly every row is highlighted on each refresh, so the
     highlight stops meaning anything. Consider highlighting only state
     changes, or capping it.
+
+## Security review follow-up (parked 2026-11-09)
+
+From `~/local-repos/articles/security-review-2026-11-09.md`. Items 1-9 of
+the Aggre/Gator list are implemented and unit-tested (80 backend tests);
+what's left:
+
+1. **Container smoke test not run** for the HTTPS/TLS/age changes. Before
+   deploying, build the image and check: entrypoint renders nginx and
+   generates the self-signed cert; `tls-watcher` is RUNNING; HTTP 308s to
+   HTTPS and `/health` stays on HTTP; Settings -> TLS upload is served
+   within seconds; a bad staged pair (mismatched key written straight into
+   `/app/certs/staged` + `ready`) rolls back with `status.json` ok=false;
+   reset goes back to self-signed; `age` is in the image and
+   `BACKUP_AGE_RECIPIENTS` gives a `.sql.age`; webhook secrets show
+   `enc:v1:` in Postgres. Also a browser pass over Settings (TLS, SMTP
+   password placeholder), Webhooks (write-only secret, remove checkbox),
+   the Backup panel's encryption banner, and the menu for admin before/after
+   multi-tenancy.
+2. **Deploy target is the PC's WSL** (192.168.1.195, ssh -p 2222); .135 is
+   gone. 8080/8443 are taken there: set `HTTP_PORT`/`HTTPS_PORT` in `.env`.
+   `sync.sh` needs the SSH port (2222) passed through.
+3. **SNMPv3** (USM authPriv: HMAC-SHA + AES) in the hand-written BER
+   receiver. v2c communities are now fail-closed and random, but still sent
+   in clear.
+4. **Hash ingest API keys** (`organisations.ingest_api_key` is plaintext and
+   looked up by value): store SHA-256, show the key once on create/regenerate.
+5. **Postgres data at rest** (the `pgdata` volume) isn't encrypted; host disk
+   encryption is the practical fix.
+6. **Postgres TLS** if the database ever leaves the container (`PGSSL` uses
+   `rejectUnauthorized: false`).
+7. **gitleaks** over the full history and in CI.
 
 ## Next
 

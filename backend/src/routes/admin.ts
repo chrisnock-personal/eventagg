@@ -2,8 +2,10 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { requireAuth, requireRole } from '../middleware/session';
 import { orgContextMiddleware } from '../middleware/orgContext';
+import { requireInstanceAdmin } from '../middleware/instanceAdmin';
+import { createError } from '../middleware/errorHandler';
 import { query, queryOne } from '../db/pool';
-import { exec } from 'child_process';
+import { exec, execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -15,7 +17,6 @@ const adminOnly      = requireRole('admin');
 // every org's data, so these are superadmin-only, not reachable by an
 // individual org's admin. See CLAUDE.md's RC roadmap: this was a known gap
 // while multi-tenancy had no platform-level role to restrict it to.
-const superadminOnly = requireRole('superadmin');
 const execAsync = promisify(exec);
 
 // ── Policy export ─────────────────────────────────────────────────────────────
@@ -125,7 +126,7 @@ router.post('/import/policies', requireAuth, adminOnly, orgContextMiddleware, as
 
 // ── Database backup ───────────────────────────────────────────────────────────
 
-router.get('/backup/info', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/backup/info', requireAuth, requireInstanceAdmin, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const [sizeRow] = await query<{ size: string }>(
       `SELECT pg_size_pretty(pg_database_size(current_database())) AS size`
@@ -137,18 +138,47 @@ router.get('/backup/info', requireAuth, superadminOnly, async (_req: Request, re
         (SELECT COUNT(*) FROM completed_events)   AS completed,
         (SELECT COUNT(*) FROM audit_log)          AS audit_entries`
     );
-    res.json({ db_size: sizeRow.size, counts });
+    const recipients = backupRecipients();
+    res.json({ db_size: sizeRow.size, counts,
+      encryption: { recipients: recipients.length, ageAvailable: ageAvailable() } });
   } catch (e) { next(e); }
 });
+
+// ── Backup encryption ─────────────────────────────────────────────────────────
+// BACKUP_AGE_RECIPIENTS: comma-separated age recipients (age1..., or SSH
+// public keys). When set, every backup is encrypted to them with `age`, so
+// the file is useless without an identity (private key) that never touches
+// this server. Unset, backups are plain SQL and the panel says so. With
+// recipients set but no age binary, backup refuses rather than falling back
+// to plaintext.
+function backupRecipients(): string[] {
+  return (process.env.BACKUP_AGE_RECIPIENTS ?? '').split(',').map((r) => r.trim()).filter(Boolean);
+}
+let ageChecked: boolean | null = null;
+function ageAvailable(): boolean {
+  if (ageChecked === null) {
+    try { execFileSync('age', ['--version'], { stdio: 'ignore' }); ageChecked = true; } catch { ageChecked = false; }
+  }
+  return ageChecked;
+}
+const execFileAsync = promisify(execFile);
+const AGE_HEADER = 'age-encryption.org/v1';
 
 // Environment for pg_dump/psql: the app's own RLS bypass flag
 // (current_setting('app.bypass_rls') in migrations 023/024), set for that
 // one connection only via libpq's PGOPTIONS.
 const RLS_BYPASS_ENV = { ...process.env, PGOPTIONS: "-c app.bypass_rls=true" };
 
-router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
-  const tmpFile = path.join(os.tmpdir(), `eventagg-backup-${Date.now()}.sql`);
+router.post('/backup', requireAuth, requireInstanceAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+  // A private (0700) directory: the dump holds every org's data.
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eventagg-backup-'));
+  const tmpFile = path.join(tmpDir, 'backup.sql');
+  const cleanup = () => { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ } };
   try {
+    const recipients = backupRecipients();
+    if (recipients.length && !ageAvailable()) {
+      return next(createError('BACKUP_AGE_RECIPIENTS is set but the age binary is missing: refusing to write an unencrypted backup', 500));
+    }
     const host = process.env.PGHOST     || 'localhost';
     const port = process.env.PGPORT     || '5432';
     const db   = process.env.PGDATABASE || 'eventagg';
@@ -167,25 +197,39 @@ router.post('/backup', requireAuth, superadminOnly, async (_req: Request, res: R
       `pg_dump --enable-row-security -h ${host} -p ${port} -U ${user} -d ${db} -f ${tmpFile}`,
       { timeout: 120_000, env: RLS_BYPASS_ENV }
     );
-    const stat = fs.statSync(tmpFile);
-    res.setHeader('Content-Type', 'application/sql');
-    res.setHeader('Content-Disposition', `attachment; filename="eventagg-backup-${new Date().toISOString().slice(0, 10)}.sql"`);
+    let outFile = tmpFile;
+    let name = `eventagg-backup-${new Date().toISOString().slice(0, 10)}.sql`;
+    if (recipients.length) {
+      outFile = `${tmpFile}.age`;
+      // execFile, not a shell: recipients come from the environment, and SSH
+      // keys contain spaces.
+      await execFileAsync('age', [...recipients.flatMap((r) => ['-r', r]), '-o', outFile, tmpFile], { timeout: 600_000 });
+      fs.rmSync(tmpFile);
+      name += '.age';
+    }
+    const stat = fs.statSync(outFile);
+    res.setHeader('Content-Type', recipients.length ? 'application/octet-stream' : 'application/sql');
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.setHeader('X-Backup-Encrypted', recipients.length ? 'age' : 'none');
     res.setHeader('Content-Length', stat.size);
-    const stream = fs.createReadStream(tmpFile);
+    const stream = fs.createReadStream(outFile);
     stream.pipe(res);
-    stream.on('end',   () => { try { fs.unlinkSync(tmpFile); } catch { /* ignore */ } });
+    stream.on('close', cleanup);
     stream.on('error', next);
   } catch (e) {
-    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+    cleanup();
     next(e);
   }
 });
 
 // ── Database restore ──────────────────────────────────────────────────────────
 
-router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/restore', requireAuth, requireInstanceAdmin, async (req: Request, res: Response, next: NextFunction) => {
   const tmpFile = path.join(os.tmpdir(), `eventagg-restore-${Date.now()}.sql`);
   try {
+    if (typeof req.body === 'string' && req.body.startsWith(AGE_HEADER)) {
+      return res.status(400).json({ error: 'This backup is encrypted with age. Decrypt it first, on a machine with the private key: age -d -i key.txt backup.sql.age > backup.sql' });
+    }
     if (typeof req.body !== 'string' || !req.body.startsWith('--')) {
       return res.status(400).json({ error: 'Invalid backup file -must be a PostgreSQL SQL dump' });
     }
@@ -218,7 +262,7 @@ router.post('/restore', requireAuth, superadminOnly, async (req: Request, res: R
 
 // ── DB maintenance ────────────────────────────────────────────────────────────
 
-router.get('/db/stats', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/db/stats', requireAuth, requireInstanceAdmin, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const tables = await query<{ table: string; size: string; size_bytes: string; rows: string; dead_rows: string; last_autovacuum: string | null }>(
       `SELECT relname AS table,
@@ -255,7 +299,7 @@ router.get('/db/purgeable', requireAuth, adminOnly, async (req: Request, res: Re
   } catch (e) { next(e); }
 });
 
-router.post('/db/vacuum', requireAuth, superadminOnly, async (_req: Request, res: Response, next: NextFunction) => {
+router.post('/db/vacuum', requireAuth, requireInstanceAdmin, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     await query('VACUUM ANALYZE');
     res.json({ ok: true, message: 'VACUUM ANALYZE completed' });
