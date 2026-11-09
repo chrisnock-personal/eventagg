@@ -48,11 +48,12 @@ straight after. Other orgs are unaffected.
 
 ## SNMP community string (per org)
 
-Superadmin → Organizations → edit the org's community string. Traps still
-arriving with the old string no longer resolve to that org: they fall back to
-the unscoped routing search, and usually end up unrouted in the SNMP log.
-Update the devices' trap community straight after. Community strings must
-stay unique across orgs.
+Superadmin → Organizations → edit the org's community string (for the
+Default Organisation, `SNMP_COMMUNITY` wins if it's set). Traps still arriving
+with the old string are rejected from then on (counted as *Rejected* in the
+SNMP panel, not logged), so update the devices' trap community straight
+after. Community strings must be unique across orgs, at least 12 characters,
+and not `public`/`private`.
 
 ## Webhook secret (per webhook)
 

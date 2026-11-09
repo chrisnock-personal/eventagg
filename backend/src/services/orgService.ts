@@ -54,7 +54,7 @@ export async function createOrg(input: { name: string; slug?: string }): Promise
   const slug = input.slug?.trim() || slugify(input.name);
   const row = await queryOne<OrgRow>(
     `INSERT INTO organisations (name, slug, snmp_community) VALUES ($1, $2, $3) RETURNING *`,
-    [input.name, slug, randomBytes(6).toString("hex")]
+    [input.name, slug, randomBytes(16).toString("hex")]
   );
   if (!row) throw new Error("Failed to create organisation");
   return toOrg(row);

@@ -1,13 +1,12 @@
 import { query, runWithOrgContext } from "../db/pool";
 import { ingestRawEvent } from "../services/ingestService";
-import { normalizeTrap, RawTrap, invalidateRoutingCache, getDefaultOrgId } from "./trapNormalizer";
+import { normalizeTrap, RawTrap, invalidateRoutingCache } from "./trapNormalizer";
 import { statsCache, performanceCache } from "../cache";
 import { logger } from "../logger";
 import * as dgram from "dgram";
 
 export interface SnmpReceiverConfig {
   port:      number;
-  community: string;
   enabled:   boolean;
 }
 
@@ -15,12 +14,13 @@ export interface SnmpReceiverStats {
   received:  number;
   routed:    number;
   unrouted:  number;
+  rejected:  number; // unregistered community string: dropped, not logged
   errors:    number;
   startedAt: Date | null;
 }
 
 const stats: SnmpReceiverStats = {
-  received: 0, routed: 0, unrouted: 0, errors: 0, startedAt: null,
+  received: 0, routed: 0, unrouted: 0, rejected: 0, errors: 0, startedAt: null,
 };
 
 let socket: dgram.Socket | null = null;
@@ -31,12 +31,10 @@ export function getSnmpStats(): SnmpReceiverStats {
 
 async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?: any): Promise<void> {
   try {
-    // SNMP multi-tenant routing is a later phase -every trap resolves to an
-    // org today (via the policy/rule it routes to, or the Default
-    // Organisation if unrouted) so the NOT NULL org_id columns below are
-    // always satisfiable.
-    const orgId = trap.orgId ?? await getDefaultOrgId();
-    if (!orgId) return; // organisations table not seeded yet (e.g. mid-migration)
+    // Rejected traps (unknown community) never get here, so orgId is the
+    // community-resolved org.
+    const orgId = trap.orgId;
+    if (!orgId) return;
 
     await query(
       `INSERT INTO snmp_trap_log
@@ -60,6 +58,18 @@ async function logTrap(trap: Awaited<ReturnType<typeof normalizeTrap>>, result?:
   }
 }
 
+// One warning per source address per minute: a misconfigured device (or a
+// scan) shouldn't flood the log. The community string itself isn't logged,
+// since a near-miss of a real one is still a credential.
+const rejectedWarnedAt = new Map<string, number>();
+function warnRejected(sourceAddress: string): void {
+  const now = Date.now();
+  if (now - (rejectedWarnedAt.get(sourceAddress) ?? 0) < 60_000) return;
+  if (rejectedWarnedAt.size > 1000) rejectedWarnedAt.clear();
+  rejectedWarnedAt.set(sourceAddress, now);
+  logger.warn({ sourceAddress }, "📡  SNMP trap rejected: community string not registered to any organisation");
+}
+
 async function processTrap(raw: RawTrap): Promise<void> {
   stats.received++;
   // The dgram receiver has no request/session -which org a trap belongs
@@ -69,6 +79,11 @@ async function processTrap(raw: RawTrap): Promise<void> {
   await runWithOrgContext({ orgId: null, bypass: true }, async () => {
     try {
       const normalized = await normalizeTrap(raw);
+      if (normalized.routeType === "rejected") {
+        stats.rejected++;
+        warnRejected(raw.sourceAddress);
+        return;
+      }
       if (!normalized.ingestInput || !normalized.orgId) {
         stats.unrouted++;
         logger.info({ trapName: normalized.trapName, sourceAddress: raw.sourceAddress }, "📡  SNMP unrouted");
@@ -92,7 +107,7 @@ async function processTrap(raw: RawTrap): Promise<void> {
 }
 
 // ─── Minimal SNMPv2c BER/ASN.1 parser ────────────────────────────────────────
-function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): RawTrap | null {
+function parseTrap(buf: Buffer, sourceAddr: string): RawTrap | null {
   let p = 0;
   const rb   = ()         => buf[p++];
   const rl   = (): number => { const b=rb(); if(b<0x80) return b; const n=b&0x7f; let l=0; for(let i=0;i<n;i++) l=(l<<8)|rb(); return l; };
@@ -145,7 +160,7 @@ function parseTrap(buf: Buffer, sourceAddr: string, defaultCommunity: string): R
       }
     }
     if(!trapOid) return null;
-    return { sourceAddress: sourceAddr, community: comm||defaultCommunity, trapOid, uptime, varbinds, version: 2 };
+    return { sourceAddress: sourceAddr, community: comm, trapOid, uptime, varbinds, version: 2 };
   } catch { return null; }
 }
 
@@ -165,7 +180,7 @@ export function startSnmpReceiver(config: SnmpReceiverConfig): void {
 
   socket.on("message", async (msg: Buffer, rinfo: dgram.RemoteInfo) => {
     logger.debug({ address: rinfo.address, port: rinfo.port, bytes: msg.length }, "📡  UDP packet received");
-    const raw = parseTrap(msg, rinfo.address, config.community);
+    const raw = parseTrap(msg, rinfo.address);
     if (!raw) {
       logger.warn({ firstByte: `0x${msg[0]?.toString(16)}` }, "📡  Not a valid SNMPv2c trap");
       return;

@@ -18,7 +18,9 @@ const has  = (f) => args.includes(f);
 
 const HOST      = get("--host",      "127.0.0.1");
 const PORT      = parseInt(get("--port",  "1162"));
-const COMMUNITY = get("--community", "public");
+// Your organisation's community string (SNMP panel, admins only). No default:
+// traps with an unregistered community are rejected.
+const COMMUNITY = get("--community", process.env.AGGRE_SNMP_COMMUNITY || "");
 const API_BASE  = get("--api",       "http://localhost:3001");
 
 // ─── AggreGator MIB OIDs ─────────────────────────────────────────────────────
@@ -151,7 +153,7 @@ Aggre/Gator SNMP Trap Sender (raw dgram -no net-snmp required)
 Options:
   --host <ip>         Target host (default: 127.0.0.1)
   --port <n>          Target UDP port (default: 1162)
-  --community <str>   SNMP community (default: public)
+  --community <str>   Your org's SNMP community (SNMP panel; or AGGRE_SNMP_COMMUNITY)
   --api <url>         API base URL for --list-policies (default: http://localhost:3001)
 
 AggreGator MIB trap:
@@ -187,6 +189,11 @@ Discovery:
       console.log();
     });
     return;
+  }
+
+  if (!COMMUNITY) {
+    console.error("--community <str> required (your organisation's community string, shown to admins in the SNMP panel)");
+    process.exit(1);
   }
 
   const scenario = get("--scenario", null);

@@ -240,13 +240,20 @@ A built-in `dgram`-based UDP receiver with a hand-written BER/ASN.1 parser accep
 ```bash
 SNMP_ENABLED=true       # must be true to start the receiver
 SNMP_PORT=1162          # non-root friendly port
-SNMP_COMMUNITY=public   # accepted community string
+SNMP_COMMUNITY=         # optional: sets the Default Organisation's community
 ```
+
+Each organisation has its own community string, which is how a trap is
+matched to its org (admins see it in the SNMP panel; superadmins set it in
+Organizations). It's SNMPv2c's only credential, so it's random by default,
+must be at least 12 characters and can't be `public`/`private`. A trap with
+any other community is rejected: not ingested and not logged (the SNMP
+panel counts it as *Rejected*).
 
 ```bash
 # Send a test trap
 node scripts/send-trap.js --host <host> --port 1162 --list-policies
-node scripts/send-trap.js --host <host> --port 1162 --scenario trade --policy <uuid>
+node scripts/send-trap.js --host <host> --port 1162 --community <your-org-community> --scenario trade --policy <uuid>
 ```
 
 Manage trusted sources and routing rules in the UI under **☰ → SNMP**.
@@ -329,7 +336,7 @@ node scripts/demo.js --host <host> --api-key <key>
 | `ADMIN_PASSWORD_RESET` | `false` | Lockout recovery: `true` resets the admin's password at boot (to `ADMIN_PASSWORD`, or a generated one). Remove it afterwards |
 | `SNMP_ENABLED` | `true` | Enable the SNMP trap receiver |
 | `SNMP_PORT` | `1162` | SNMP UDP listen port |
-| `SNMP_COMMUNITY` | `public` | Accepted SNMP community string |
+| `SNMP_COMMUNITY` | *(unset)* | If set, the Default Organisation's community string, applied at every boot (wins over the Organizations panel). Unset, it keeps its own, random since migration 026. Other orgs' strings are set in Organizations |
 | `NODE_ENV` | `production` | Environment |
 
 ### TLS

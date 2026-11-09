@@ -5,6 +5,7 @@ import { createError } from "../middleware/errorHandler";
 import { listOrgs, createOrg, updateOrg, deleteOrg } from "../services/orgService";
 import { listUsers, createUser, adminSetUserOrgAndRole } from "../services/userService";
 import { orgContextMiddleware } from "../middleware/orgContext";
+import { invalidateCommunityCache } from "../snmp/trapNormalizer";
 
 const router = Router();
 
@@ -40,10 +41,17 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
       name: z.string().min(1).max(255).optional(),
       isActive: z.boolean().optional(),
       regenerateKey: z.boolean().optional(),
-      snmpCommunity: z.string().min(1).max(255).optional(),
+      // The community string is SNMPv2c's only credential: no well-known
+      // values, and long enough not to be guessed.
+      snmpCommunity: z.string().min(12, "SNMP community must be at least 12 characters").max(255)
+        .refine((v) => !["public", "private"].includes(v.toLowerCase()), "Use a unique SNMP community, not public/private")
+        .optional(),
     }).parse(req.body);
     const org = await updateOrg(req.params.id, body);
     if (!org) return next(createError("Organisation not found", 404));
+    // A renamed or deactivated org's old community must stop resolving now,
+    // not when its cache entry expires.
+    invalidateCommunityCache();
     res.json(org);
   } catch (err) { next(err); }
 });

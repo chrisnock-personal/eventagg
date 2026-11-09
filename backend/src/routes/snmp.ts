@@ -25,14 +25,22 @@ router.use((req: Request, res: Response, next: NextFunction) => {
 router.use(orgContextMiddleware);
 
 // ── GET /api/v1/snmp/status ───────────────────────────────────────────────────
-router.get("/status", (_req, res) => {
-  const stats = getSnmpStats();
-  res.json({
-    enabled:   process.env.SNMP_ENABLED === "true",
-    port:      parseInt(process.env.SNMP_PORT ?? "1162"),
-    community: process.env.SNMP_COMMUNITY ?? "public",
-    ...stats,
-  });
+router.get("/status", async (req, res, next) => {
+  try {
+    const stats = getSnmpStats();
+    // The caller's own org's community (what its devices must send), not an
+    // env default. It's a credential, so org admins only.
+    const orgId = req.user?.orgId;
+    const row = orgId && req.user?.role === "admin"
+      ? await queryOne<{ snmp_community: string }>(`SELECT snmp_community FROM organisations WHERE id = $1`, [orgId])
+      : null;
+    res.json({
+      enabled:   process.env.SNMP_ENABLED === "true",
+      port:      parseInt(process.env.SNMP_PORT ?? "1162"),
+      community: row?.snmp_community ?? null,
+      ...stats,
+    });
+  } catch (err) { next(err); }
 });
 
 // ── GET /api/v1/snmp/sources ──────────────────────────────────────────────────

@@ -18,7 +18,7 @@ export interface NormalizedTrap {
   trapOid:     string;
   trapName:    string;
   varbinds:    Record<string, unknown>;
-  routeType:   "aggregator_mib" | "source_rule" | "community_rule" | "unrouted";
+  routeType:   "aggregator_mib" | "source_rule" | "community_rule" | "unrouted" | "rejected";
   ingestInput: IngestInput | null;
   routedTo:    string | null;
   // Which org this trap belongs to. Resolved from the trap's community
@@ -27,9 +27,11 @@ export interface NormalizedTrap {
   // rule scoping, AND log/source attribution even when routeType ends up
   // "unrouted" (no policy/rule match) -a trap from a registered org still
   // shows up in that org's SNMP log even with nothing configured to ingest
-  // it yet. Only null when the community string isn't registered to any
-  // org at all, in which case routing falls back to legacy (unscoped)
-  // behavior for backward compatibility with pre-Phase-3 deployments.
+  // it yet. Null only for routeType "rejected": the community string isn't
+  // registered to any active org, so the trap is not ingested or logged.
+  // (It used to fall back to an unscoped routing search, which let any
+  // community string -i.e. no credential at all- ingest into any org whose
+  // policy UUID or rule it could name.)
   orgId:       string | null;
 }
 
@@ -39,29 +41,36 @@ export interface NormalizedTrap {
 // still gets a real org identity instead of silently falling into the
 // Default Organisation. Short-TTL cache, same pattern as the routing rules
 // and policy keyField caches below.
-const orgByCommunityCache: Record<string, { orgId: string | null; age: number }> = {};
+// Only hits are cached: caching misses would let a sender grow this map
+// without bound by spraying random community strings. A miss is one indexed
+// lookup on a UNIQUE column.
+const orgByCommunityCache: Record<string, { orgId: string; age: number }> = {};
 
 async function resolveOrgByCommunity(community: string): Promise<string | null> {
+  if (!community) return null;
   const cached = orgByCommunityCache[community];
   if (cached && Date.now() - cached.age < 30_000) return cached.orgId;
-  let orgId: string | null = null;
   try {
     const rows = await query<{ id: string }>(
       `SELECT id FROM organisations WHERE snmp_community = $1 AND is_active = TRUE LIMIT 1`,
       [community]
     );
-    orgId = rows[0]?.id ?? null;
-  } catch { /* DB not ready yet */ }
-  orgByCommunityCache[community] = { orgId, age: Date.now() };
-  return orgId;
+    const orgId = rows[0]?.id ?? null;
+    if (orgId) orgByCommunityCache[community] = { orgId, age: Date.now() };
+    return orgId;
+  } catch {
+    return null; // DB not ready yet
+  }
+}
+
+export function invalidateCommunityCache(): void {
+  for (const key of Object.keys(orgByCommunityCache)) delete orgByCommunityCache[key];
 }
 
 // ─── Routing rules cache ──────────────────────────────────────────────────────
-// Keyed by org id once a community string resolves one -scopes rule
-// matching to that org only, closing a latent cross-tenant bug where a
-// broad rule in one org could match a trap actually meant for another org's
-// narrower rule. Key "*" is the legacy unscoped fallback for traps whose
-// community string doesn't resolve to any org yet.
+// Keyed by org id: rule matching is always scoped to the org the
+// community string resolved to, so a broad rule in one org can never match
+// a trap meant for another org.
 const routingRulesCache: Record<string, { rules: RoutingRule[]; age: number }> = {};
 
 interface RoutingRule {
@@ -75,24 +84,18 @@ interface RoutingRule {
   key_field:       string;
 }
 
-async function getRoutingRules(orgId?: string): Promise<RoutingRule[]> {
-  const key = orgId ?? "*";
-  const cached = routingRulesCache[key];
+async function getRoutingRules(orgId: string): Promise<RoutingRule[]> {
+  const cached = routingRulesCache[orgId];
   if (cached && Date.now() - cached.age < 30_000) return cached.rules;
   let rules: RoutingRule[] = [];
   try {
-    rules = orgId
-      ? await query<RoutingRule>(
-          `SELECT id, org_id, priority, match_community, match_agent, match_trap_oid, policy_id, key_field
-           FROM snmp_routing_rules WHERE org_id = $1 AND is_active = TRUE ORDER BY priority ASC`,
-          [orgId]
-        )
-      : await query<RoutingRule>(
-          `SELECT id, org_id, priority, match_community, match_agent, match_trap_oid, policy_id, key_field
-           FROM snmp_routing_rules WHERE is_active = TRUE ORDER BY priority ASC`
-        );
+    rules = await query<RoutingRule>(
+      `SELECT id, org_id, priority, match_community, match_agent, match_trap_oid, policy_id, key_field
+       FROM snmp_routing_rules WHERE org_id = $1 AND is_active = TRUE ORDER BY priority ASC`,
+      [orgId]
+    );
   } catch { /* DB not ready yet */ }
-  routingRulesCache[key] = { rules, age: Date.now() };
+  routingRulesCache[orgId] = { rules, age: Date.now() };
   return rules;
 }
 
@@ -113,18 +116,6 @@ async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; 
     }
   } catch { /* ignore */ }
   return null;
-}
-
-// ─── Default org fallback (for logging unrouted traps -see logTrap) ─────────
-let defaultOrgIdCache: string | null = null;
-
-export async function getDefaultOrgId(): Promise<string | null> {
-  if (defaultOrgIdCache) return defaultOrgIdCache;
-  try {
-    const rows = await query<{ id: string }>(`SELECT id FROM organisations WHERE slug = 'default' LIMIT 1`);
-    if (rows.length > 0) defaultOrgIdCache = rows[0].id;
-  } catch { /* ignore */ }
-  return defaultOrgIdCache;
 }
 
 export function invalidateRoutingCache(): void {
@@ -151,10 +142,13 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     varbinds,
   };
 
-  // Authoritative org boundary, resolved before any policy/rule lookup.
-  // Null means this community string isn't registered to any org yet —
-  // callers below fall back to legacy (unscoped) behavior in that case.
+  // Authoritative org boundary, resolved before any policy/rule lookup. The
+  // community string is SNMPv2c's only credential, so an unregistered one is
+  // rejected outright: not ingested, not logged.
   const communityOrgId = await resolveOrgByCommunity(raw.community);
+  if (!communityOrgId) {
+    return { ...base, routeType: "rejected", ingestInput: null, routedTo: null, orgId: null };
+  }
 
   // ── AggreGator MIB trap ───────────────────────────────────────────────────
   if (isAggreGatorTrap(raw.trapOid)) {
@@ -196,7 +190,7 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     // policy), not something to silently trust the policy's org for.
     // Still attributed to the community's org (not null) so that tenant's
     // admin can actually see the misconfigured trap arrived.
-    if (communityOrgId && orgId !== communityOrgId) {
+    if (orgId !== communityOrgId) {
       logger.warn({ policyId, community: raw.community }, "📡  SNMP: policy belongs to a different org than community resolves to -dropping as unrouted");
       return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: communityOrgId };
     }
@@ -224,10 +218,9 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
   }
 
   // ── Standard trap -routing rules ─────────────────────────────────────────
-  // Scoped to the community-resolved org when one exists, so a trap can only
-  // ever match that org's own rules -falls back to the legacy unscoped
-  // search only when the community string isn't registered to any org.
-  const rules = await getRoutingRules(communityOrgId ?? undefined);
+  // Scoped to the community-resolved org: a trap can only match its own
+  // org's rules.
+  const rules = await getRoutingRules(communityOrgId);
   const matched = rules.find(r => {
     if (r.match_community && r.match_community !== raw.community) return false;
     if (r.match_agent     && r.match_agent     !== raw.sourceAddress) return false;

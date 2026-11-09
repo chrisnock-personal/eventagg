@@ -57,7 +57,8 @@ services:
       # ── SNMP trap receiver ───────────────────────────────────────────────
       SNMP_ENABLED: "${SNMP_ENABLED:-true}"
       SNMP_PORT: "${SNMP_PORT:-1162}"
-      SNMP_COMMUNITY: "${SNMP_COMMUNITY:-public}"
+      # Unset = the Default Organisation keeps its own (random) community.
+      SNMP_COMMUNITY: "${SNMP_COMMUNITY:-}"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - secrets:/app/secrets

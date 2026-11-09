@@ -20,7 +20,7 @@ const has  = (f) => args.includes(f);
 
 const SNMP_HOST = get("--host",      "127.0.0.1");
 const SNMP_PORT = parseInt(get("--port", "1162"));
-const COMMUNITY = get("--community", "public");
+const COMMUNITY = get("--community", process.env.AGGRE_SNMP_COMMUNITY || "");
 const API_BASE  = get("--api",       "http://localhost:3001");
 const API_KEY   = get("--api-key",   null);
 
@@ -31,7 +31,7 @@ Aggre/Gator Interactive Demo
 Options:
   --host <ip>       SNMP target host         (default: 127.0.0.1)
   --port <n>        SNMP target UDP port      (default: 1162)
-  --community <str> SNMP community string     (default: public)
+  --community <str> Your org's SNMP community (SNMP panel; or AGGRE_SNMP_COMMUNITY). Required for the SNMP scenarios
   --api <url>       API base URL              (default: http://localhost:3001)
   --api-key <key>   X-API-Key for HTTP ingest (optional if INGEST_API_KEY unset)
 
@@ -469,6 +469,10 @@ async function scenarioMenu(callAvailable) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
+  if (!COMMUNITY) {
+    console.error(red("--community <str> required: your organisation's community string (shown to admins in the SNMP panel)"));
+    process.exit(1);
+  }
   console.log();
   console.log(bold("╔════════════════════════════════════════════════════╗"));
   console.log(bold("║         Aggre/Gator  - Interactive Demo           ║"));

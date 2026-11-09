@@ -89,7 +89,7 @@ describe("SNMP community-string org resolution", () => {
     expect(result.routedTo).toBe(policyA);
   });
 
-  it("falls back to legacy unscoped matching when the community string isn't registered to any org", async () => {
+  it("rejects a standard trap whose community string isn't registered to any org, even if a wildcard rule would match", async () => {
     const org = await createTestOrg();
     const policy = await makePolicy(org.id);
     const unknownOid = `1.3.6.1.4.1.55555.${randomUUID().slice(0, 4)}`;
@@ -98,11 +98,37 @@ describe("SNMP community-string org resolution", () => {
     const trap = rawTrap({ community: `unregistered-${randomUUID().slice(0, 8)}`, trapOid: unknownOid });
     const result = await callNormalizeTrap(trap);
 
-    // No org claims this community string, but the wildcard-community rule
-    // still matches via the legacy global search -unchanged behavior for
-    // sources nobody has migrated to a per-org community string yet.
-    expect(result.orgId).toBe(org.id);
-    expect(result.routedTo).toBe(policy);
+    // This used to fall back to an unscoped search across every org's
+    // rules: no credential needed at all.
+    expect(result.routeType).toBe("rejected");
+    expect(result.ingestInput).toBeNull();
+    expect(result.orgId).toBeNull();
+  });
+
+  it("rejects an AggreGator MIB trap naming a real policy when the community string is unknown", async () => {
+    const org = await createTestOrg();
+    const policyId = await makePolicy(org.id, "tradeRef");
+
+    const trap = rawTrap({
+      community: "public",
+      trapOid: AG_TRAP_OID,
+      varbinds: [
+        { oid: AG_POLICY_ID_OID, value: policyId },
+        { oid: AG_AGGREGATION_KEY_OID, value: "TR-789" },
+      ],
+    });
+
+    const result = await callNormalizeTrap(trap);
+
+    expect(result.routeType).toBe("rejected");
+    expect(result.ingestInput).toBeNull();
+  });
+
+  it("no org keeps the well-known 'public' community after migration 026", async () => {
+    const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      queryOne<{ n: string }>(`SELECT count(*)::text AS n FROM organisations WHERE snmp_community IN ('public', 'private')`)
+    );
+    expect(row?.n).toBe("0");
   });
 
   it("AggreGator MIB trap: community-resolved org disagreeing with the policy's own org is dropped as unrouted, but still attributed to the community's org", async () => {

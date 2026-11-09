@@ -37,7 +37,18 @@ tagging, but versions are noted where meaningful.
   PASSWORD_CHANGE_REQUIRED`), not only by the UI. Change-password re-issues
   the session cookie.
 
-**Upgrading:** clients that called `http://<host>:3001` directly must use
+- SNMP traps with an unregistered community string are rejected (not
+  ingested, not logged). They used to fall back to an unscoped routing
+  search, so any community string could ingest into any org whose policy
+  UUID or routing rule it named. The Default Organisation's `public`
+  community is replaced by a random one (migration 026); community strings
+  must now be 12+ characters and not `public`/`private`. The SNMP panel shows
+  admins their org's real community and a *Rejected* count.
+
+**Upgrading:** devices sending traps with `public` must be given the org's
+new community string (SNMP panel), or set `SNMP_COMMUNITY` to keep a
+specific value for the Default Organisation. `send-trap.js`/`demo.js` now
+need `--community`. Clients that called `http://<host>:3001` directly must use
 `http://<host>:8080` (nginx proxies `/api/`). Anything connecting to
 Postgres from outside the container needs an SSH tunnel and the generated
 password (unless `PGPASSWORD` is set in `.env`). The existing admin keeps

@@ -214,6 +214,27 @@ async function seedDefaultAdmin(): Promise<void> {
   }
 }
 
+// ─── Default org's SNMP community ─────────────────────────────────────────────
+// SNMP_COMMUNITY, when set, is the Default Organisation's community string
+// (it wins over an edit in the Organizations panel, on every boot). Unset,
+// the org keeps its own: random since migration 026. A trap's community
+// string is SNMPv2c's only credential, so this warns about weak values.
+async function syncDefaultSnmpCommunity(): Promise<void> {
+  const wanted = process.env.SNMP_COMMUNITY || "";
+  if (!wanted) return;
+  if (["public", "private"].includes(wanted.toLowerCase()) || wanted.length < 12) {
+    logger.warn("⚠️  SNMP_COMMUNITY is a well-known or short value: anyone on the network can send traps as the Default Organisation");
+  }
+  try {
+    await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      query(`UPDATE organisations SET snmp_community = $1 WHERE slug = 'default' AND snmp_community <> $1`, [wanted])
+    );
+  } catch (err) {
+    // Most likely the UNIQUE constraint: another org already uses it.
+    logger.error({ err }, "⚠️  Could not set the Default Organisation's SNMP community from SNMP_COMMUNITY");
+  }
+}
+
 // ─── Startup ──────────────────────────────────────────────────────────────────
 async function start(): Promise<void> {
   try {
@@ -250,9 +271,9 @@ async function start(): Promise<void> {
     const partitionJobInterval = setInterval(runPartitionJob, 24 * 60 * 60_000);
 
     // Start SNMP trap receiver
+    await syncDefaultSnmpCommunity();
     startSnmpReceiver({
       port:      parseInt(process.env.SNMP_PORT ?? "1162"),
-      community: process.env.SNMP_COMMUNITY ?? "public",
       enabled:   process.env.SNMP_ENABLED === "true",
     });
 

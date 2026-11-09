@@ -1554,7 +1554,9 @@ function SnmpPanel({ onBack }: { onBack: () => void; policies: Policy[] }) {
                 {status.enabled ? "● Receiver Active" : "○ Receiver Disabled"}
               </div>
               <div style={{ fontSize: 11, color: C.textMuted, marginTop: 3 }}>
-                UDP port {status.port} · Community: <code style={{ fontFamily: "monospace" }}>{status.community}</code>
+                UDP port {status.port} · Community: {status.community
+                  ? <code style={{ fontFamily: "monospace" }}>{status.community}</code>
+                  : <span>visible to admins</span>} · traps with any other community are rejected
               </div>
               {!status.enabled && (
                 <div style={{ fontSize: 11, color: C.textMuted, marginTop: 6, padding: "6px 8px", background: C.surfaceDeep, borderRadius: 5 }}>
@@ -1567,6 +1569,7 @@ function SnmpPanel({ onBack }: { onBack: () => void; policies: Policy[] }) {
                 { label: "Received", value: status.received, color: C.info },
                 { label: "Routed",   value: status.routed,   color: C.accent },
                 { label: "Unrouted", value: status.unrouted, color: C.warn },
+                { label: "Rejected", value: status.rejected ?? 0, color: C.danger },
                 { label: "Errors",   value: status.errors,   color: C.danger },
               ].map(s => (
                 <div key={s.label} style={{ padding: "8px 10px", background: C.surfaceAlt, borderRadius: 6, border: `1px solid ${C.border}` }}>
