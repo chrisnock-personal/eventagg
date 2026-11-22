@@ -55,9 +55,13 @@ jobs:
             GRANT ALL PRIVILEGES ON DATABASE eventagg TO eventagg_user;
           "
       # age: the encrypted-backup test (it's skipped without it). pg_dump/psql
-      # for the backup tests come with the runner image (PostgreSQL 16).
-      - name: Install age
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq age
+      # for the backup tests: PostgreSQL 16's, the service's version, first on
+      # PATH. The runner image's own client is newer, and a newer pg_dump
+      # writes settings (transaction_timeout) a 16 server rejects on restore.
+      - name: Install age and the PostgreSQL 16 client
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq age postgresql-client-16
+          echo /usr/lib/postgresql/16/bin >> "$GITHUB_PATH"
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
