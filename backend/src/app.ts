@@ -10,6 +10,7 @@ import { query } from "./db/pool";
 import { errorHandler, notFound } from "./middleware/errorHandler";
 import { requireApiKey } from "./middleware/auth";
 import { requestLogging } from "./middleware/requestLogging";
+import { metrics } from "./middleware/metrics";
 import { statsCache, performanceCache } from "./cache";
 import { openApiSpec } from "./openapi";
 import authRouter     from "./routes/auth";
@@ -23,6 +24,7 @@ import systemRouter   from "./routes/system";
 import tlsRouter      from "./routes/tls";
 import adminRouter    from "./routes/admin";
 import orgsRouter     from "./routes/orgs";
+import metricsRouter  from "./routes/metrics";
 import { getSnmpStats } from "./snmp/trapReceiver";
 
 const app = express();
@@ -44,6 +46,7 @@ app.set("trust proxy", "loopback");
 // First, so every subsequent middleware/route/error handler logs under the
 // same requestId (see middleware/requestLogging.ts + logger.ts's mixin).
 app.use(requestLogging);
+app.use(metrics); // histogram covers every matched route and every 404/error
 // Empty CORS_ORIGIN (the default) means same-origin only -origin: false
 // tells the cors package to skip Access-Control-Allow-Origin entirely,
 // which is exactly right for this app's own same-origin nginx-proxied
@@ -81,6 +84,12 @@ app.get("/health", async (_req, res) => {
     res.status(503).json({ status: "error", error: err.message, timestamp: new Date().toISOString() });
   }
 });
+
+// ─── Prometheus scrape ───────────────────────────────────────────────────────
+// Root path for Prometheus and /api/v1 for consistency with the REST API;
+// nginx proxies both. Unauthenticated like /health.
+app.use("/metrics", metricsRouter);
+app.use("/api/v1/metrics", metricsRouter);
 
 // ─── Rate limiting ────────────────────────────────────────────────────────────
 const ingestRateLimit = rateLimit({

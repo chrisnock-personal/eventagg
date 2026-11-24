@@ -4,6 +4,7 @@ import { ingestRawEvent, fireGroupCompletedWebhook } from "../services/ingestSer
 import { statsCache, performanceCache } from "../cache";
 import { audit } from "../services/auditService";
 import { orgContextMiddleware } from "../middleware/orgContext";
+import { ingestEventsTotal } from "../metrics";
 
 const router = Router();
 
@@ -29,6 +30,10 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       apiKey:         req.headers["x-api-key"] as string | undefined,
       sequenceNumber: input.sequenceNumber,
     });
+
+    // Count accepted events per policy/engine outcome. Rejected ingests never
+    // reach here, so they do not inflate the per-policy series.
+    ingestEventsTotal.inc({ policy_id: input.policyId, outcome: result.action });
 
     // Invalidate aggregate caches so next stats/performance request is fresh
     statsCache.invalidateAll();
