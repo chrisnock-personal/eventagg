@@ -1,4 +1,6 @@
 import express from "express";
+import fs from "fs";
+import path from "path";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import rateLimit from "express-rate-limit";
@@ -24,6 +26,13 @@ import orgsRouter     from "./routes/orgs";
 import { getSnmpStats } from "./snmp/trapReceiver";
 
 const app = express();
+
+// Production serves the JSON generated at build time; the in-code spec is a
+// dev/test fallback for `ts-node-dev` and Vitest, which don't run the build.
+const openApiFile = path.join(__dirname, "openapi.json");
+const openApiDocument: typeof openApiSpec = fs.existsSync(openApiFile)
+  ? JSON.parse(fs.readFileSync(openApiFile, "utf8"))
+  : openApiSpec;
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 // nginx (same container) is the only proxy and connects from loopback:
@@ -98,8 +107,8 @@ app.use("/api/v1/admin",            adminRouter);
 app.use("/api/v1/orgs",             orgsRouter);
 
 // ─── OpenAPI spec + Swagger UI ────────────────────────────────────────────────
-app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiSpec));
-app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+app.get("/api/v1/openapi.json", (_req, res) => res.json(openApiDocument));
+app.use("/api/v1/docs", swaggerUi.serve, swaggerUi.setup(openApiDocument, {
   customSiteTitle: "Aggre/Gator API Docs",
   customCss: `
     .swagger-ui .topbar { background-color: #1A1916; }
