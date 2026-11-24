@@ -113,8 +113,12 @@ export async function updateWebhook(orgId: string, id: string, input: {
 }
 
 export async function deleteWebhook(orgId: string, id: string): Promise<boolean> {
-  const result = await query(`DELETE FROM webhooks WHERE id = $1 AND org_id = $2`, [id, orgId]);
-  return (result as any).rowCount > 0;
+  // query() returns rows, not a pg Result; rowCount was always undefined here.
+  const row = await queryOne<{ id: string }>(
+    `DELETE FROM webhooks WHERE id = $1 AND org_id = $2 RETURNING id`,
+    [id, orgId]
+  );
+  return Boolean(row);
 }
 
 export async function listDeliveries(orgId: string, params: {

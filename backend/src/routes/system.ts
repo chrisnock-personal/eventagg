@@ -9,6 +9,7 @@ import { getMultiTenancyConfig, enableMultiTenancy } from '../services/tenancySe
 import { requireInstanceAdmin } from '../middleware/instanceAdmin';
 import { encryptSecret } from '../services/secretBox';
 import { getSmtpConfig } from '../services/smtpService';
+import { audit, SYSTEM_ENTITY_ID } from '../services/auditService';
 
 const router = Router();
 const adminOnly = requireRole('admin');
@@ -79,6 +80,16 @@ router.put('/config/:key', requireAuth, requireInstanceAdmin, async (req: Reques
        ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = now(), updated_by = $3`,
       [req.params.key, JSON.stringify(value), req.user?.email]
     );
+    // Instance config has no org context and its values may be credentials.
+    // Log only which key changed, under bypass so the superadmin's NULL-org
+    // audit row is accepted by RLS.
+    void runWithOrgContext({ orgId: null, bypass: true }, async () => {
+      audit({
+        entityType: 'system', entityId: SYSTEM_ENTITY_ID, action: 'system.config_updated',
+        actor: req.user!.username, sourceIp: req.ip,
+        metadata: { key: req.params.key },
+      });
+    });
     res.json({ ok: true });
   } catch (e) { next(e); }
 });
@@ -107,15 +118,25 @@ router.post('/tenancy/enable', requireAuth, requireRole('admin'), async (req: Re
       return res.status(result.statusCode ?? 400).json({ error: result.error });
     }
 
+    const promotedUser = result.user;
     const sessionUser = {
-      id: result.user.id,
-      username: result.user.username,
-      email: result.user.email,
-      role: result.user.role,
-      passwordChanged: result.user.passwordChanged,
-      orgId: result.user.orgId,
-      orgName: result.user.orgName,
+      id: promotedUser.id,
+      username: promotedUser.username,
+      email: promotedUser.email,
+      role: promotedUser.role,
+      passwordChanged: promotedUser.passwordChanged,
+      orgId: promotedUser.orgId,
+      orgName: promotedUser.orgName,
     };
+    // The caller has just been promoted to superadmin (org_id NULL), so log
+    // the instance-wide change under a bypass context like other system config.
+    void runWithOrgContext({ orgId: null, bypass: true }, async () => {
+      audit({
+        entityType: 'system', entityId: SYSTEM_ENTITY_ID, action: 'system.tenancy_enabled',
+        actor: user.username, sourceIp: req.ip,
+        afterState: { superadminUserId: promotedUser.id },
+      });
+    });
     setSessionCookie(res, sessionUser);
     res.json(sessionUser);
   } catch (e) { next(e); }

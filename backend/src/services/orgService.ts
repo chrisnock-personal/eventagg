@@ -80,8 +80,11 @@ export async function updateOrg(
 
 export async function deleteOrg(id: string): Promise<boolean> {
   try {
-    const result = await query(`DELETE FROM organisations WHERE id = $1`, [id]);
-    return (result as any).rowCount > 0;
+    const row = await queryOne<{ id: string }>(
+      `DELETE FROM organisations WHERE id = $1 RETURNING id`,
+      [id]
+    );
+    return Boolean(row);
   } catch (err: any) {
     if (err.code === "23503") { // foreign_key_violation
       const friendly = new Error("Organisation still has policies, users, or events -deactivate it instead of deleting");

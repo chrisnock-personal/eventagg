@@ -31,16 +31,18 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     });
 
     // Invalidate aggregate caches so next stats/performance request is fresh
-    if (!result.action.includes("duplicate")) {
-      statsCache.invalidateAll();
-      performanceCache.invalidateAll();
+    statsCache.invalidateAll();
+    performanceCache.invalidateAll();
+
+    // Audit group lifecycle transitions only. Auditing every raw event made
+    // the log unusable (2-3 rows per ingest) and drowned out human actions;
+    // middle events are still visible on the group's raw-event list.
+    if (result.action === "group_opened" || result.action === "group_promoted") {
       audit({
         orgId:          org.id,
         entityType:     "event",
         entityId:       result.groupId,
-        action:         result.action === "group_opened"   ? "event.group_opened"
-                      : result.action === "group_promoted" ? "event.group_completed"
-                      : "event.ingested",
+        action:         result.action === "group_opened" ? "event.group_opened" : "event.group_completed",
         policyId:       input.policyId,
         aggregationKey: result.aggregationKey,
         sourceIp:       req.ip,

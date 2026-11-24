@@ -4,6 +4,7 @@ import { query, queryOne } from "../db/pool";
 import { orgContextMiddleware } from "../middleware/orgContext";
 import { requireAuth, requireRole } from "../middleware/session";
 import { createError } from "../middleware/errorHandler";
+import { audit } from "../services/auditService";
 import { getSnmpStats, invalidateRoutingCache } from "../snmp/trapReceiver";
 
 const router = Router();
@@ -71,6 +72,14 @@ router.post("/sources", requireRole("editor", "admin"), async (req, res, next) =
        VALUES ($1,$2,$3,$4,$5) RETURNING *`,
       [orgId, body.name, body.agentAddr, body.community, body.description ?? null]
     );
+    // Community strings are credentials: log the source's name, not its value.
+    if (row) {
+      audit({
+        orgId, entityType: "snmp_source", entityId: row.id as string,
+        action: "snmp.source_created", actor: req.user!.username, sourceIp: req.ip,
+        afterState: { name: body.name },
+      });
+    }
     res.status(201).json(row);
   } catch (err) { next(err); }
 });
@@ -97,6 +106,11 @@ router.put("/sources/:id", requireRole("editor", "admin"), async (req, res, next
       [body.name ?? null, body.community ?? null, body.description ?? null, body.isActive ?? null, req.params.id, orgId]
     );
     if (!row) return next(createError("Source not found", 404));
+    audit({
+      orgId, entityType: "snmp_source", entityId: req.params.id,
+      action: "snmp.source_updated", actor: req.user!.username, sourceIp: req.ip,
+      afterState: { name: row.name, isActive: row.is_active },
+    });
     res.json(row);
   } catch (err) { next(err); }
 });
@@ -106,6 +120,10 @@ router.delete("/sources/:id", requireRole("admin"), async (req, res, next) => {
   try {
     const orgId = req.user!.orgId as string;
     await query(`DELETE FROM snmp_trap_sources WHERE id = $1 AND org_id = $2`, [req.params.id, orgId]);
+    audit({
+      orgId, entityType: "snmp_source", entityId: req.params.id,
+      action: "snmp.source_deleted", actor: req.user!.username, sourceIp: req.ip,
+    });
     res.status(204).send();
   } catch (err) { next(err); }
 });
@@ -151,6 +169,14 @@ router.post("/rules", requireRole("editor", "admin"), async (req, res, next) => 
       [orgId, body.priority, body.matchCommunity ?? null, body.matchAgent ?? null, body.matchTrapOid ?? null, body.policyId, body.keyField]
     );
     invalidateRoutingCache();
+    if (row) {
+      audit({
+        orgId, entityType: "snmp_rule", entityId: row.id as string,
+        action: "snmp.rule_created", actor: req.user!.username, sourceIp: req.ip,
+        policyId: body.policyId,
+        afterState: { priority: body.priority, policyId: body.policyId },
+      });
+    }
     res.status(201).json(row);
   } catch (err) { next(err); }
 });
@@ -190,6 +216,11 @@ router.put("/rules/:id", requireRole("editor", "admin"), async (req, res, next) 
     );
     if (!row) return next(createError("Rule not found", 404));
     invalidateRoutingCache();
+    audit({
+      orgId, entityType: "snmp_rule", entityId: req.params.id,
+      action: "snmp.rule_updated", actor: req.user!.username, sourceIp: req.ip,
+      afterState: { priority: row.priority, policyId: row.policy_id, isActive: row.is_active },
+    });
     res.json(row);
   } catch (err) { next(err); }
 });
@@ -200,6 +231,10 @@ router.delete("/rules/:id", requireRole("admin"), async (req, res, next) => {
     const orgId = req.user!.orgId as string;
     await query(`DELETE FROM snmp_routing_rules WHERE id = $1 AND org_id = $2`, [req.params.id, orgId]);
     invalidateRoutingCache();
+    audit({
+      orgId, entityType: "snmp_rule", entityId: req.params.id,
+      action: "snmp.rule_deleted", actor: req.user!.username, sourceIp: req.ip,
+    });
     res.status(204).send();
   } catch (err) { next(err); }
 });
