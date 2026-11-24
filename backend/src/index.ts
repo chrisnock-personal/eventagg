@@ -73,6 +73,7 @@ export async function runTimeoutJob(): Promise<void> {
       org_id: string;
       policy_id: string;
       policy_name: string;
+      timeout_ms: number;
       aggregation_key: string;
       key_field: string;
       raw_event_count: number;
@@ -80,7 +81,7 @@ export async function runTimeoutJob(): Promise<void> {
       started_at: string;
       last_raw_event_at: string;
     }>(
-      `SELECT e.id, e.org_id, e.policy_id, p.name AS policy_name, e.aggregation_key, e.key_field,
+      `SELECT e.id, e.org_id, e.policy_id, p.name AS policy_name, p.timeout_ms, e.aggregation_key, e.key_field,
               e.raw_event_count, e.cradle_raw_event_id, e.started_at, e.last_raw_event_at
        FROM   in_progress_events e
        JOIN   policies p ON p.id = e.policy_id AND p.org_id = e.org_id
@@ -145,9 +146,10 @@ export async function runTimeoutJob(): Promise<void> {
               durationMs: endedAt.getTime() - new Date(group.started_at).getTime(),
             }).catch(() => {});
             sendGroupTimedOutAlert({
+              orgId:          group.org_id,
               policyName:     group.policy_name,
               aggregationKey: group.aggregation_key,
-              timeoutMs:      0,
+              timeoutMs:      group.timeout_ms,
               openedAt:       new Date(group.started_at),
             }).catch(() => {});
           });

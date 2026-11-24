@@ -56,6 +56,41 @@ were in CLAUDE.md, so older commit messages that cite them still make sense.
    types, and small helpers (the `C` color palette, `PctBar`, etc.) from
    common modules — moving code, not a rewrite.
 
+## Backlog bug bundle (2026-11-24)
+
+Fixed seven small BACKLOG.md bugs together, covered by a new integration test
+file (`backend/src/test/bugfixes.test.ts`):
+
+- The timeout sweep now selects `p.timeout_ms` and passes it to
+  `sendGroupTimedOutAlert()`, so the email reports the real timeout (and names
+  the `policy_timeout` close reason the sweep actually writes).
+- `sendGroupTimedOutAlert()` takes the group's `org_id` and limits admin
+  recipients to that org (plus superadmins). The sweep runs under an RLS
+  bypass, so without the explicit filter every tenant's admins got the alert.
+- Nested `field=value` body search uses `jsonb_path_match` instead of
+  `jsonb_path_exists`: the latter returned true for a *false* comparison.
+  Path segments are quoted per key and the search value is passed as a
+  jsonpath variable, so quotes/backslashes can't alter the expression. Both
+  the JSON scalar and the literal text of the value are tried, matching
+  numbers whether stored as numbers or strings.
+- `"quoted phrase"` search is now a phrase mode (ILIKE over the raw body
+  text, with LIKE wildcards escaped) rather than searching for quote marks.
+- The initial `dateRange = "24h"` now ships with matching from/to filters,
+  produced by the same helper as the preset selector. Selecting "custom"
+  keeps the current bounds while the user edits them.
+- System Health counts timed-out groups by `status = 'timed_out'` rather than
+  the obsolete `close_reason = 'timeout'` value.
+- `/admin/backup/info` runs its whole-instance counts under an explicit RLS
+  bypass, so the superadmin sees global policy/audit counts instead of zero.
+
+Verification: 81 backend tests passed against a temporary Postgres instance
+with a non-superuser app role (so RLS was active); `backupRestore.test.ts` was
+excluded locally because `pg_dump`/`psql` aren't installed on the laptop.
+Backend/frontend typecheck, lint and frontend build pass. The date-range UI
+change was not browser-verified here.
+
+---
+
 ## Roadmap to RC
 
 Prototype → release-candidate gaps identified during a review session:
