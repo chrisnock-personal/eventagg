@@ -78,6 +78,8 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm run build
+      - name: Verify generated OpenAPI artifact
+        run: node -e "const s=require('./dist/openapi.json'); if (s.openapi !== '3.0.3' || !Object.keys(s.paths).length) process.exit(1)"
       - run: npm test
       # Everything here ships to production (Dockerfile's --omit=dev keeps
       # only these), so a real severity threshold is worth blocking on.

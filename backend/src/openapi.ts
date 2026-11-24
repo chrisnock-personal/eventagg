@@ -22,6 +22,9 @@ export const openApiSpec = {
     { name: "Policies", description: "Manage aggregation policies" },
     { name: "Webhooks", description: "Register endpoints to receive POST notifications when groups complete or time out" },
     { name: "Audit",    description: "Audit log -every mutation and authentication event" },
+    { name: "Auth",     description: "Login, session and user management" },
+    { name: "SNMP",     description: "Trap sources, routing rules and received-trap log" },
+    { name: "Organisations", description: "Superadmin-only tenant and user administration" },
     { name: "System",   description: "System health, logs, and configuration (admin only)" },
     { name: "Admin",    description: "Policy import/export, database backup/restore, and maintenance (admin only)" },
   ],
@@ -223,6 +226,92 @@ export const openApiSpec = {
           totalPages: { type: "integer" },
         },
       },
+
+      User: {
+        type: "object",
+        required: ["id","username","email","role","isActive","passwordChanged"],
+        properties: {
+          id:              { type: "string", format: "uuid" },
+          username:        { type: "string", example: "admin" },
+          email:           { type: "string", format: "email" },
+          role:            { type: "string", enum: ["viewer","editor","admin","superadmin"] },
+          isActive:        { type: "boolean" },
+          passwordChanged: { type: "boolean", description: "False forces a password change at next login" },
+          lastLogin:       { type: "string", format: "date-time", nullable: true },
+          createdAt:       { type: "string", format: "date-time" },
+          orgId:           { type: "string", format: "uuid", nullable: true, description: "null for superadmins" },
+          orgName:         { type: "string", nullable: true },
+        },
+      },
+
+      Organisation: {
+        type: "object",
+        required: ["id","name","slug","ingestApiKey","snmpCommunity","isActive"],
+        properties: {
+          id:            { type: "string", format: "uuid" },
+          name:          { type: "string" },
+          slug:          { type: "string" },
+          ingestApiKey:  { type: "string", description: "X-API-Key value for this tenant's HTTP ingest" },
+          snmpCommunity: { type: "string", description: "v2c community devices must send" },
+          isActive:      { type: "boolean" },
+          createdAt:     { type: "string", format: "date-time" },
+          updatedAt:     { type: "string", format: "date-time" },
+        },
+      },
+
+      SnmpSource: {
+        type: "object",
+        description: "Raw DB row: SNMP routes return snake_case column names.",
+        required: ["id","org_id","name","agent_addr","community","is_active"],
+        properties: {
+          id:          { type: "string", format: "uuid" },
+          org_id:      { type: "string", format: "uuid" },
+          name:        { type: "string" },
+          agent_addr:  { type: "string", example: "192.0.2.10" },
+          community:   { type: "string", description: "v2c community expected from this agent" },
+          description: { type: "string", nullable: true },
+          is_active:   { type: "boolean" },
+          last_seen:   { type: "string", format: "date-time", nullable: true },
+          trap_count:  { type: "integer" },
+          created_at:  { type: "string", format: "date-time" },
+          updated_at:  { type: "string", format: "date-time" },
+        },
+      },
+
+      SnmpRule: {
+        type: "object",
+        description: "Raw DB row: SNMP routes return snake_case column names.",
+        required: ["id","org_id","priority","policy_id","key_field","is_active"],
+        properties: {
+          id:              { type: "string", format: "uuid" },
+          org_id:          { type: "string", format: "uuid" },
+          priority:        { type: "integer" },
+          match_community: { type: "string", nullable: true, description: "null matches any community" },
+          match_agent:     { type: "string", nullable: true, description: "null matches any agent" },
+          match_trap_oid:  { type: "string", nullable: true, description: "null matches any trap OID" },
+          policy_id:       { type: "string", format: "uuid" },
+          key_field:       { type: "string", example: "sourceIp" },
+          is_active:       { type: "boolean" },
+          created_at:      { type: "string", format: "date-time" },
+        },
+      },
+
+      SnmpTrapLog: {
+        type: "object",
+        required: ["id","received_at","agent_addr","community","trap_oid","varbinds"],
+        properties: {
+          id:           { type: "integer" },
+          received_at:  { type: "string", format: "date-time" },
+          agent_addr:   { type: "string" },
+          community:    { type: "string" },
+          trap_oid:     { type: "string" },
+          trap_name:    { type: "string", nullable: true },
+          varbinds:     { type: "object", additionalProperties: true },
+          routed_to:    { type: "string", format: "uuid", nullable: true },
+          route_type:   { type: "string", enum: ["aggregator_mib","source_rule","community_rule","unrouted"] },
+          ingest_result:{ type: "object", nullable: true, additionalProperties: true },
+        },
+      },
     },
 
     parameters: {
@@ -253,6 +342,13 @@ export const openApiSpec = {
       NotFound:   { description: "Resource not found",       content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
       BadRequest: { description: "Validation error",         content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
       ServerError:{ description: "Internal server error",    content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+      Unauthorized: { description: "Not authenticated",      content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+      Forbidden:    { description: "Insufficient role",      content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+    },
+
+    securitySchemes: {
+      cookieAuth:  { type: "apiKey", in: "cookie",  name: "ag_session", description: "JWT session cookie set by POST /auth/login" },
+      ingestApiKey:{ type: "apiKey", in: "header", name: "X-API-Key", description: "Per-organisation ingest key (from the Organizations panel)" },
     },
   },
 
@@ -263,6 +359,7 @@ export const openApiSpec = {
     "/events/ingest": {
       post: {
         tags: ["Ingest"],
+        security: [{ ingestApiKey: [] }],
         summary: "Ingest an event",
         description:
           "Push a JSON event body into the aggregation engine. The engine matches it " +
@@ -743,6 +840,42 @@ export const openApiSpec = {
       },
     },
 
+    "/system/tenancy": {
+      get: {
+        tags: ["System"],
+        summary: "Multi-tenancy status",
+        description: "Readable by any authenticated user. When enabled, the caller's org context is mandatory on scoped endpoints.",
+        security: [{ cookieAuth: [] }],
+        responses: {
+          "200": { description: "Tenancy config", content: { "application/json": { schema: { type: "object", required: ["enabled"], properties: { enabled: { type: "boolean" } } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+
+    "/system/tenancy/enable": {
+      post: {
+        tags: ["System"],
+        summary: "Enable multi-tenancy (admin)",
+        description: "One-way operation: re-confirms the caller's password, promotes them to superadmin and flips the platform-wide flag in one transaction. Returns 400 if already enabled.",
+        security: [{ cookieAuth: [] }],
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["password"], properties: { password: { type: "string", minLength: 1 } } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Promoted superadmin and new session cookie", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
     "/system/logs/{service}": {
       get: {
         tags: ["System"],
@@ -964,6 +1097,497 @@ export const openApiSpec = {
             },
           },
           "400": { $ref: "#/components/responses/BadRequest" },
+        },
+      },
+    },
+
+    // ── Auth ──────────────────────────────────────────────────────────────────
+    "/auth/login": {
+      post: {
+        tags: ["Auth"],
+        summary: "Log in and set the session cookie",
+        description: "Sets the httpOnly `ag_session` cookie (8h). A user whose passwordChanged flag is false must call /auth/change-password before other endpoints.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["username","password"], properties: {
+                username: { type: "string" }, password: { type: "string" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Session user", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+
+    "/auth/logout": {
+      post: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "Clear the session cookie",
+        responses: {
+          "204": { description: "Logged out" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+
+    "/auth/me": {
+      get: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "Current session user",
+        description: "Works even when a password change is pending.",
+        responses: {
+          "200": { description: "Session claims", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+
+    "/auth/change-password": {
+      post: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "Change your password",
+        description: "Re-issues the session cookie so the passwordChanged flag no longer blocks requests.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["currentPassword","newPassword"], properties: {
+                currentPassword: { type: "string" },
+                newPassword:     { type: "string", minLength: 6 },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Password changed", content: { "application/json": { schema: { type: "object", properties: { ok: { type: "boolean" } } } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+        },
+      },
+    },
+
+    "/auth/users": {
+      get: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "List users in the caller's organisation",
+        responses: {
+          "200": { description: "Users", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/User" } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "Create a user in the caller's organisation (admin)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["username","email","password"], properties: {
+                username: { type: "string", maxLength: 50 },
+                email:    { type: "string", format: "email" },
+                password: { type: "string", minLength: 6 },
+                role:     { type: "string", enum: ["viewer","editor","admin"], default: "viewer" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created user", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/auth/users/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      put: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "Update a user in the caller's organisation (admin)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: {
+                username: { type: "string", maxLength: 50 },
+                email:    { type: "string", format: "email" },
+                password: { type: "string", minLength: 6 },
+                role:     { type: "string", enum: ["viewer","editor","admin"] },
+                isActive: { type: "boolean" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated user", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["Auth"],
+        security: [{ cookieAuth: [] }],
+        summary: "Delete a user in the caller's organisation (admin)",
+        responses: {
+          "204": { description: "Deleted" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+
+    // ── SNMP ──────────────────────────────────────────────────────────────────
+    "/snmp/status": {
+      get: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "SNMP receiver status",
+        description: "Admins also receive their organisation's v2c community. Superadmins are rejected (no org to scope it to).",
+        responses: {
+          "200": { description: "Receiver status", content: { "application/json": { schema: { type: "object", properties: {
+            enabled:   { type: "boolean" },
+            port:      { type: "integer" },
+            community: { type: "string", nullable: true },
+          }, additionalProperties: true } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/snmp/sources": {
+      get: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "List registered trap sources",
+        responses: {
+          "200": { description: "Sources", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/SnmpSource" } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Register a trap source (editor+)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["name","agentAddr"], properties: {
+                name:        { type: "string" },
+                agentAddr:   { type: "string", example: "192.0.2.10" },
+                community:   { type: "string", default: "public" },
+                description: { type: "string" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created source", content: { "application/json": { schema: { $ref: "#/components/schemas/SnmpSource" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/snmp/sources/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      put: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Update a trap source (editor+)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: {
+                name:        { type: "string" },
+                community:   { type: "string" },
+                description: { type: "string" },
+                isActive:    { type: "boolean" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated source", content: { "application/json": { schema: { $ref: "#/components/schemas/SnmpSource" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Delete a trap source (admin)",
+        responses: {
+          "204": { description: "Deleted" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/snmp/rules": {
+      get: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "List SNMP routing rules",
+        responses: {
+          "200": { description: "Rules", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/SnmpRule" } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Create a routing rule (editor+)",
+        description: "The policy must belong to the caller's organisation; otherwise the response is 404.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["policyId"], properties: {
+                priority:       { type: "integer", default: 100 },
+                matchCommunity: { type: "string" },
+                matchAgent:     { type: "string" },
+                matchTrapOid:   { type: "string" },
+                policyId:       { type: "string", format: "uuid" },
+                keyField:       { type: "string", default: "sourceIp" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created rule", content: { "application/json": { schema: { $ref: "#/components/schemas/SnmpRule" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+    },
+
+    "/snmp/rules/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      put: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Update a routing rule (editor+)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: {
+                priority:       { type: "integer" },
+                matchCommunity: { type: "string", nullable: true },
+                matchAgent:     { type: "string", nullable: true },
+                matchTrapOid:   { type: "string", nullable: true },
+                policyId:       { type: "string", format: "uuid" },
+                keyField:       { type: "string" },
+                isActive:       { type: "boolean" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated rule", content: { "application/json": { schema: { $ref: "#/components/schemas/SnmpRule" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Delete a routing rule (admin)",
+        responses: {
+          "204": { description: "Deleted" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/snmp/log": {
+      get: {
+        tags: ["SNMP"],
+        security: [{ cookieAuth: [] }],
+        summary: "Recent traps received for this organisation",
+        parameters: [{ name: "limit", in: "query", schema: { type: "integer", default: 100, maximum: 500 }, description: "Maximum rows (capped at 500)" }],
+        responses: {
+          "200": { description: "Recent traps", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/SnmpTrapLog" } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    // ── Organisations ─────────────────────────────────────────────────────────
+    "/orgs": {
+      get: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "List organisations (superadmin)",
+        responses: {
+          "200": { description: "Organisations", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/Organisation" } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "Create an organisation (superadmin)",
+        description: "Ingest key and SNMP community are generated on creation.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["name"], properties: {
+                name: { type: "string", maxLength: 255 },
+                slug: { type: "string", maxLength: 100, description: "URL-safe identifier; generated from name when omitted" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created organisation", content: { "application/json": { schema: { $ref: "#/components/schemas/Organisation" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/orgs/{id}": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      put: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "Update an organisation (superadmin)",
+        description: "Set regenerateKey to rotate the ingest key. A new SNMP community must be at least 12 characters and not public/private.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: {
+                name:           { type: "string", maxLength: 255 },
+                isActive:       { type: "boolean" },
+                regenerateKey:  { type: "boolean" },
+                snmpCommunity:  { type: "string", minLength: 12, maxLength: 255 },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated organisation", content: { "application/json": { schema: { $ref: "#/components/schemas/Organisation" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+        },
+      },
+      delete: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "Delete an organisation (superadmin)",
+        description: "Returns 409 if it still owns policies, users, events or audit rows; deactivate it instead.",
+        responses: {
+          "204": { description: "Deleted" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
+          "409": { description: "Organisation still has dependent rows" },
+        },
+      },
+    },
+
+    "/orgs/{id}/users": {
+      parameters: [{ name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      get: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "List an organisation's users (superadmin)",
+        responses: {
+          "200": { description: "Users", content: { "application/json": { schema: { type: "array", items: { $ref: "#/components/schemas/User" } } } } },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+      post: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "Create a user directly in an organisation (superadmin)",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", required: ["username","email","password"], properties: {
+                username: { type: "string", maxLength: 50 },
+                email:    { type: "string", format: "email" },
+                password: { type: "string", minLength: 6 },
+                role:     { type: "string", enum: ["viewer","editor","admin"], default: "viewer" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "201": { description: "Created user", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+        },
+      },
+    },
+
+    "/orgs/users/{userId}": {
+      parameters: [{ name: "userId", in: "path", required: true, schema: { type: "string", format: "uuid" } }],
+      put: {
+        tags: ["Organisations"],
+        security: [{ cookieAuth: [] }],
+        summary: "Move a user between organisations or change their role (superadmin)",
+        description: "role=superadmin forces orgId to null; any other role requires a non-null orgId.",
+        requestBody: {
+          required: true,
+          content: {
+            "application/json": {
+              schema: { type: "object", properties: {
+                role:     { type: "string", enum: ["viewer","editor","admin","superadmin"] },
+                orgId:    { type: "string", format: "uuid", nullable: true },
+                isActive: { type: "boolean" },
+              } },
+            },
+          },
+        },
+        responses: {
+          "200": { description: "Updated user", content: { "application/json": { schema: { $ref: "#/components/schemas/User" } } } },
+          "400": { $ref: "#/components/responses/BadRequest" },
+          "401": { $ref: "#/components/responses/Unauthorized" },
+          "403": { $ref: "#/components/responses/Forbidden" },
+          "404": { $ref: "#/components/responses/NotFound" },
         },
       },
     },

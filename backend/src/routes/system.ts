@@ -245,7 +245,7 @@ router.get('/health', requireAuth, requireInstanceAdmin, async (_req: Request, r
         (SELECT COUNT(*) FROM pg_stat_activity WHERE state = 'active') AS active_queries,
         (SELECT COUNT(*) FROM in_progress_events) AS in_progress,
         (SELECT COUNT(*) FROM completed_events WHERE ended_at > now() - interval '24h') AS completed_24h,
-        (SELECT COUNT(*) FROM completed_events WHERE close_reason = 'timeout' AND ended_at > now() - interval '24h') AS timed_out_24h`
+        (SELECT COUNT(*) FROM completed_events WHERE status = 'timed_out' AND ended_at > now() - interval '24h') AS timed_out_24h`
     );
 
     const tableSizes = await query<{ table: string; size: string; rows: string }>(

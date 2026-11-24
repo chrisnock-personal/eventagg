@@ -17,6 +17,27 @@ export interface EventQueryFilters {
   limit?: number;
 }
 
+// Values in a "field=value" search are text from the UI. Match both the
+// JSON scalar of the same shape (123, true) and the literal text, so a
+// numeric field can be found whether it was stored as a number or a string.
+function jsonScalar(value: string): string | number | boolean {
+  if (/^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+  if (value === "true" || value === "false") return value === "true";
+  return value;
+}
+
+// Quote each path segment so jsonpath metacharacters in a key can't change
+// the expression. Values are passed as jsonpath variables instead of being
+// interpolated into the path, so quotes/backslashes there are always safe.
+function jsonPathForField(field: string): string | null {
+  const parts = field.split(".");
+  if (!parts.length || parts.some((p) => !p)) return null;
+  const quoted = parts
+    .map((p) => `"${p.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`)
+    .join(".");
+  return `$.${quoted}`;
+}
+
 // ─── Map DB rows to API shapes ────────────────────────────────────────────────
 
 function inProgressToSummary(
@@ -270,9 +291,11 @@ export async function listEvents(
   const results: EventGroupSummary[] = [];
 
   // ── Detect body search mode ─────────────────────────────────────────────────
+  const trimmedBodySearch = filters.bodySearch?.trim();
   const bodySearchMode = (() => {
-    if (!filters.bodySearch?.trim()) return null;
-    return /^[\w.]+=[^\s=]+$/.test(filters.bodySearch.trim()) ? "pair" : "freetext";
+    if (!trimmedBodySearch) return null;
+    if (/^".+"$/.test(trimmedBodySearch)) return "phrase";
+    return /^[\w.]+=[^\s=]+$/.test(trimmedBodySearch) ? "pair" : "freetext";
   })();
 
   // Shared WHERE clause builder
@@ -304,21 +327,27 @@ export async function listEvents(
     // Body search -EXISTS subquery against raw_events
     // Using EXISTS avoids JOIN fan-out and DISTINCT complications
     if (bodySearchMode === "pair") {
-      const eqIdx = filters.bodySearch!.indexOf("=");
-      const field  = filters.bodySearch!.slice(0, eqIdx).trim();
-      const value  = filters.bodySearch!.slice(eqIdx + 1).trim();
+      const eqIdx = trimmedBodySearch!.indexOf("=");
+      const field  = trimmedBodySearch!.slice(0, eqIdx).trim();
+      const value  = trimmedBodySearch!.slice(eqIdx + 1).trim();
       const idCol  = store === "in_progress" ? "in_progress_id" : "completed_id";
 
-      if (field.includes(".")) {
-        // Nested path -jsonb_path_exists with string cast
+      const path = jsonPathForField(field);
+      if (field.includes(".") && path) {
+        // Nested path. jsonb_path_match (not _exists) is a predicate: it
+        // returns false for a non-match, where _exists would return true
+        // because the comparison itself produced a value.
+        const pathIdx = i++;
+        const varsIdx = i++;
+        const predicate = `${path} == $v || ${path} == $s`;
         conditions.push(
           `EXISTS (
             SELECT 1 FROM raw_events re
             WHERE  re.${idCol} = e.id
-            AND    jsonb_path_exists(re.body, $${i++})
+            AND    jsonb_path_match(re.body, $${pathIdx}::jsonpath, $${varsIdx}::jsonb)
           )`
         );
-        params.push(`$.${field} == "${value}"`);
+        params.push(predicate, JSON.stringify({ v: jsonScalar(value), s: value }));
       } else {
         // Top-level key -try @> containment first (works for string values);
         // also fall back to casting stored value to text for numeric matches
@@ -339,6 +368,20 @@ export async function listEvents(
         );
         i += 3;
       }
+    } else if (bodySearchMode === "phrase") {
+      const idCol = store === "in_progress" ? "in_progress_id" : "completed_id";
+      const phrase = trimmedBodySearch!.slice(1, -1);
+      // Escape LIKE metacharacters so a quoted phrase means exactly the
+      // characters the user typed.
+      const escaped = phrase.replace(/[\\%_]/g, "\\$&");
+      conditions.push(
+        `EXISTS (
+          SELECT 1 FROM raw_events re
+          WHERE  re.${idCol} = e.id
+          AND    re.body::text ILIKE $${i++} ESCAPE '\\'
+        )`
+      );
+      params.push(`%${escaped}%`);
     } else if (bodySearchMode === "freetext") {
       const idCol = store === "in_progress" ? "in_progress_id" : "completed_id";
       conditions.push(
@@ -348,7 +391,7 @@ export async function listEvents(
           AND    re.body::text ILIKE $${i++}
         )`
       );
-      params.push(`%${filters.bodySearch!.trim()}%`);
+      params.push(`%${trimmedBodySearch}%`);
     }
 
     return {

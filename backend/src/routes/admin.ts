@@ -4,7 +4,7 @@ import { requireAuth, requireRole } from '../middleware/session';
 import { orgContextMiddleware } from '../middleware/orgContext';
 import { requireInstanceAdmin } from '../middleware/instanceAdmin';
 import { createError } from '../middleware/errorHandler';
-import { query, queryOne } from '../db/pool';
+import { query, queryOne, runWithOrgContext } from '../db/pool';
 import { exec, execFile, execFileSync } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -131,12 +131,17 @@ router.get('/backup/info', requireAuth, requireInstanceAdmin, async (_req: Reque
     const [sizeRow] = await query<{ size: string }>(
       `SELECT pg_size_pretty(pg_database_size(current_database())) AS size`
     );
-    const [counts] = await query<Record<string, string>>(
-      `SELECT
-        (SELECT COUNT(*) FROM policies)          AS policies,
-        (SELECT COUNT(*) FROM in_progress_events) AS in_progress,
-        (SELECT COUNT(*) FROM completed_events)   AS completed,
-        (SELECT COUNT(*) FROM audit_log)          AS audit_entries`
+    // Whole-instance counts, including RLS-protected tables. This route has
+    // no org context middleware (it is superadmin-only), so run the query
+    // explicitly under bypass or policies/audit_log count as zero rows.
+    const [counts] = await runWithOrgContext({ orgId: null, bypass: true }, () =>
+      query<Record<string, string>>(
+        `SELECT
+          (SELECT COUNT(*) FROM policies)          AS policies,
+          (SELECT COUNT(*) FROM in_progress_events) AS in_progress,
+          (SELECT COUNT(*) FROM completed_events)   AS completed,
+          (SELECT COUNT(*) FROM audit_log)          AS audit_entries`
+      )
     );
     const recipients = backupRecipients();
     res.json({ db_size: sizeRow.size, counts,
