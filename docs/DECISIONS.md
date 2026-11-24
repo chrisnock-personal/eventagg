@@ -56,6 +56,73 @@ were in CLAUDE.md, so older commit messages that cite them still make sense.
    types, and small helpers (the `C` color palette, `PctBar`, etc.) from
    common modules — moving code, not a rewrite.
 
+## Backlog bug bundle (2026-11-24)
+
+Fixed seven small BACKLOG.md bugs together, covered by a new integration test
+file (`backend/src/test/bugfixes.test.ts`):
+
+- The timeout sweep now selects `p.timeout_ms` and passes it to
+  `sendGroupTimedOutAlert()`, so the email reports the real timeout (and names
+  the `policy_timeout` close reason the sweep actually writes).
+- `sendGroupTimedOutAlert()` takes the group's `org_id` and limits admin
+  recipients to that org (plus superadmins). The sweep runs under an RLS
+  bypass, so without the explicit filter every tenant's admins got the alert.
+- Nested `field=value` body search uses `jsonb_path_match` instead of
+  `jsonb_path_exists`: the latter returned true for a *false* comparison.
+  Path segments are quoted per key and the search value is passed as a
+  jsonpath variable, so quotes/backslashes can't alter the expression. Both
+  the JSON scalar and the literal text of the value are tried, matching
+  numbers whether stored as numbers or strings.
+- `"quoted phrase"` search is now a phrase mode (ILIKE over the raw body
+  text, with LIKE wildcards escaped) rather than searching for quote marks.
+- The initial `dateRange = "24h"` now ships with matching from/to filters,
+  produced by the same helper as the preset selector. Selecting "custom"
+  keeps the current bounds while the user edits them.
+- System Health counts timed-out groups by `status = 'timed_out'` rather than
+  the obsolete `close_reason = 'timeout'` value.
+- `/admin/backup/info` runs its whole-instance counts under an explicit RLS
+  bypass, so the superadmin sees global policy/audit counts instead of zero.
+
+Verification: 81 backend tests passed against a temporary Postgres instance
+with a non-superuser app role (so RLS was active); `backupRestore.test.ts` was
+excluded locally because `pg_dump`/`psql` aren't installed on the laptop.
+Backend/frontend typecheck, lint and frontend build pass. The date-range UI
+change was not browser-verified here.
+
+## Audit log gaps (2026-11-24)
+
+BACKLOG.md #17 and #18, fixed together with a new integration test file
+(`backend/src/test/auditGaps.test.ts`):
+
+- `audit()` is now wired into user CRUD and password changes, webhooks, SNMP
+  sources/rules, organisation administration and system config/tenancy changes.
+  The `AuditAction` union and both frontend colour maps cover the new actions.
+- Credentials are never copied into `after_state`: webhook signing secrets,
+  SNMP community strings and organisation ingest keys/communities are logged
+  only as names or "changed" flags.
+- Superadmin-only organisation actions are logged with `org_id = NULL` (like
+  login/logout) rather than against the target org. `audit_log.org_id` has an
+  FK to `organisations`, so using the target org would leave an audit row that
+  permanently prevents that org from being deleted. System-level rows use the
+  nil UUID under an explicit RLS bypass.
+- Ingest now audits only `group_opened` and `group_promoted`. Middle and
+  duplicate events no longer add 2-3 audit rows each; their raw events remain
+  visible on the group detail screen. The historical `event.ingested` action
+  stays in the union for old rows.
+- Testing the new delete audits exposed a pre-existing bug: `deleteUser()`,
+  `deleteWebhook()` and `deleteOrg()` read `.rowCount` from `query()`, but
+  that helper returns a rows array, so `rowCount` was always `undefined`.
+  Deletes actually happened but were reported as 404/ignored. They now use
+  `DELETE ... RETURNING id` with `queryOne()`.
+
+Verification: 81 backend tests passed against a temporary Postgres instance
+with a non-superuser app role (RLS active); `backupRestore.test.ts` was
+excluded locally because `pg_dump`/`psql` aren't installed on the laptop.
+Backend/frontend typecheck, lint and frontend build pass. The audit action
+colours were not browser-verified here.
+
+---
+
 ## Roadmap to RC
 
 Prototype → release-candidate gaps identified during a review session:

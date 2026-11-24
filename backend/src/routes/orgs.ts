@@ -5,6 +5,7 @@ import { createError } from "../middleware/errorHandler";
 import { listOrgs, createOrg, updateOrg, deleteOrg } from "../services/orgService";
 import { listUsers, createUser, adminSetUserOrgAndRole } from "../services/userService";
 import { orgContextMiddleware } from "../middleware/orgContext";
+import { audit } from "../services/auditService";
 import { invalidateCommunityCache } from "../snmp/trapNormalizer";
 
 const router = Router();
@@ -30,6 +31,14 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
       slug: z.string().min(1).max(100).optional(),
     }).parse(req.body);
     const org = await createOrg(body);
+    // Organisation admin is a superadmin-only action: log it with NULL org
+    // (like login/logout). Using the new org's ID here would add an audit FK
+    // that prevents the org from ever being deleted.
+    audit({
+      entityType: "organisation", entityId: org.id, action: "org.created",
+      actor: req.user!.username, sourceIp: req.ip, orgId: null,
+      afterState: { name: org.name, slug: org.slug },
+    });
     res.status(201).json(org);
   } catch (err) { next(err); }
 });
@@ -52,6 +61,17 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
     // A renamed or deactivated org's old community must stop resolving now,
     // not when its cache entry expires.
     invalidateCommunityCache();
+    // Never record the ingest key or SNMP community, only that a key was
+    // rotated.
+    audit({
+      entityType: "organisation", entityId: org.id, action: "org.updated",
+      actor: req.user!.username, sourceIp: req.ip, orgId: null,
+      afterState: {
+        name: org.name, isActive: org.isActive,
+        ...(body.regenerateKey ? { ingestKeyRegenerated: true } : {}),
+        ...(body.snmpCommunity ? { snmpCommunityChanged: true } : {}),
+      },
+    });
     res.json(org);
   } catch (err) { next(err); }
 });
@@ -61,6 +81,12 @@ router.delete("/:id", async (req: Request, res: Response, next: NextFunction) =>
   try {
     const deleted = await deleteOrg(req.params.id);
     if (!deleted) return next(createError("Organisation not found", 404));
+    // The org row (and its FK target) is gone by now, so record this as a
+    // superadmin action with no org instead of dangling on a deleted FK.
+    audit({
+      entityType: "organisation", entityId: req.params.id, action: "org.deleted",
+      actor: req.user!.username, sourceIp: req.ip, orgId: null,
+    });
     res.status(204).send();
   } catch (err) { next(err); }
 });
@@ -82,6 +108,11 @@ router.post("/:id/users", async (req: Request, res: Response, next: NextFunction
       role:     z.enum(["viewer", "editor", "admin"]).default("viewer"),
     }).parse(req.body);
     const user = await createUser({ ...body, orgId: req.params.id });
+    audit({
+      entityType: "user", entityId: user.id, action: "user.created",
+      actor: req.user!.username, sourceIp: req.ip, orgId: req.params.id,
+      afterState: { username: user.username, email: user.email, role: user.role },
+    });
     res.status(201).json(user);
   } catch (err) { next(err); }
 });
@@ -97,6 +128,11 @@ router.put("/users/:userId", async (req: Request, res: Response, next: NextFunct
     }).parse(req.body);
     const user = await adminSetUserOrgAndRole(req.params.userId, body);
     if (!user) return next(createError("User not found", 404));
+    audit({
+      entityType: "user", entityId: user.id, action: "user.updated",
+      actor: req.user!.username, sourceIp: req.ip, orgId: user.orgId,
+      afterState: { role: user.role, orgId: user.orgId, isActive: user.isActive },
+    });
     res.json(user);
   } catch (err) { next(err); }
 });

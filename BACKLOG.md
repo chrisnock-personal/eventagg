@@ -27,27 +27,27 @@ the committed code plus the current working tree.
    `--single-transaction`. At minimum restore in one transaction; better,
    drop and recreate the schema before restoring a dump without `--clean`.
    `backupRestore.test.ts` should restore a database that has partitions.
-3. **Timeout emails go to every organisation's admins.**
+3. ~~**Timeout emails go to every organisation's admins.**~~ *Fixed 2026-11-24.*
    `sendGroupTimedOutAlert()` runs inside the sweep's RLS bypass, so
    `SELECT email FROM users WHERE role = 'admin'` returns all orgs' admins
    (a Demo Markets timeout went to the Demo Telecom admin). Filter by the
    group's `org_id`.
-4. **Timeout emails say "Timeout: 0 minutes".** `index.ts`'s sweep passes
-   `timeoutMs: 0` to `sendGroupTimedOutAlert()`; pass the policy's value.
+4. ~~**Timeout emails say "Timeout: 0 minutes".**~~ *Fixed 2026-11-24.* `index.ts`'s
+   sweep passes `timeoutMs: 0` to `sendGroupTimedOutAlert()`; pass the policy's value.
 5. ~~**SMTP config is global but org admins can edit it.**~~ *Fixed 2026-11-09 (security-hardening).* `system_config`
    key `smtp` is one row for the platform, and any org admin can
    overwrite it from Settings. Make it per-org or superadmin-only.
-6. **Nested body search matches every group.** `fix.symbol=VOD.L` uses
-   `jsonb_path_exists(body, '$.fix.symbol == "VOD.L"')`, which is true
-   whenever the predicate returns a value, even `false`. Use
+6. ~~**Nested body search matches every group.**~~ *Fixed 2026-11-24.*
+   `fix.symbol=VOD.L` uses `jsonb_path_exists(body, '$.fix.symbol == "VOD.L"')`,
+   which is true whenever the predicate returns a value, even `false`. Use
    `jsonb_path_match`, or a filter `$ ? (@.fix.symbol == "VOD.L")`. The
    value is also interpolated into the jsonpath string unescaped.
-7. **Quoted phrase body search returns nothing** (`"Northgate Cafe"`),
-   although the search box's placeholder suggests quoting.
+7. ~~**Quoted phrase body search returns nothing**~~ *Fixed 2026-11-24*
+   (`"Northgate Cafe"`), although the search box's placeholder suggests quoting.
 8. ~~**Admin password in the log.**~~ *Fixed 2026-11-09 (security-hardening).* `seedDefaultAdmin()` logs
    `{ username, password }` on every boot, and admins can read the backend
    log from System Health. Don't log the password.
-9. **Date range says "Last 24h" but shows all time on first load.**
+9. ~~**Date range says "Last 24h" but shows all time on first load.**~~ *Fixed 2026-11-24.*
    `dateRange` starts as `"24h"` while `fromFilter`/`toFilter` start empty,
    so the stats and charts cover everything under a "last 24 hours" label.
 10. **Hourly heatmap built from daily buckets.** For 7d/30d ranges the
@@ -60,27 +60,27 @@ the committed code plus the current working tree.
     `"fix.clOrdId"` key instead of `{ fix: { clOrdId } }`.
 14. **OpenAPI spec is missing routes**: auth, SNMP and organisations are
     not in `openapi.ts`.
-15. **Health "Timed out (24h)" showed 0** while groups had timed out in the
-    last hour; check the query.
+15. ~~**Health "Timed out (24h)" showed 0**~~ *Fixed 2026-11-24* while groups had
+    timed out in the last hour; check the query.
 16. ~~**Client IP is the proxy's, so rate limits are shared.**~~ *Fixed 2026-11-09 (security-hardening).* The audit log
     records every source IP as `127.0.0.1` (through nginx) or the
     container's own address (direct to :3001); `trust proxy` isn't set and
     nginx's `X-Forwarded-For` isn't used. The login and ingest rate
     limiters key on `req.ip`, so all clients share one bucket: a burst of
     failed logins from anyone can lock everyone out.
-17. **Audit log misses config changes.** Logins, policy changes and ingests
-    are recorded, but `webhooks.ts`, `snmp.ts`, `orgs.ts` and `system.ts`
-    have no `audit()` calls, and `auth.ts` audits only login/logout, not
-    user create/update/delete. Wire `audit()` into those routes.
-18. **Ingest floods the audit log.** Each ingested event writes 2-3 rows
-    (`event.ingested`, `raw_event.appended`/`group.opened`/`group.promoted`):
-    about 2,300 rows in the first few minutes of the demo. That's ingest-path
-    cost and buries the human actions. Consider not auditing ingest, or a
-    separate table or sampling.
+17. ~~**Audit log misses config changes.**~~ *Fixed 2026-11-24.* Logins, policy
+    changes and ingests are recorded, but `webhooks.ts`, `snmp.ts`, `orgs.ts`
+    and `system.ts` have no `audit()` calls, and `auth.ts` audits only
+    login/logout, not user create/update/delete. Wire `audit()` into those routes.
+18. ~~**Ingest floods the audit log.**~~ *Fixed 2026-11-24.* Each ingested event
+    writes 2-3 rows (`event.ingested`, `raw_event.appended`/`group.opened`/
+    `group.promoted`): about 2,300 rows in the first few minutes of the demo.
+    That's ingest-path cost and buries the human actions. Consider not auditing
+    ingest, or a separate table or sampling.
 19. **SNMP sources and rules can't be created in the UI.** The panel lists
     them and says "Add rules via POST /api/v1/snmp/rules". Add forms.
-20. **Backup panel shows "Audit entries 0" for the superadmin**, although
-    the audit log has thousands of rows: the count runs without org
+20. ~~**Backup panel shows "Audit entries 0" for the superadmin**~~ *Fixed 2026-11-24*,
+    although the audit log has thousands of rows: the count runs without org
     context/bypass.
 21. **Live highlighting is noisy at volume.** With auto-refresh on a
     busy org, nearly every row is highlighted on each refresh, so the

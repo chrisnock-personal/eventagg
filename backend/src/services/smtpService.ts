@@ -25,6 +25,7 @@ export async function getSmtpConfig(): Promise<SmtpConfig | null> {
 }
 
 export async function sendGroupTimedOutAlert(group: {
+  orgId: string;
   policyName: string;
   aggregationKey: string;
   timeoutMs: number;
@@ -34,8 +35,14 @@ export async function sendGroupTimedOutAlert(group: {
     const cfg = await getSmtpConfig();
     if (!cfg?.host) return;
 
+    // The timeout sweep runs under an RLS bypass, so the query must scope
+    // admins explicitly: without this, a group in one org would email every
+    // other org's admins too. Superadmins (org_id IS NULL) get all alerts.
     const adminRows = await query<{ email: string }>(
-      `SELECT email FROM users WHERE role = 'admin' AND is_active = TRUE`
+      `SELECT email FROM users
+       WHERE role = 'admin' AND is_active = TRUE
+         AND (org_id = $1 OR org_id IS NULL)`,
+      [group.orgId]
     );
     if (!adminRows.length) return;
 
@@ -57,7 +64,7 @@ export async function sendGroupTimedOutAlert(group: {
       `Opened At:      ${group.openedAt.toISOString()}`,
       `Timeout:        ${timeoutMinutes} minutes`,
       ``,
-      `The group has been moved to completed events with close_reason = 'timeout'.`,
+      `The group has been moved to completed events with close_reason = 'policy_timeout'.`,
     ].join('\n');
 
     await transporter.sendMail({
