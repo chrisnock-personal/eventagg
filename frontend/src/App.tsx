@@ -4127,6 +4127,25 @@ export default function App() {
   );
 }
 
+// Shared by the initial filter state and the preset selector so the default
+// "24h" label always describes the data actually loaded on first render.
+function dateRangeBounds(preset: string): { from: string; to: string } {
+  const now = new Date();
+  const startOf = (d: Date) => { const s = new Date(d); s.setHours(0, 0, 0, 0); return s.toISOString(); };
+  const daysAgo   = (n: number) => { const d = new Date(now); d.setDate(d.getDate() - n);   return startOf(d); };
+  const monthsAgo = (n: number) => { const d = new Date(now); d.setMonth(d.getMonth() - n); return startOf(d); };
+  const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
+  const toNow = todayEnd.toISOString();
+  switch (preset) {
+    case "24h":    return { from: daysAgo(1),   to: toNow };
+    case "7d":     return { from: daysAgo(7),   to: toNow };
+    case "30d":    return { from: daysAgo(30),  to: toNow };
+    case "6m":     return { from: monthsAgo(6), to: toNow };
+    case "custom": return { from: "", to: "" };
+    default:       return { from: "", to: "" };
+  }
+}
+
 function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpdate }: {
   sessionUser: import("./api").SessionUser;
   appUsers: import("./api").AppUser[];
@@ -4180,9 +4199,9 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [keyFilter,    setKeyFilter]    = useState("");
   const [policyFilter, setPolicyFilter] = useState<string[]>([]);
-  const _now = new Date();
-  const [fromFilter,   setFromFilter]   = useState("");
-  const [toFilter,     setToFilter]     = useState("");
+  const [initialBounds]               = useState(() => dateRangeBounds("24h"));
+  const [fromFilter,   setFromFilter]   = useState(initialBounds.from);
+  const [toFilter,     setToFilter]     = useState(initialBounds.to);
   const [page,         setPage]         = useState(1);
   const [autoRefresh,  setAutoRefresh]  = useState(false);
   const [dateRange,    setDateRange]    = useState("24h");
@@ -4201,19 +4220,12 @@ function MainApp({ sessionUser, appUsers, onLogout, onUsersChanged, onSessionUpd
   // ── Date range ──────────────────────────────────────────────────────────────
   function applyDateRange(preset: string) {
     setDateRange(preset);
-    const now = new Date();
-    const startOf = (d: Date) => { const s = new Date(d); s.setHours(0, 0, 0, 0); return s.toISOString(); };
-    const daysAgo   = (n: number) => { const d = new Date(now); d.setDate(d.getDate() - n);   return startOf(d); };
-    const monthsAgo = (n: number) => { const d = new Date(now); d.setMonth(d.getMonth() - n); return startOf(d); };
-    const todayEnd = new Date(now); todayEnd.setHours(23, 59, 59, 999);
-    const toNow = todayEnd.toISOString();
-    switch (preset) {
-      case "24h":    setFromFilter(daysAgo(1));   setToFilter(toNow); break;
-      case "7d":     setFromFilter(daysAgo(7));   setToFilter(toNow); break;
-      case "30d":    setFromFilter(daysAgo(30));  setToFilter(toNow); break;
-      case "6m":     setFromFilter(monthsAgo(6)); setToFilter(toNow); break;
-      case "custom": break;
-      default:       setFromFilter(""); setToFilter(""); break;
+    // "custom" is a signal to show the manual from/to inputs, not to reset
+    // the current bounds while the user edits them.
+    if (preset !== "custom") {
+      const bounds = dateRangeBounds(preset);
+      setFromFilter(bounds.from);
+      setToFilter(bounds.to);
     }
     setPage(1);
   }
