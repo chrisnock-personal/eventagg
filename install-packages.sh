@@ -85,8 +85,12 @@ install_apt() {
 
   # ── PostgreSQL 16 via PGDG ───────────────────────────────────────────────
   log "Adding PostgreSQL 16 apt repository..."
-  curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-    | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg
+  # To a file first, with retries: a connection cut mid-download (seen in CI)
+  # would otherwise hand gpg half a key.
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 \
+    https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /tmp/pgdg.asc
+  gpg --dearmor -o /usr/share/keyrings/pgdg.gpg /tmp/pgdg.asc
+  rm -f /tmp/pgdg.asc
   echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] \
     https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
     > /etc/apt/sources.list.d/pgdg.list
@@ -214,7 +218,7 @@ install_dnf() {
     aarch64) GOSU_ARCH="arm64" ;;
     *)       err "Unsupported architecture for gosu: $ARCH" ;;
   esac
-  curl -fsSL "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}" \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 3 "https://github.com/tianon/gosu/releases/download/${GOSU_VERSION}/gosu-${GOSU_ARCH}" \
     -o /usr/local/bin/gosu
   chmod +x /usr/local/bin/gosu
   # Verify
