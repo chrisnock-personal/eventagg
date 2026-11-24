@@ -27,6 +27,10 @@ PGPORT="${PGPORT:-5432}"
 # (or deleting its file) is a rotation. Hex only, so they're safe inside the
 # SQL string literals below.
 mkdir -p /app/secrets
+# supervisord starts the backend as `eventagg`, so the directory itself must
+# be traversable by that user: a root-only 0700 dir made the generated keys
+# unreadable and the backend exited with "No data encryption key" in CI.
+chown eventagg:eventagg /app/secrets
 chmod 700 /app/secrets
 load_or_generate_secret() {
   local var="$1" file="$2"
