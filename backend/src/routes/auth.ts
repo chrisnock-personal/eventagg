@@ -85,6 +85,7 @@ router.post("/change-password", requireAuthAllowingPasswordChange, orgContextMid
     // iat/exp, which jwt.sign rejects alongside expiresIn.
     const { id, username, email, role, orgId, orgName } = req.user!;
     setSessionCookie(res, { id, username, email, role, orgId, orgName, passwordChanged: true });
+    audit({ entityType: "user", entityId: userId, action: "user.password_changed", actor: username, sourceIp: req.ip, orgId });
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
@@ -132,6 +133,11 @@ router.post("/users", requireAuth, requireRole("admin"), orgContextMiddleware, a
 
     const orgId = req.user!.orgId as string;
     const user = await createUser({ ...body, orgId });
+    audit({
+      orgId, entityType: "user", entityId: user.id, action: "user.created",
+      actor: req.user!.username, sourceIp: req.ip,
+      afterState: { username: user.username, email: user.email, role: user.role },
+    });
     res.status(201).json(user);
   } catch (err) { next(err); }
 });
@@ -143,6 +149,11 @@ router.put("/users/:id", requireAuth, requireRole("admin"), orgContextMiddleware
     const orgId = req.user!.orgId as string;
     const user = await updateUser(orgId, req.params.id, input);
     if (!user) return next(createError("User not found", 404));
+    audit({
+      orgId, entityType: "user", entityId: user.id, action: "user.updated",
+      actor: req.user!.username, sourceIp: req.ip,
+      afterState: { email: user.email, role: user.role, isActive: user.isActive },
+    });
     res.json(user);
   } catch (err) { next(err); }
 });
@@ -153,6 +164,10 @@ router.delete("/users/:id", requireAuth, requireRole("admin"), orgContextMiddlew
     const orgId = req.user!.orgId as string;
     const deleted = await deleteUser(orgId, req.params.id);
     if (!deleted) return next(createError("User not found", 404));
+    audit({
+      orgId, entityType: "user", entityId: req.params.id, action: "user.deleted",
+      actor: req.user!.username, sourceIp: req.ip,
+    });
     res.status(204).send();
   } catch (err) { next(err); }
 });

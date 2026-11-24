@@ -180,8 +180,14 @@ export async function forcePasswordChange(id: string, newPassword: string): Prom
 }
 
 export async function deleteUser(orgId: string, id: string): Promise<boolean> {
-  const result = await query(`DELETE FROM users WHERE id = $1 AND org_id = $2`, [id, orgId]);
-  return (result as any).rowCount > 0;
+  // query() returns rows, not a pg Result, so use RETURNING rather than
+  // rowCount (which was always undefined and made every delete look like a
+  // 404 even though the row was gone).
+  const row = await queryOne<{ id: string }>(
+    `DELETE FROM users WHERE id = $1 AND org_id = $2 RETURNING id`,
+    [id, orgId]
+  );
+  return Boolean(row);
 }
 
 // ── Superadmin-only: move a user between orgs, and promote/demote to/from

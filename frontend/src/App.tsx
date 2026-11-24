@@ -2030,6 +2030,12 @@ function AuditPanel() {
     "policy.created": C.accent, "policy.updated": C.warn, "policy.deleted": C.danger,
     "policy.toggled": C.info, "event.ingested": C.textMuted,
     "event.group_opened": C.accent, "event.group_completed": C.purple,
+    "event.timed_out": C.danger,
+    "webhook.created": C.accent, "webhook.updated": C.info, "webhook.deleted": C.danger,
+    "snmp.source_created": C.accent, "snmp.source_updated": C.info, "snmp.source_deleted": C.danger,
+    "snmp.rule_created": C.accent, "snmp.rule_updated": C.info, "snmp.rule_deleted": C.danger,
+    "org.created": C.accent, "org.updated": C.info, "org.deleted": C.danger,
+    "system.config_updated": C.warn, "system.tenancy_enabled": C.purple,
   };
 
   const pages = Math.max(1, Math.ceil(total / limit));
@@ -3308,6 +3314,12 @@ function AuditLogView() {
     "policy.created": C.accent, "policy.updated": C.warn, "policy.deleted": C.danger,
     "policy.toggled": C.info, "event.ingested": C.textMuted,
     "event.group_opened": C.accent, "event.group_completed": C.purple,
+    "event.timed_out": C.danger,
+    "webhook.created": C.accent, "webhook.updated": C.info, "webhook.deleted": C.danger,
+    "snmp.source_created": C.accent, "snmp.source_updated": C.info, "snmp.source_deleted": C.danger,
+    "snmp.rule_created": C.accent, "snmp.rule_updated": C.info, "snmp.rule_deleted": C.danger,
+    "org.created": C.accent, "org.updated": C.info, "org.deleted": C.danger,
+    "system.config_updated": C.warn, "system.tenancy_enabled": C.purple,
   };
 
   const filtered = entries.filter(e =>

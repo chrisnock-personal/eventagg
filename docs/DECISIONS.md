@@ -56,6 +56,40 @@ were in CLAUDE.md, so older commit messages that cite them still make sense.
    types, and small helpers (the `C` color palette, `PctBar`, etc.) from
    common modules — moving code, not a rewrite.
 
+## Audit log gaps (2026-11-24)
+
+BACKLOG.md #17 and #18, fixed together with a new integration test file
+(`backend/src/test/auditGaps.test.ts`):
+
+- `audit()` is now wired into user CRUD and password changes, webhooks, SNMP
+  sources/rules, organisation administration and system config/tenancy changes.
+  The `AuditAction` union and both frontend colour maps cover the new actions.
+- Credentials are never copied into `after_state`: webhook signing secrets,
+  SNMP community strings and organisation ingest keys/communities are logged
+  only as names or "changed" flags.
+- Superadmin-only organisation actions are logged with `org_id = NULL` (like
+  login/logout) rather than against the target org. `audit_log.org_id` has an
+  FK to `organisations`, so using the target org would leave an audit row that
+  permanently prevents that org from being deleted. System-level rows use the
+  nil UUID under an explicit RLS bypass.
+- Ingest now audits only `group_opened` and `group_promoted`. Middle and
+  duplicate events no longer add 2-3 audit rows each; their raw events remain
+  visible on the group detail screen. The historical `event.ingested` action
+  stays in the union for old rows.
+- Testing the new delete audits exposed a pre-existing bug: `deleteUser()`,
+  `deleteWebhook()` and `deleteOrg()` read `.rowCount` from `query()`, but
+  that helper returns a rows array, so `rowCount` was always `undefined`.
+  Deletes actually happened but were reported as 404/ignored. They now use
+  `DELETE ... RETURNING id` with `queryOne()`.
+
+Verification: 81 backend tests passed against a temporary Postgres instance
+with a non-superuser app role (RLS active); `backupRestore.test.ts` was
+excluded locally because `pg_dump`/`psql` aren't installed on the laptop.
+Backend/frontend typecheck, lint and frontend build pass. The audit action
+colours were not browser-verified here.
+
+---
+
 ## Roadmap to RC
 
 Prototype → release-candidate gaps identified during a review session:

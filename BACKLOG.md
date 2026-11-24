@@ -68,15 +68,15 @@ the committed code plus the current working tree.
     nginx's `X-Forwarded-For` isn't used. The login and ingest rate
     limiters key on `req.ip`, so all clients share one bucket: a burst of
     failed logins from anyone can lock everyone out.
-17. **Audit log misses config changes.** Logins, policy changes and ingests
-    are recorded, but `webhooks.ts`, `snmp.ts`, `orgs.ts` and `system.ts`
-    have no `audit()` calls, and `auth.ts` audits only login/logout, not
-    user create/update/delete. Wire `audit()` into those routes.
-18. **Ingest floods the audit log.** Each ingested event writes 2-3 rows
-    (`event.ingested`, `raw_event.appended`/`group.opened`/`group.promoted`):
-    about 2,300 rows in the first few minutes of the demo. That's ingest-path
-    cost and buries the human actions. Consider not auditing ingest, or a
-    separate table or sampling.
+17. ~~**Audit log misses config changes.**~~ *Fixed 2026-11-24.* Logins, policy
+    changes and ingests are recorded, but `webhooks.ts`, `snmp.ts`, `orgs.ts`
+    and `system.ts` have no `audit()` calls, and `auth.ts` audits only
+    login/logout, not user create/update/delete. Wire `audit()` into those routes.
+18. ~~**Ingest floods the audit log.**~~ *Fixed 2026-11-24.* Each ingested event
+    writes 2-3 rows (`event.ingested`, `raw_event.appended`/`group.opened`/
+    `group.promoted`): about 2,300 rows in the first few minutes of the demo.
+    That's ingest-path cost and buries the human actions. Consider not auditing
+    ingest, or a separate table or sampling.
 19. **SNMP sources and rules can't be created in the UI.** The panel lists
     them and says "Add rules via POST /api/v1/snmp/rules". Add forms.
 20. **Backup panel shows "Audit entries 0" for the superadmin**, although
