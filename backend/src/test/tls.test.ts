@@ -5,6 +5,8 @@ import os from "os";
 import path from "path";
 import request from "supertest";
 import type { Express } from "express";
+import { query, runWithOrgContext } from "../db/pool";
+import { SYSTEM_ENTITY_ID } from "../services/auditService";
 import { createTestOrg, createTestUser, loginAs } from "./helpers";
 
 // Certificates made with openssl (Node can't create X.509 certificates).
@@ -19,6 +21,38 @@ const read = (f: string) => fs.readFileSync(path.join(dir, f), "utf8");
 
 let app: Express;
 let validateUpload: typeof import("../routes/tls").validateUpload;
+
+interface TlsAuditRow {
+  action: string;
+  actor: string | null;
+  org_id: string | null;
+  entity_id: string;
+  after_state: string | null;
+}
+
+// audit() is fire-and-forget and audit_log is RLS-protected, so read back
+// under bypass and poll briefly for the row to land.
+async function tlsAuditRows(actor: string): Promise<TlsAuditRow[]> {
+  return runWithOrgContext({ orgId: null, bypass: true }, () =>
+    query<TlsAuditRow>(
+      `SELECT action, actor, org_id, entity_id, after_state::text AS after_state
+         FROM audit_log
+        WHERE actor = $1
+          AND action IN ('tls.certificate_uploaded', 'tls.certificate_reset')
+        ORDER BY event_time DESC`,
+      [actor]
+    )
+  );
+}
+
+async function waitForTlsAudit(actor: string, minRows: number): Promise<TlsAuditRow[]> {
+  for (let i = 0; i < 50; i++) {
+    const rows = await tlsAuditRows(actor);
+    if (rows.length >= minRows) return rows;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return tlsAuditRows(actor);
+}
 
 beforeAll(async () => {
   fs.mkdirSync(path.join(dir, "certs", "staged"), { recursive: true });
@@ -93,7 +127,76 @@ describe("TLS routes", () => {
     const org = await createTestOrg();
     const editor = await createTestUser(org.id, "editor");
     const cookie = await loginAs(app, editor.username, editor.password);
-    const res = await request(app).get("/api/v1/system/tls").set("Cookie", cookie);
-    expect(res.status).toBe(403);
+    expect((await request(app).get("/api/v1/system/tls").set("Cookie", cookie)).status).toBe(403);
+    expect((await request(app).post("/api/v1/system/tls").set("Cookie", cookie)
+      .send({ cert: read("leaf.crt"), key: read("leaf.key") })).status).toBe(403);
+    expect((await request(app).delete("/api/v1/system/tls").set("Cookie", cookie)).status).toBe(403);
+  });
+
+  it("writes audit rows for both upload and reset as a superadmin", async () => {
+    const superadmin = await createTestUser(null, "superadmin");
+    const cookie = await loginAs(app, superadmin.username, superadmin.password);
+
+    const upload = await request(app).post("/api/v1/system/tls").set("Cookie", cookie)
+      .send({ cert: read("leaf.crt"), key: read("leaf.key") });
+    expect(upload.status, JSON.stringify(upload.body)).toBe(202);
+
+    const reset = await request(app).delete("/api/v1/system/tls").set("Cookie", cookie);
+    expect(reset.status, JSON.stringify(reset.body)).toBe(202);
+
+    const rows = await waitForTlsAudit(superadmin.username, 2);
+    expect(rows.map((r) => r.action).sort()).toEqual(["tls.certificate_reset", "tls.certificate_uploaded"]);
+    for (const row of rows) {
+      expect(row.entity_id).toBe(SYSTEM_ENTITY_ID);
+      expect(row.org_id).toBeNull(); // superadmin actions live outside any org
+    }
+    const uploaded = rows.find((r) => r.action === "tls.certificate_uploaded")!;
+    expect(JSON.parse(uploaded.after_state!)).toMatchObject({
+      fingerprint256: upload.body.uploaded.fingerprint256,
+    });
+  });
+
+  it("writes an org-scoped audit row for an instance admin before multi-tenancy", async () => {
+    // The tenancy flag is a one-way, suite-wide setting; clear it just long
+    // enough to exercise the single-tenant instance-admin case, then restore.
+    const previous = await query<{ value: { enabled: boolean } }>(
+      `SELECT value FROM system_config WHERE key = 'multi_tenancy'`
+    );
+    await query(
+      `INSERT INTO system_config (key, value) VALUES ('multi_tenancy', '{"enabled":false}')
+       ON CONFLICT (key) DO UPDATE SET value = '{"enabled":false}'`
+    );
+    try {
+      const org = await createTestOrg();
+      const admin = await createTestUser(org.id, "admin");
+      const cookie = await loginAs(app, admin.username, admin.password);
+
+      const res = await request(app).post("/api/v1/system/tls").set("Cookie", cookie)
+        .send({ cert: read("leaf.crt"), key: read("leaf.key") });
+      expect(res.status, JSON.stringify(res.body)).toBe(202);
+
+      const rows = await waitForTlsAudit(admin.username, 1);
+      expect(rows[0]).toMatchObject({
+        action: "tls.certificate_uploaded",
+        org_id: org.id,
+        entity_id: SYSTEM_ENTITY_ID,
+      });
+
+      // The same admin can see it through the normal (org-scoped) audit API.
+      const auditApi = await request(app)
+        .get("/api/v1/audit?action=tls.certificate_uploaded")
+        .set("Cookie", cookie);
+      expect(auditApi.status).toBe(200);
+      expect(auditApi.body.rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ action: "tls.certificate_uploaded", actor: admin.username }),
+      ]));
+    } finally {
+      if (previous.length) {
+        await query(`UPDATE system_config SET value = $1 WHERE key = 'multi_tenancy'`,
+          [JSON.stringify(previous[0].value)]);
+      } else {
+        await query(`DELETE FROM system_config WHERE key = 'multi_tenancy'`);
+      }
+    }
   });
 });

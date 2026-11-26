@@ -34,7 +34,7 @@ function rawTrap(overrides: Partial<RawTrap> & { community: string }): RawTrap {
   };
 }
 
-async function makePolicy(orgId: string, keyField = "orderId"): Promise<string> {
+async function makePolicy(orgId: string | null, keyField = "orderId"): Promise<string> {
   // Fixture setup, not a real tenant action -bypass, since policies is
   // RLS-protected (023) and this helper is called with no ambient context.
   const row = await runWithOrgContext({ orgId: null, bypass: true }, () =>
@@ -152,6 +152,7 @@ describe("SNMP community-string org resolution", () => {
 
     expect(result.routeType).toBe("unrouted");
     expect(result.ingestInput).toBeNull();
+    expect(result.routedTo).toBeNull();
     expect(result.orgId).toBe(orgA.id);
   });
 
@@ -172,7 +173,58 @@ describe("SNMP community-string org resolution", () => {
 
     expect(result.routeType).toBe("aggregator_mib");
     expect(result.orgId).toBe(org.id);
-    expect(result.ingestInput).toMatchObject({ policyId });
+    expect(result.routedTo).toBe(policyId);
+    expect(result.ingestInput).toMatchObject({ policyId, body: { tradeRef: "TR-456" } });
+  });
+
+  it("AggreGator MIB trap: a global policy (org_id IS NULL) routes for a community-resolved org", async () => {
+    const orgA = await createTestOrg();
+    const globalPolicy = await makePolicy(null, "tradeRef");
+
+    const trap = rawTrap({
+      community: orgA.snmpCommunity,
+      trapOid: AG_TRAP_OID,
+      varbinds: [
+        { oid: AG_POLICY_ID_OID, value: globalPolicy },
+        { oid: AG_AGGREGATION_KEY_OID, value: "TR-GLOBAL" },
+      ],
+    });
+
+    const result = await callNormalizeTrap(trap);
+
+    expect(result.routeType).toBe("aggregator_mib");
+    // A global policy has no org of its own: the community org must be used
+    // for ingest and log attribution, not the policy's NULL org_id.
+    expect(result.orgId).toBe(orgA.id);
+    expect(result.routedTo).toBe(globalPolicy);
+    expect(result.ingestInput).toMatchObject({
+      policyId: globalPolicy,
+      body: { tradeRef: "TR-GLOBAL" },
+      sourceIp: trap.sourceAddress,
+    });
+  });
+
+  it("AggreGator MIB trap: a global policy is still rejected when the community is missing or unregistered", async () => {
+    const globalPolicy = await makePolicy(null, "tradeRef");
+    const unregisteredCommunity = `unregistered-${randomUUID().slice(0, 8)}`;
+
+    for (const community of ["", unregisteredCommunity]) {
+      const trap = rawTrap({
+        community,
+        trapOid: AG_TRAP_OID,
+        varbinds: [
+          { oid: AG_POLICY_ID_OID, value: globalPolicy },
+          { oid: AG_AGGREGATION_KEY_OID, value: "TR-GLOBAL" },
+        ],
+      });
+
+      const result = await callNormalizeTrap(trap);
+
+      expect(result.routeType).toBe("rejected");
+      expect(result.ingestInput).toBeNull();
+      expect(result.routedTo).toBeNull();
+      expect(result.orgId).toBeNull();
+    }
   });
 });
 

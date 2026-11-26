@@ -104,12 +104,12 @@ async function getRoutingRules(orgId: string): Promise<RoutingRule[]> {
 // only change through the policy routes, which invalidate it via
 // invalidateRoutingCache(). Caching misses is avoided for the same reason
 // as with community strings.
-const policyKeyFieldCache: Record<string, { keyField: string; orgId: string }> = {};
+const policyKeyFieldCache: Record<string, { keyField: string; orgId: string | null }> = {};
 
-async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; orgId: string } | null> {
+async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; orgId: string | null } | null> {
   if (policyKeyFieldCache[policyId]) return policyKeyFieldCache[policyId];
   try {
-    const rows = await query<{ key_field: string; org_id: string }>(
+    const rows = await query<{ key_field: string; org_id: string | null }>(
       `SELECT key_field, org_id FROM policies WHERE id = $1 AND is_active = TRUE LIMIT 1`,
       [policyId]
     );
@@ -196,9 +196,11 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
     // belongs to a different one -a real misconfiguration signal (a
     // device sending org A's community string while referencing org B's
     // policy), not something to silently trust the policy's org for.
+    // A null org_id means a global policy: ingest explicitly accepts it
+    // for every org (org_id IS NULL), so it matches any community org.
     // Still attributed to the community's org (not null) so that tenant's
     // admin can actually see the misconfigured trap arrived.
-    if (orgId !== communityOrgId) {
+    if (orgId !== null && orgId !== communityOrgId) {
       logger.warn({ policyId, community: raw.community }, "📡  SNMP: policy belongs to a different org than community resolves to -dropping as unrouted");
       return { ...base, routeType: "unrouted", ingestInput: null, routedTo: null, orgId: communityOrgId };
     }
@@ -220,7 +222,9 @@ export async function normalizeTrap(raw: RawTrap): Promise<NormalizedTrap> {
       ...base,
       routeType:   "aggregator_mib",
       routedTo:    policyId,
-      orgId,
+      // Global policies have no org of their own: use the community org so
+      // downstream ingest/logging still runs under the sending tenant.
+      orgId:       orgId ?? communityOrgId,
       ingestInput: { policyId, body, sourceIp: raw.sourceAddress },
     };
   }
