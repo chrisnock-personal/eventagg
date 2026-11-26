@@ -193,10 +193,19 @@ export async function getEventStats(orgId: string, filters: EventQueryFilters): 
   if (filters.to)             { conditions.push(`e.started_at <= $${i++}`);             params.push(filters.to); }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
 
+  // A status filter selects which group store contributes to *every* section
+  // of the response. As with listEvents, "in_progress" reads open groups and
+  // "completed"/"timed_out" read the completed store (whose timed-out rows
+  // are still reported separately via timedOut and byPolicy[].timedOut).
+  const includeInProgress = status === "all" || status === "in_progress";
+  const includeCompleted = status === "all" || status === "completed" || status === "timed_out";
+  const ipWhere = `${where} AND ${includeInProgress ? "TRUE" : "FALSE"}`;
+  const ceWhere = `${where} AND ${includeCompleted ? "TRUE" : "FALSE"}`;
+
   // In-progress count
   const ipRow = await queryOne<{ cnt: string; rawevts: string }>(
     `SELECT COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts
-     FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${where}`, params
+     FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${ipWhere}`, params
   );
 
   // Completed count -split by status
@@ -205,7 +214,7 @@ export async function getEventStats(orgId: string, filters: EventQueryFilters): 
             COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts,
             COALESCE(AVG(e.duration_ms),0)::TEXT AS avg_dur,
             COUNT(*) FILTER (WHERE e.status = 'timed_out')::TEXT AS timed_out_cnt
-     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${where}`, params
+     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${ceWhere}`, params
   );
 
   const inProgressCount  = status === "completed" || status === "timed_out" ? 0 : parseInt(ipRow?.cnt ?? "0");
@@ -219,12 +228,12 @@ export async function getEventStats(orgId: string, filters: EventQueryFilters): 
   const polRows = await query<{ policy_id: string; policy_name: string; status: string; cnt: string; rawevts: string; avg_dur: string }>(
     `SELECT e.policy_id, p.name AS policy_name, 'ip' AS status,
             COUNT(*)::TEXT AS cnt, COALESCE(SUM(e.raw_event_count),0)::TEXT AS rawevts, '0' AS avg_dur
-     FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${where}
+     FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${ipWhere}
      GROUP BY e.policy_id, p.name
      UNION ALL
      SELECT e.policy_id, p.name, e.status::text,
             COUNT(*)::TEXT, COALESCE(SUM(e.raw_event_count),0)::TEXT, COALESCE(AVG(e.duration_ms),0)::TEXT
-     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${where}
+     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${ceWhere}
      GROUP BY e.policy_id, p.name, e.status`, params
   );
 
@@ -247,22 +256,23 @@ export async function getEventStats(orgId: string, filters: EventQueryFilters): 
 
   // Throughput
   const windowStart = filters.from ?? new Date(Date.now() - 90 * 86400000).toISOString();
-  const tpWhere = conditions.length ? where + ` AND e.started_at >= '${windowStart}'` : `WHERE e.started_at >= '${windowStart}'`;
+  const ipTpWhere = `${ipWhere} AND e.started_at >= '${windowStart}'`;
+  const ceOpenedTpWhere = `${ceWhere} AND e.started_at >= '${windowStart}'`;
+  const ceClosedTpWhere = `${ceWhere} AND e.ended_at >= '${windowStart}'`;
   const tpRows = await query<{ bucket: string; opened: string; closed: string }>(
     `SELECT to_char(date_trunc('day', e.started_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD') AS bucket,
             COUNT(*)::TEXT AS opened, '0' AS closed
-     FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${tpWhere}
+     FROM in_progress_events e JOIN policies p ON p.id = e.policy_id ${ipTpWhere}
      GROUP BY bucket
      UNION ALL
      SELECT to_char(date_trunc('day', e.started_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD'),
             COUNT(*)::TEXT, '0'
-     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${tpWhere}
+     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${ceOpenedTpWhere}
      GROUP BY date_trunc('day', e.started_at AT TIME ZONE 'UTC')
      UNION ALL
      SELECT to_char(date_trunc('day', e.ended_at AT TIME ZONE 'UTC'), 'YYYY-MM-DD'),
             '0', COUNT(*)::TEXT
-     FROM completed_events e JOIN policies p ON p.id = e.policy_id
-     ${conditions.length ? where + ` AND e.ended_at >= '${windowStart}'` : `WHERE e.ended_at >= '${windowStart}'`}
+     FROM completed_events e JOIN policies p ON p.id = e.policy_id ${ceClosedTpWhere}
      GROUP BY date_trunc('day', e.ended_at AT TIME ZONE 'UTC')
      ORDER BY bucket`, params
   );
