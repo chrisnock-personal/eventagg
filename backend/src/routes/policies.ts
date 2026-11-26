@@ -12,6 +12,7 @@ import {
 import { createError } from "../middleware/errorHandler";
 import { requireAuth } from "../middleware/session";
 import { orgContextMiddleware } from "../middleware/orgContext";
+import { invalidateRoutingCache } from "../snmp/trapNormalizer";
 import { logger } from "../logger";
 
 const router = Router();
@@ -67,6 +68,7 @@ router.post("/", async (req: Request, res: Response, next: NextFunction) => {
     const orgId = req.user!.orgId;
     const input = policyBodySchema.parse(req.body);
     const policy = await createPolicy(orgId, { ...input, createdBy: "api" });
+    invalidateRoutingCache();
     audit({ orgId, entityType: "policy", entityId: policy.id, action: "policy.created", actor: req.user?.username, sourceIp: req.ip, afterState: { name: policy.name } });
     res.status(201).json(policy);
   } catch (err) { next(err); }
@@ -79,6 +81,10 @@ router.put("/:id", async (req: Request, res: Response, next: NextFunction) => {
     const input = policyUpdateSchema.parse(req.body);
     const policy = await updatePolicy(orgId, req.params.id, { ...input, updatedBy: "api" });
     if (!policy) return next(createError("Policy not found", 404));
+
+    // keyField/orgId are read by the SNMP normalizer; drop any cached values
+    // before another trap can use the old field name.
+    invalidateRoutingCache();
 
     if (policy.timeoutMs !== null && policy.timeoutMs !== undefined) {
       const count = await applyPolicyTimeout(orgId, req.params.id);
@@ -103,6 +109,7 @@ router.patch("/:id/toggle", async (req: Request, res: Response, next: NextFuncti
       params
     );
     if (!rows.length) return next(createError("Policy not found", 404));
+    invalidateRoutingCache();
     const policy = await getPolicyById(orgId, req.params.id);
     audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.toggled", actor: req.user?.username, sourceIp: req.ip, metadata: { active } });
     res.json(policy);
@@ -115,6 +122,7 @@ router.delete("/:id", async (req: Request, res: Response, next: NextFunction) =>
     const orgId = req.user!.orgId;
     const deleted = await deactivatePolicy(orgId, req.params.id, "api");
     if (!deleted) return next(createError("Policy not found", 404));
+    invalidateRoutingCache();
     audit({ orgId, entityType: "policy", entityId: req.params.id, action: "policy.deleted", actor: req.user?.username, sourceIp: req.ip });
     res.status(204).send();
   } catch (err) { next(err); }

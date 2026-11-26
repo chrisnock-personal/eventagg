@@ -100,6 +100,10 @@ async function getRoutingRules(orgId: string): Promise<RoutingRule[]> {
 }
 
 // ─── Policy keyField cache ────────────────────────────────────────────────────
+// Unlike the two caches above this one has no TTL: a policy's keyField/org
+// only change through the policy routes, which invalidate it via
+// invalidateRoutingCache(). Caching misses is avoided for the same reason
+// as with community strings.
 const policyKeyFieldCache: Record<string, { keyField: string; orgId: string | null }> = {};
 
 async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; orgId: string | null } | null> {
@@ -118,8 +122,12 @@ async function getPolicyKeyField(policyId: string): Promise<{ keyField: string; 
   return null;
 }
 
+// Clears every cache that participates in trap routing. Policy writes must
+// call this too: a stale keyField makes normalizeTrap() put the aggregation
+// key in a body property ingestRawEvent() no longer resolves.
 export function invalidateRoutingCache(): void {
   for (const key of Object.keys(routingRulesCache)) delete routingRulesCache[key];
+  for (const key of Object.keys(policyKeyFieldCache)) delete policyKeyFieldCache[key];
 }
 
 // ─── Main normalizer ──────────────────────────────────────────────────────────
