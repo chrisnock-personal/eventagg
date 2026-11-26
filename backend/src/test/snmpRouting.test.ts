@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { randomUUID } from "crypto";
+import request from "supertest";
+import app from "../app";
 import { query, queryOne, runWithOrgContext } from "../db/pool";
 import { normalizeTrap, RawTrap, invalidateRoutingCache } from "../snmp/trapNormalizer";
-import { createTestOrg } from "./helpers";
+import { ingestRawEvent } from "../services/ingestService";
+import { createTestOrg, createTestUser, loginAs, TEST_PASSWORD } from "./helpers";
 
 // Standard (non-AggreGator) trap OID -SNMPv2-MIB linkDown, used throughout
 // as a stand-in for "some ordinary trap routed via snmp_routing_rules".
@@ -170,5 +173,99 @@ describe("SNMP community-string org resolution", () => {
     expect(result.routeType).toBe("aggregator_mib");
     expect(result.orgId).toBe(org.id);
     expect(result.ingestInput).toMatchObject({ policyId });
+  });
+});
+
+describe("SNMP policy keyField cache invalidation on policy edits", () => {
+  const AG_KEY = "TR-CACHE-1";
+
+  function cachedPolicyTrap(org: { snmpCommunity: string }, policyId: string): RawTrap {
+    return rawTrap({
+      community: org.snmpCommunity,
+      trapOid: AG_TRAP_OID,
+      varbinds: [
+        { oid: AG_POLICY_ID_OID, value: policyId },
+        { oid: AG_AGGREGATION_KEY_OID, value: AG_KEY },
+      ],
+    });
+  }
+
+  async function setupRoutePolicy() {
+    const org = await createTestOrg();
+    const admin = await createTestUser(org.id, "admin");
+    const cookie = await loginAs(app, admin.username, TEST_PASSWORD);
+    const res = await request(app)
+      .post("/api/v1/policies")
+      .set("Cookie", cookie)
+      .send({
+        name: `SNMP cache policy ${randomUUID().slice(0, 8)}`,
+        domain: "test.*",
+        keyField: "orderId",
+        cradleField: "eventType",
+        cradleValue: "order.created",
+        graveField: "eventType",
+        graveValue: "order.done",
+      });
+    expect(res.status).toBe(201);
+    return { org, cookie, policyId: res.body.id as string };
+  }
+
+  it("uses the edited keyField for subsequent traps instead of the cached one", async () => {
+    const { org, cookie, policyId } = await setupRoutePolicy();
+    const trap = cachedPolicyTrap(org, policyId);
+
+    // First trap caches { keyField: "orderId", orgId }.
+    const before = await callNormalizeTrap(trap);
+    expect(before.ingestInput?.body).toMatchObject({ orderId: AG_KEY });
+
+    const update = await request(app)
+      .put(`/api/v1/policies/${policyId}`)
+      .set("Cookie", cookie)
+      .send({ keyField: "tradeRef" });
+    expect(update.status).toBe(200);
+    expect(update.body.keyField).toBe("tradeRef");
+
+    const after = await callNormalizeTrap(trap);
+    expect(after.routeType).toBe("aggregator_mib");
+    expect(after.ingestInput?.body).toMatchObject({ tradeRef: AG_KEY });
+    expect(after.ingestInput?.body).not.toHaveProperty("orderId");
+
+    // ingestRawEvent reads the policy fresh: a stale keyField here used to
+    // fail with "Could not resolve aggregation key from body.orderId".
+    const ingested = await runWithOrgContext({ orgId: org.id, bypass: false }, () =>
+      ingestRawEvent(org.id, after.ingestInput!)
+    );
+    expect(ingested.aggregationKey).toBe(AG_KEY);
+  });
+
+  it("drops the cached policy on toggle and delete so inactive policies are not routed", async () => {
+    const { org, cookie, policyId } = await setupRoutePolicy();
+    const trap = cachedPolicyTrap(org, policyId);
+
+    expect((await callNormalizeTrap(trap)).routeType).toBe("aggregator_mib");
+
+    const deactivate = await request(app)
+      .patch(`/api/v1/policies/${policyId}/toggle`)
+      .set("Cookie", cookie)
+      .send({ active: false });
+    expect(deactivate.status).toBe(200);
+    const inactive = await callNormalizeTrap(trap);
+    expect(inactive.routeType).toBe("unrouted");
+    expect(inactive.ingestInput).toBeNull();
+
+    const reactivate = await request(app)
+      .patch(`/api/v1/policies/${policyId}/toggle`)
+      .set("Cookie", cookie)
+      .send({ active: true });
+    expect(reactivate.status).toBe(200);
+    const active = await callNormalizeTrap(trap);
+    expect(active.routeType).toBe("aggregator_mib");
+    expect(active.ingestInput?.body).toMatchObject({ orderId: AG_KEY });
+
+    const remove = await request(app).delete(`/api/v1/policies/${policyId}`).set("Cookie", cookie);
+    expect(remove.status).toBe(204);
+    const deleted = await callNormalizeTrap(trap);
+    expect(deleted.routeType).toBe("unrouted");
+    expect(deleted.ingestInput).toBeNull();
   });
 });
