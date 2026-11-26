@@ -5,6 +5,7 @@ import path from "path";
 import { z } from "zod";
 import { requireAuth } from "../middleware/session";
 import { requireInstanceAdmin } from "../middleware/instanceAdmin";
+import { orgContextMiddleware } from "../middleware/orgContext";
 import { createError } from "../middleware/errorHandler";
 import { audit, SYSTEM_ENTITY_ID } from "../services/auditService";
 
@@ -14,7 +15,12 @@ import { audit, SYSTEM_ENTITY_ID } from "../services/auditService";
 // writes /app/certs/status.json. The backend never writes the live key.
 
 const router = Router();
-router.use(requireAuth, requireInstanceAdmin);
+// Instance admins are either superadmins (no org, need RLS bypass for their
+// NULL-org audit rows) or, before multi-tenancy is enabled, an org admin
+// (need their org set for audit_log's WITH CHECK policy, migration 024).
+// Without an ambient org context audit()'s writes fail and are only logged,
+// so the upload/reset would report success with no audit trail.
+router.use(requireAuth, requireInstanceAdmin, orgContextMiddleware);
 
 export const CERT_DIR = process.env.TLS_CERT_DIR || "/app/certs";
 const STAGED = () => path.join(CERT_DIR, "staged");
