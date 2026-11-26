@@ -291,7 +291,10 @@ router.get('/db/stats', requireAuth, requireInstanceAdmin, async (_req: Request,
 // separate from /db/stats (whole-instance, superadmin-only) since the old
 // combined endpoint's purgeable_90d counted every org's rows, not just the
 // caller's, which didn't match what their own purge call would do.
-router.get('/db/purgeable', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+// orgContextMiddleware is required here and on /db/purge: audit_log is under
+// FORCE ROW LEVEL SECURITY (migration 024), so without the org context the
+// COUNT/DELETE fail closed and report zero audit rows forever.
+router.get('/db/purgeable', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;
     const [purgeable] = await query<{ completed: string; audit: string }>(
@@ -315,7 +318,7 @@ const purgeBodySchema = z.object({
   days: z.coerce.number().int().min(30, 'Minimum retention is 30 days').default(90),
 });
 
-router.post('/db/purge', requireAuth, adminOnly, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/db/purge', requireAuth, adminOnly, orgContextMiddleware, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const orgId = req.user!.orgId as string;
     const { days } = purgeBodySchema.parse(req.body);
